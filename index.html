@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css?v=7">
+<link rel="stylesheet" href="common.css?v=8">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -35,7 +35,7 @@
 <nav class="grid" id="grid"></nav>
 <div id="fade" class="hide"></div>
 <button id="more" class="big-btn hide" aria-label="した"><span>⬇️</span></button>
-<script src="common.js?v=7"></script>
+<script src="common.js?v=8"></script>
 <script>
 // 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'hic' = HTML-in-Canvas, 'mic' = マイク録音）
 const PAGES = [
@@ -65,6 +65,8 @@ const PAGES = [
   ['hotaru', '🌟', '#b7e34a', '#6e9420', 'gpu'], ['sakura', '🌸', '#ff8fb8', '#c25784', 'gpu'],
   ['funsui', '⛲', '#3db6ff', '#1a6fa8', 'gpu'], ['uzumaki', '🌀', '#9b5cff', '#5a2bb3', 'gpu'],
   ['aurora', '🌌', '#2fd6a0', '#148a64', 'gpu'],
+  ['pyonpyon', '🏃', '#ff6a3d', '#b8401c', 'gpu'], ['tsumiki', '🧱', '#29d3c8', '#148a82', 'gpu'],
+  ['inseki', '☄️', '#4d7cff', '#2a46b3', 'gpu'], ['hanabimamori', '🎇', '#ff5e7e', '#b8304d', 'gpu'],
 ];
 const grid = document.getElementById('grid');
 

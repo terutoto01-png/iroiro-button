@@ -107,3 +107,10 @@ html.can-scroll, html.can-scroll body { touch-action: pan-y; }
 /* ゆびで あそぶ ページ: ボタンは みぎしたに ちいさめに おく */
 .corner { position: fixed; right: 20px; bottom: 20px; z-index: 30; }
 .corner .big-btn { width: min(24vw, 120px); height: min(24vw, 120px); font-size: min(7vw, 34px); }
+
+/* ゲームの ハート・てんすう・きろく（うえの まんなか） */
+.hud { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 45; pointer-events: none;
+       display: flex; gap: 18px; align-items: center; font-size: 30px; font-weight: bold; color: #fff;
+       text-shadow: 0 3px 0 rgba(0,0,0,.35); white-space: nowrap; }
+.hud .score, .hud .best { display: inline-flex; align-items: center; gap: 4px; }
+.hud .best { font-size: 22px; opacity: .85; }

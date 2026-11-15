@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>はなびまもり</title>
+<link rel="stylesheet" href="common.css?v=8">
+<style>
+  body { background: linear-gradient(#03041a, #0d1240 60%, #23184a); }
+  #fx, #fg { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #fx { pointer-events: none; }
+  #fg { touch-action: none; }
+  .city { position: fixed; left: 0; right: 0; bottom: 0; height: 18%; pointer-events: none;
+          background: linear-gradient(90deg, #0a0b20 0 6%, transparent 6% 8%, #0a0b20 8% 15%, transparent 15% 17%, #0a0b20 17% 22%, transparent 22% 25%, #0a0b20 25% 34%, transparent 34% 36%, #0a0b20 36% 41%, transparent 41% 44%, #0a0b20 44% 55%, transparent 55% 57%, #0a0b20 57% 63%, transparent 63% 66%, #0a0b20 66% 74%, transparent 74% 77%, #0a0b20 77% 86%, transparent 86% 88%, #0a0b20 88%); }
+  .city2 { position: fixed; left: 0; right: 0; bottom: 0; height: 9%; background: #07081a; pointer-events: none; }
+  .big-btn { --c1: #ff5e7e; --c2: #b8304d; }
+  .corner .big-btn { width: min(26vw, 140px); height: min(26vw, 140px); }
+</style>
+</head>
+<body>
+<canvas id="fx"></canvas>
+<div class="city"></div><div class="city2"></div>
+<canvas id="fg"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🎆</span></button></div>
+<script src="common.js?v=8"></script>
+<script src="gpu-particles.js?v=2"></script>
+<script src="game.js?v=1"></script>
+<script>
+// はなびまもり: したから あがってくる ひかりの たまを、うえに つくまえに タッチして はなびに する。
+// 3こ にがすと おしまい。だんだん ふえて はやく なる。ボタンは いちばん うえの たまを はなびに する。
+const fg = document.getElementById('fg'), fgx = fg.getContext('2d'), btn = document.getElementById('btn');
+let dpr = 1, orbs = [], elapsed = 0, spawn = 0, combo = 0, lastPop = 0, btnCool = 0, sys = null;
+
+const game = Game.create('hanabimamori', {
+  onStart() { orbs = []; elapsed = 0; spawn = 0.6; },
+  onOver() { // さいごは ごほうびの はなび たいかい
+    const n = Math.min(14, Math.max(3, game.score));
+    orbs = [];
+    for (let i = 0; i < n; i++) setTimeout(() => firework(rand(innerWidth * 0.15, innerWidth * 0.85), rand(innerHeight * 0.15, innerHeight * 0.45), Math.random(), 1.2), 500 + i * 220);
+  },
+});
+const resize = () => { dpr = fitCanvas(fg, fgx); };
+resize(); addEventListener('resize', resize);
+
+function firework(x, y, hue, big = 1) {
+  if (!sys) return;
+  const n = Math.floor(420 * big), list = [];
+  const ring = Math.random() < 0.4, two = Math.random() < 0.5;
+  const sp0 = Math.min(innerWidth, innerHeight) * 0.42 * big;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = ring ? sp0 * rand(0.92, 1.05) : sp0 * Math.sqrt(Math.random());
+    const h = two && i % 2 ? (hue + 0.5) % 1 : hue;
+    const c = GPUParticles.hsv((h + rand(-0.04, 0.04) + 1) % 1, 0.75, 1);
+    list.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: c[0], g: c[1], b: c[2], life: rand(1.2, 2.2), size: rand(4, 8), shape: Math.random() < 0.08 ? 3 : 0 });
+  }
+  sys.emit(list);
+  Sfx.noise(1.0, 0.7, 450); Sfx.noise(0.25, 0.35, 3500, 0.03, 'highpass');
+}
+
+function pop(o) {
+  o.dead = true;
+  const now = performance.now();
+  combo = now - lastPop < 1200 ? combo + 1 : 0; lastPop = now;
+  firework(o.x, o.y, o.hue, 0.7 + Math.min(combo, 6) * 0.12);
+  game.add(1);
+  if (combo >= 3) popText(pick(['すごい！', 'たまや〜！', '✨', '🎉']), o.x, o.y - 60, '#fff', 40);
+}
+
+fg.addEventListener('pointerdown', (e) => {
+  if (game.state !== 'play') { game.press(); return; }
+  // ちかくの たま（ゆびの まわり ひろめ）
+  let best = null, bd = 1e9;
+  for (const o of orbs) { if (o.dead) continue; const d = Math.hypot(o.x - e.clientX, o.y - e.clientY); if (d < 85 && d < bd) { bd = d; best = o; } }
+  if (best) pop(best); else Sfx.tone(500, 0.05, 'sine', 0.05);
+});
+btn.addEventListener('pointerdown', () => {
+  if (game.press()) return;
+  if (btnCool > 0) return;
+  const top = orbs.filter(o => !o.dead).sort((a, b) => a.y - b.y)[0];
+  if (top) { pop(top); btnCool = 0.4; }
+});
+
+(async () => {
+  sys = await GPUParticles.create(document.getElementById('fx'), { count: 60000 });
+  sys.params.grav = [0, 110]; sys.params.drag = 0.45;
+  sys.start((dt, t) => {
+    const W = innerWidth, H = innerHeight, playing = game.state === 'play';
+    btnCool = Math.max(0, btnCool - dt);
+    if (playing) {
+      elapsed += dt;
+      const level = Math.min(1, elapsed / 100);
+      spawn -= dt;
+      if (spawn <= 0) {
+        spawn = 1.7 - level * 1.2;
+        orbs.push({ x: rand(70, W - 160), y: H + 30, vy: -(90 + level * 170) * rand(0.85, 1.15), hue: Math.random(), wob: rand(0, 6) });
+      }
+    }
+    for (const o of orbs) {
+      o.y += o.vy * dt; o.wob += dt * 2;
+      if (playing && !o.dead && o.y < 70) { // にげられた
+        o.dead = true;
+        const list = [];
+        for (let i = 0; i < 20; i++) list.push({ x: o.x, y: o.y, vx: rand(-60, 60), vy: rand(-30, 60), r: 0.4, g: 0.4, b: 0.45, life: 0.6, size: 6 });
+        sys.emit(list);
+        game.hit();
+      }
+    }
+    orbs = orbs.filter(o => !o.dead);
+    // たまの したの ひのこ
+    const list = [];
+    for (const o of orbs) { const c = GPUParticles.hsv(o.hue, 0.5, 1); list.push({ x: o.x + Math.sin(o.wob) * 8 + rand(-4, 4), y: o.y + 22, vx: rand(-15, 15), vy: rand(30, 90), r: c[0], g: c[1], b: c[2], life: rand(0.3, 0.6), size: rand(3, 6) }); }
+    if (Math.random() < dt * 4) { const c = GPUParticles.hsv(Math.random(), 0.2, 1); list.push({ x: rand(0, W), y: rand(0, H * 0.7), vx: 0, vy: 0, r: c[0] * 0.6, g: c[1] * 0.6, b: c[2] * 0.6, life: rand(1.5, 3), size: rand(3, 5), shape: 3 }); }
+    sys.emit(list);
+
+    fgx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fgx.clearRect(0, 0, W, H);
+    // うえの せん（ここに つくと にげられる）
+    if (playing) { fgx.strokeStyle = 'rgba(255,90,120,.35)'; fgx.setLineDash([10, 10]); fgx.lineWidth = 3; fgx.beginPath(); fgx.moveTo(0, 70); fgx.lineTo(W, 70); fgx.stroke(); fgx.setLineDash([]); }
+    for (const o of orbs) {
+      const x = o.x + Math.sin(o.wob) * 8, danger = Math.max(0, 1 - (o.y - 70) / 200);
+      const g = fgx.createRadialGradient(x, o.y, 2, x, o.y, 40);
+      g.addColorStop(0, '#fff'); g.addColorStop(0.35, `hsl(${o.hue * 360}, 100%, 70%)`); g.addColorStop(1, `hsla(${o.hue * 360}, 100%, 60%, 0)`);
+      fgx.fillStyle = g; fgx.beginPath(); fgx.arc(x, o.y, 40 + danger * 8 * Math.sin(t * 20), 0, 7); fgx.fill();
+    }
+    if (game.state !== 'play') {
+      fgx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5);
+      drawEmoji(fgx, '👆', W / 2, H * 0.55 + Math.abs(Math.sin(t * 3)) * -20, 70);
+      fgx.globalAlpha = 1;
+    }
+  });
+})();
+</script>
+</body>
+</html>

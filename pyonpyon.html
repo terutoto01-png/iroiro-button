@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ぴょんぴょんラン</title>
+<link rel="stylesheet" href="common.css?v=8">
+<style>
+  body { background: #7cc6ff; }
+  #bg, #fx, #fg { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #fx, #fg { pointer-events: none; }
+  .big-btn { --c1: #ff6a3d; --c2: #b8401c; }
+  .corner .big-btn { width: min(30vw, 160px); height: min(30vw, 160px); }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<canvas id="fx"></canvas>
+<canvas id="fg"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">⬆️</span></button></div>
+<script src="common.js?v=8"></script>
+<script src="gpu-particles.js?v=2"></script>
+<script src="field-scene.js?v=1"></script>
+<script src="game.js?v=1"></script>
+<script>
+// ぴょんぴょんラン: はしりつづけて、ボタンで とんで いわを よける。ほしを とると てんすう。
+// ぶつかると ハートが へる（3かいで おしまい）。だんだん はやく なる。くうちゅうで もう1かい とべる。
+const fg = document.getElementById('fg'), fgx = fg.getContext('2d'), btn = document.getElementById('btn');
+const RUNNERS = ['🐕', '🐆', '🐇', '🐈', '🦖', '🐖', '🐓', '🦔', '🐎'];
+// じゃまもの: ひとめで「あぶない！」と わかる もの（あかく ひかる）
+const OBST = [{ e: '🚧', w: 70, h: 66 }, { e: '🧱', w: 62, h: 58 }, { e: '🔥', w: 56, h: 70 }, { e: '🌵', w: 50, h: 86 }, { e: '🪨', w: 66, h: 58 }];
+let runner = pick(RUNNERS), dist = 0, speed = 0, elapsed = 0, dpr = 1;
+let y = 0, vy = 0, jumps = 0, tumble = 0, obst = [], stars = [], bob = 0;
+
+const game = Game.create('pyonpyon', {
+  onStart() { obst = []; stars = []; speed = 420; elapsed = 0; y = 0; vy = 0; jumps = 0; tumble = 0; runner = pick(RUNNERS); },
+  onOver() { tumble = 0.01; vy = -700; },
+});
+const resize = () => { dpr = fitCanvas(fg, fgx); };
+resize(); addEventListener('resize', resize);
+
+btn.addEventListener('pointerdown', () => {
+  if (game.press()) return;
+  if (jumps < 2) { // ジャンプ（くうちゅうで もう1かい）
+    vy = jumps === 0 ? -1050 : -900; jumps++;
+    Sfx.tone(jumps === 1 ? 440 : 660, 0.18, 'square', 0.07, 0, jumps === 1 ? 880 : 1320);
+    window.__jumpFx && window.__jumpFx();
+  }
+});
+
+(async () => {
+  const scene = await FieldScene.create(document.getElementById('bg'));
+  const sys = await GPUParticles.create(document.getElementById('fx'), { count: 30000 });
+  sys.params.drag = 0.8; sys.params.grav = [0, 300];
+  const L = () => { const W = innerWidth, H = innerHeight, gy = H * 0.64; return { W, H, gy, base: gy + 72, rx: W * 0.22 }; };
+  const burst = (x, yy, n, hue, spread = 1) => {
+    const list = [];
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, sp = rand(100, 500) * spread;
+      const c = GPUParticles.hsv(hue < 0 ? Math.random() : (hue + rand(-0.06, 0.06) + 1) % 1, 0.6, 1);
+      list.push({ x, y: yy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: c[0], g: c[1], b: c[2], life: rand(0.5, 1.1), size: rand(5, 10), shape: Math.random() < 0.3 ? 3 : 0 });
+    }
+    sys.emit(list);
+  };
+  window.__jumpFx = () => { const l = L(); burst(l.rx, l.base - 50 + y, 14, 0.15, 0.5); };
+
+  sys.start((dt, t) => {
+    const { W, H, gy, base, rx } = L();
+    const playing = game.state === 'play';
+    if (playing) { elapsed += dt; speed = Math.min(1050, 420 + elapsed * 9); }
+    else speed *= Math.pow(0.3, dt);
+    dist += speed * dt;
+    bob += dt * (4 + speed / 120);
+    // ジャンプの うごき
+    vy += 2600 * dt; y += vy * dt;
+    if (y > 0) { y = 0; vy = 0; jumps = 0; }
+    if (tumble > 0) tumble = Math.min(1, tumble + dt * 3);
+
+    if (playing) {
+      // じゃまもの と ほし を だす
+      const last = obst[obst.length - 1];
+      if (!last || last.x < W - speed * rand(1.25, 2.1)) {
+        const o = pick(OBST);
+        obst.push({ ...o, x: W + 80, passed: false, hit: false });
+        if (Math.random() < 0.6) stars.push({ x: W + 80, y: base - o.h - rand(110, 190), got: false }); // じゃまものの うえに ほし
+      }
+      if (Math.random() < dt * 0.6) stars.push({ x: W + 40, y: base - rand(40, 230), got: false });
+    }
+    for (const o of obst) o.x -= speed * dt;
+    for (const s of stars) s.x -= speed * dt;
+    obst = obst.filter(o => o.x > -120); stars = stars.filter(s => s.x > -60 && !s.got);
+
+    // あたりはんてい
+    const ry = base - 50 + y; // はしる こ の まんなか
+    if (playing) {
+      for (const o of obst) {
+        if (o.hit) continue;
+        const overlapX = Math.abs(o.x - rx) < o.w / 2 + 26;
+        const overlapY = ry + 40 > base - o.h + 6;
+        if (overlapX && overlapY) {
+          if (!game.safe()) { o.hit = true; burst(o.x, base - o.h / 2, 40, 0.02, 1.2); vy = -500; game.hit(); }
+        } else if (!o.passed && o.x < rx - 50) { o.passed = true; game.add(1); }
+      }
+      for (const s of stars) {
+        if (!s.got && Math.hypot(s.x - rx, s.y - ry) < 60) { s.got = true; game.add(1); burst(s.x, s.y, 24, 0.14, 0.8); Sfx.tone(1320, 0.12, 'sine', 0.12); Sfx.tone(1760, 0.15, 'sine', 0.08, 0.06); }
+      }
+    }
+
+    // つぶ: すなけむり
+    if (speed > 80 && y > -5) sys.emit([{ x: rx - 26, y: base - 10, vx: -speed * rand(0.3, 0.6), vy: -rand(40, 140), r: 0.9, g: 0.75, b: 0.5, life: rand(0.3, 0.6), size: rand(5, 9) }]);
+    scene.draw(t, dist, Math.min(1, speed / 1100), 0.12 + dist / 160000, 0);
+
+    // 2D: き・じゃまもの・ほし・はしる こ
+    fgx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    fgx.clearRect(0, 0, W, H);
+    // みちの うえには じゃまもの と ほし だけ（き や いえ は おかない。まよわない ように）
+    for (const o of obst) {
+      fgx.globalAlpha = o.hit ? 0.35 : 1;
+      // あしもとの かげ と あかい ひかり
+      fgx.fillStyle = 'rgba(0,0,0,0.22)'; fgx.beginPath(); fgx.ellipse(o.x, base + 4, o.w * 0.6, 9, 0, 0, 7); fgx.fill();
+      const pulse = 0.6 + 0.4 * Math.sin(t * 8 + o.x * 0.02);
+      fgx.save();
+      if (!o.hit) { fgx.shadowColor = `rgba(255,40,40,${0.95 * pulse})`; fgx.shadowBlur = 22; }
+      const flick = o.e === '🔥' ? 1 + Math.sin(t * 20 + o.x) * 0.06 : 1;
+      drawEmoji(fgx, o.e, o.x, base - o.h / 2, Math.max(o.w, o.h) * 1.15 * flick);
+      fgx.restore();
+    }
+    fgx.globalAlpha = 1;
+    for (const s of stars) drawEmoji(fgx, '⭐', s.x, s.y + Math.sin(t * 5 + s.x * 0.01) * 6, 46);
+    // かげ
+    fgx.fillStyle = 'rgba(0,0,0,0.18)'; fgx.beginPath(); fgx.ellipse(rx, base + 4, Math.max(16, 44 + y * 0.12), 8, 0, 0, 7); fgx.fill();
+    const blink = game.safe() && game.state === 'play' && Math.floor(t * 12) % 2 === 0;
+    if (!blink) {
+      const runBob = y === 0 && speed > 50 ? -Math.abs(Math.sin(bob)) * 8 : 0;
+      fgx.save(); fgx.translate(rx, ry + runBob);
+      fgx.rotate(tumble > 0 ? tumble * Math.PI * 0.5 : (vy < 0 ? -0.2 : 0));
+      fgx.scale(-1, 1);
+      drawEmoji(fgx, runner, 0, 0, 100);
+      fgx.restore();
+    }
+    // はじまるまえ: ボタンを おしてね の ゆび
+    if (game.state !== 'play') {
+      const r = btn.getBoundingClientRect();
+      fgx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5);
+      drawEmoji(fgx, '👉', r.left - 50 - Math.abs(Math.sin(t * 3)) * 20, r.top + r.height / 2, 60);
+      fgx.globalAlpha = 1;
+    }
+  });
+})();
+</script>
+</body>
+</html>
