@@ -12,17 +12,15 @@
 </style>
 </head>
 <body>
-<canvas id="pile" class="full"></canvas>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🍿</span></button></div>
 <script src="common.js?v=7"></script>
 <script>
-// ぽっぷこーん: おすたびに はじける。れんだすると なべから あふれる
-const pileCv = document.getElementById('pile'), pctx = pileCv.getContext('2d');
+// ぽっぷこーん: おすたびに なべの なかで はじけて つもる。いっぱいに なると ふちから あふれる
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const btn = document.getElementById('btn');
-let dpr = 1, COL = 14, heights = [], flying = [], last = 0, combo = 0, shake = 0, blowing = false;
-let stuck = []; // つもった つぶ（あふれたとき とばすため）
+const COL = 12;
+let dpr = 1, heap = [], inPot = [], flying = [], floor = [], last = 0, combo = 0, shake = 0;
 
 // ポップコーンの つぶを 1かいだけ えにしておく
 const kernel = document.createElement('canvas');
@@ -32,58 +30,75 @@ kernel.width = kernel.height = 64;
   for (const [x, y, r, c] of [[24, 30, 15, '#fffaf0'], [40, 26, 13, '#fff6e0'], [34, 42, 14, '#fffdf7'], [22, 44, 10, '#ffeec8'], [32, 32, 6, '#f4c46a']]) {
     k.fillStyle = c; k.beginPath(); k.arc(x, y, r, 0, 7); k.fill();
   }
-  k.strokeStyle = 'rgba(200,150,60,.4)'; k.lineWidth = 1.5;
-  k.beginPath(); k.arc(24, 30, 15, 0, 7); k.arc(40, 26, 13, 0, 7); k.stroke();
+  k.strokeStyle = 'rgba(200,150,60,.45)'; k.lineWidth = 1.5;
+  k.beginPath(); k.arc(24, 30, 15, 0, 7); k.arc(40, 26, 13, 0, 7); k.arc(34, 42, 14, 0, 7); k.stroke();
 })();
+const drawK = (x, y, s, rot) => { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.drawImage(kernel, -s / 2, -s / 2, s, s); ctx.restore(); };
 
-// なべは ボタンの うえに おく（ひ の ぶんも あける）
+// なべ（ボタンの うえ）。y は ふちの たかさ
 function pot() {
   const W = innerWidth, top = btn.getBoundingClientRect().top;
-  return { x: W / 2, y: Math.max(20, top - 130 - 70), w: Math.min(360, W * 0.6), h: 130 };
+  const h = 150, w = Math.min(380, W * 0.6);
+  return { x: W / 2, y: Math.max(160, top - h - 70), w, h, bottom: Math.max(160, top - h - 70) + h };
 }
-function resize() {
-  dpr = fitCanvas(cv, ctx); fitCanvas(pileCv, pctx);
-  heights = new Array(Math.ceil(innerWidth / COL) + 1).fill(0);
-  stuck = [];
-}
+function cols(p) { return Math.floor((p.w - 24) / COL); }
+function colX(p, i) { return p.x - p.w / 2 + 12 + (i + 0.5) * COL; }
+function colOf(p, x) { return Math.floor((x - (p.x - p.w / 2 + 12)) / COL); }
+function resize() { dpr = fitCanvas(cv, ctx); heap = new Array(cols(pot())).fill(0); inPot = []; }
 resize(); addEventListener('resize', resize);
 
 btn.addEventListener('pointerdown', () => {
   const now = performance.now();
   combo = now - last < 400 ? combo + 1 : 0; last = now;
-  if (blowing) return;
-  const p = pot(), n = 1 + Math.min(5, Math.floor(combo / 3));
+  const p = pot(), n = 1 + Math.min(4, Math.floor(combo / 3));
   shake = 1;
   for (let i = 0; i < n; i++) {
-    flying.push({ x: p.x + rand(-p.w * 0.35, p.w * 0.35), y: p.y - 10, vx: rand(-260, 260) * (1 + combo * 0.04), vy: -rand(600, 1000) - combo * 15,
-                  rot: rand(0, 6), vr: rand(-10, 10), s: rand(34, 46) });
+    const c = Math.floor(Math.random() * heap.length);
+    const wide = Math.random() < 0.12; // ときどき そとまで とんでいく
+    flying.push({ x: colX(p, c), y: p.bottom - heap[c] - 10, vx: wide ? rand(-420, 420) : rand(-120, 120),
+                  vy: -rand(500, 850), rot: rand(0, 6), vr: rand(-10, 10), s: rand(34, 44) });
   }
   Sfx.tone(rand(700, 1300), 0.05, 'square', 0.08, 0, rand(300, 500)); // ぽん
   Sfx.noise(0.05, 0.5, 2500, 0, 'bandpass');
 });
 
-function land(f) {
-  const i = Math.max(0, Math.min(heights.length - 1, Math.round(f.x / COL)));
-  const y = innerHeight - heights[i] - f.s * 0.35;
-  pctx.save(); pctx.translate(f.x, y); pctx.rotate(f.rot);
-  pctx.drawImage(kernel, -f.s / 2, -f.s / 2, f.s, f.s);
-  pctx.restore();
-  stuck.push({ x: f.x, y, s: f.s, rot: f.rot });
-  // まわりにも すこし つもる（やまの かたち）
-  for (let d = -2; d <= 2; d++) {
-    const j = i + d; if (j < 0 || j >= heights.length) continue;
-    heights[j] = Math.max(heights[j], heights[i] + f.s * 0.5 - Math.abs(d) * f.s * 0.18);
+// なべの なかに つもる
+function settle(f, p) {
+  let c = Math.max(0, Math.min(heap.length - 1, colOf(p, f.x)));
+  // ひくい ほうへ ころがって やまの かたちに なる
+  for (let step = 0; step < 8; step++) {
+    const l = c > 0 ? heap[c - 1] : Infinity, r = c < heap.length - 1 ? heap[c + 1] : Infinity;
+    const lo = Math.min(l, r);
+    if (heap[c] - lo < f.s * 0.35) break;
+    c = l < r ? c - 1 : l > r ? c + 1 : (Math.random() < 0.5 ? c - 1 : c + 1);
   }
-  if (heights[i] > innerHeight * 0.55) overflow();
+  const y = p.bottom - heap[c] - f.s * 0.3;
+  inPot.push({ x: colX(p, c) + rand(-4, 4), y, s: f.s, rot: f.rot });
+  for (let d = -2; d <= 2; d++) {
+    const j = c + d; if (j < 0 || j >= heap.length) continue;
+    heap[j] = Math.max(heap[j], heap[c] + f.s * 0.42 - Math.abs(d) * f.s * 0.16);
+  }
+  const avg = heap.reduce((a, b) => a + b, 0) / heap.length;
+  if (avg > p.h + 40) overflow(p); // やま ぜんたいが ふちより たかく なったら
 }
-function overflow() { // あふれた！ ぜんぶ とんでいく
-  blowing = true;
-  Sfx.yay(); Sfx.noise(0.8, 0.8, 1500);
-  popText('あふれた〜！', innerWidth / 2, innerHeight * 0.3, '#fff', 64);
-  for (const s of stuck) flying.push({ x: s.x, y: s.y, vx: rand(-700, 700), vy: -rand(500, 1300), rot: s.rot, vr: rand(-15, 15), s: s.s, away: true });
-  stuck = []; heights.fill(0);
-  pctx.clearRect(0, 0, innerWidth, innerHeight);
-  setTimeout(() => { blowing = false; }, 1500);
+
+// あふれる！ ふちより うえの ぶんが そとへ こぼれる
+function overflow(p) {
+  const level = p.h * 0.55; // のこるのは なべの はんぶん くらい
+  const cut = p.bottom - level;
+  const keep = [];
+  for (const k of inPot) {
+    if (k.y < cut) {
+      const side = k.x < p.x ? -1 : 1;
+      flying.push({ x: k.x, y: k.y, vx: side * rand(120, 380), vy: -rand(80, 320), rot: k.rot, vr: rand(-12, 12), s: k.s, spill: true });
+    } else keep.push(k);
+  }
+  inPot = keep;
+  heap = heap.map(h => Math.min(h, level));
+  shake = 2;
+  Sfx.noise(1.2, 0.5, 2500, 0, 'bandpass'); // ざざーっ
+  Sfx.yay();
+  popText('あふれた〜！', p.x, p.y - 160, '#ff3b3b', 64);
 }
 
 let lastT = performance.now();
@@ -91,33 +106,53 @@ let lastT = performance.now();
   const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now;
   const W = innerWidth, H = innerHeight, p = pot();
   shake *= Math.pow(0.01, dt);
+  const sx = Math.sin(now / 25) * shake * 6;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
-  for (const f of flying) {
-    f.vy += 1500 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vr * dt;
-    if (f.x < 10) { f.x = 10; f.vx = Math.abs(f.vx) * 0.5; }
-    if (f.x > W - 10) { f.x = W - 10; f.vx = -Math.abs(f.vx) * 0.5; }
-    if (!f.away && f.vy > 0) {
-      const i = Math.max(0, Math.min(heights.length - 1, Math.round(f.x / COL)));
-      if (f.y >= H - heights[i] - f.s * 0.35) { f.done = true; land(f); continue; }
-    }
-    if (f.away && f.y > H + 60) f.done = true;
-    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot);
-    ctx.drawImage(kernel, -f.s / 2, -f.s / 2, f.s, f.s);
-    ctx.restore();
+
+  // ゆかに おちた つぶ（しばらくして きえる）
+  for (const k of floor) {
+    k.t += dt;
+    ctx.globalAlpha = Math.max(0, Math.min(1, (5 - k.t)));
+    drawK(k.x, k.y, k.s, k.rot);
   }
-  flying = flying.filter(f => !f.done);
-  if (flying.length > 500) flying.splice(0, flying.length - 500);
-  // なべ（てまえ）
-  const sx = Math.sin(now / 25) * shake * 8;
+  ctx.globalAlpha = 1;
+  floor = floor.filter(k => k.t < 5);
+  if (floor.length > 200) floor.splice(0, floor.length - 200);
+
+  // ガラスの なべ（なかが みえる）
   ctx.save(); ctx.translate(p.x + sx, p.y);
-  ctx.fillStyle = '#444'; ctx.fillRect(-p.w / 2 - 30, 10, 30, 16); ctx.fillRect(p.w / 2, 10, 30, 16);
-  ctx.fillStyle = '#6d6d6d'; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 30, 30]); ctx.fill();
-  ctx.fillStyle = '#8a8a8a'; ctx.fillRect(-p.w / 2 - 8, -8, p.w + 16, 16);
-  ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(-p.w / 2 + 20, 20, 20, p.h - 40);
+  ctx.fillStyle = '#444'; ctx.fillRect(-p.w / 2 - 34, 24, 34, 18); ctx.fillRect(p.w / 2, 24, 34, 18);
+  ctx.fillStyle = 'rgba(255,248,225,0.85)'; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 34, 34]); ctx.fill();
+  ctx.restore();
+  // なかの ポップコーン
+  for (const k of inPot) drawK(k.x + sx, k.y, k.s, k.rot);
+  ctx.save(); ctx.translate(p.x + sx, p.y);
+  ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 8; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 34, 34]); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-p.w / 2 + 18, 18, 14, p.h - 44); // ガラスの ひかり
+  ctx.fillStyle = '#c0392b'; ctx.fillRect(-p.w / 2 - 8, -6, p.w + 16, 12); // ふち
   ctx.restore();
   // ひ
-  for (let i = 0; i < 5; i++) drawEmoji(ctx, '🔥', p.x - 80 + i * 40 + Math.sin(now / 90 + i) * 3, p.y + p.h + 22, 34 + shake * 10);
+  for (let i = 0; i < 5; i++) drawEmoji(ctx, '🔥', p.x - 80 + i * 40 + Math.sin(now / 90 + i) * 3, p.bottom + 26, 36 + shake * 6);
+
+  // とんでいる つぶ（いちばん てまえ）
+  for (const f of flying) {
+    f.vy += 1500 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vr * dt;
+    if (f.x < 15) { f.x = 15; f.vx = Math.abs(f.vx) * 0.5; }
+    if (f.x > W - 15) { f.x = W - 15; f.vx = -Math.abs(f.vx) * 0.5; }
+    if (f.vy > 0) {
+      const inside = Math.abs(f.x - p.x) < p.w / 2 - 14;
+      if (inside && !f.spill) {
+        const c = Math.max(0, Math.min(heap.length - 1, colOf(p, f.x)));
+        if (f.y >= p.bottom - heap[c] - f.s * 0.3) { f.done = true; settle(f, p); continue; }
+      } else if (f.y >= H - 14 - rand(0, 30)) { // ゆかに おちた
+        f.done = true; floor.push({ x: f.x, y: f.y, s: f.s, rot: f.rot, t: 0 }); continue;
+      }
+    }
+    drawK(f.x, f.y, f.s, f.rot);
+  }
+  flying = flying.filter(f => !f.done);
+  if (flying.length > 400) flying.splice(0, flying.length - 400);
   requestAnimationFrame(loop);
 })(lastT);
 </script>
