@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>うずまき</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: radial-gradient(circle at 50% 45%, #1a0f3a, #05030f 70%); }
+  canvas.full { touch-action: none; }
+  .big-btn { --c1: #9b5cff; --c2: #5a2bb3; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🌀</span></button></div>
+<script src="common.js?v=7"></script>
+<script src="gpu-particles.js?v=1"></script>
+<script>
+// うずまき: ひかりが うずを まいて すいこまれる。おすと どかーんと はじけて、また すいこまれる
+const cv = document.getElementById('cv'), btn = document.getElementById('btn');
+const fingers = new Map();
+let combo = 0, lastPress = 0, hue = 0.75, blast = 0, spin = 1;
+const center = () => ({ x: innerWidth / 2, y: innerHeight * 0.42 });
+
+btn.addEventListener('pointerdown', () => {
+  const now = performance.now();
+  combo = now - lastPress < 500 ? combo + 1 : 0; lastPress = now;
+  blast = 0.35 + Math.min(combo, 10) * 0.03; // この じかんだけ はじく
+  spin = Math.min(3, spin + 0.35);
+  hue = (hue + 0.11) % 1;
+  const c = center(), list = [];
+  const n = 900 + Math.min(combo, 10) * 250;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, sp = rand(200, 1100) * (1 + Math.min(combo, 10) * 0.06);
+    const col = GPUParticles.hsv((hue + rand(-0.08, 0.08) + 1) % 1, 0.6, 1);
+    list.push({ x: c.x, y: c.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: col[0], g: col[1], b: col[2], life: rand(3, 6), size: rand(4, 8), shape: Math.random() < 0.08 ? 3 : 0 });
+  }
+  window.__sys && window.__sys.emit(list);
+  Sfx.tone(90, 0.8, 'sine', 0.5, 0, 40);                // どーん
+  Sfx.noise(0.8, 0.5 + Math.min(combo, 8) * 0.04, 800);
+  Sfx.tone(400 + combo * 60, 1.0, 'triangle', 0.08, 0.1, 120); // ひゅるる（すいこまれる）
+});
+
+cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture(e.pointerId); fingers.set(e.pointerId, { x: e.clientX, y: e.clientY }); Sfx.tone(rand(300, 600), 0.6, 'sine', 0.08, 0, 150); });
+cv.addEventListener('pointermove', (e) => { const f = fingers.get(e.pointerId); if (f) { f.x = e.clientX; f.y = e.clientY; } });
+for (const t of ['pointerup', 'pointercancel']) cv.addEventListener(t, (e) => fingers.delete(e.pointerId));
+
+(async () => {
+  const sys = await GPUParticles.create(cv, { count: 80000 });
+  window.__sys = sys;
+  sys.params.drag = 0.62;
+  let spawn = 0;
+  sys.start((dt, t) => {
+    const c = center(), R = Math.hypot(innerWidth, innerHeight) * 0.45;
+    blast = Math.max(0, blast - dt);
+    spin += (1 - spin) * Math.min(1, dt * 0.4);
+    // まんなかの うず（はじく ときは マイナス）
+    const main = blast > 0 ? { x: c.x, y: c.y, s: -9000, swirl: 1500 * spin } : { x: c.x, y: c.y, s: 2800, swirl: 900 * spin };
+    sys.attractors = [main, ...[...fingers.values()].map(f => ({ x: f.x, y: f.y, s: 500, swirl: -2200 }))];
+    // そとがわから すこしずつ つぶが はいってくる
+    spawn += dt * 3000;
+    const list = [];
+    while (spawn > 1) {
+      spawn--;
+      // 3ぼんの うでの かたちで いれる（うずまきに みえるように）
+      const arm = Math.floor(Math.random() * 3);
+      const r = R * Math.sqrt(rand(0.05, 1.05));
+      const a = arm * Math.PI * 2 / 3 + t * 0.6 * spin - r / R * 2.6 + rand(-0.22, 0.22);
+      const x = c.x + Math.cos(a) * r, y = c.y + Math.sin(a) * r;
+      const v = rand(160, 280) * spin; // まわる むき
+      const col = GPUParticles.hsv((hue + r / R * 0.3 + rand(-0.04, 0.04) + 1) % 1, 0.65, 1);
+      list.push({ x, y, vx: -Math.sin(a) * v, vy: Math.cos(a) * v, r: col[0], g: col[1], b: col[2], life: rand(4, 8), size: rand(3, 6) });
+    }
+    // まんなかの ひかる しん
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2, r = rand(0, 40);
+      const col = GPUParticles.hsv((hue + 0.5) % 1, 0.3, 1);
+      list.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, vx: -Math.sin(a) * 60, vy: Math.cos(a) * 60, r: col[0], g: col[1], b: col[2], life: rand(0.6, 1.2), size: rand(10, 22) });
+    }
+    sys.emit(list);
+  });
+})();
+</script>
+</body>
+</html>

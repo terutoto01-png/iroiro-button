@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>オーロラ</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: #02040c; }
+  #fx { pointer-events: none; }
+  .big-btn { --c1: #2fd6a0; --c2: #148a64; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<canvas id="fx" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🌌</span></button></div>
+<script src="common.js?v=7"></script>
+<script src="gpu-particles.js?v=1"></script>
+<script>
+// オーロラ: よぞらに ゆれる ひかりの カーテン。おすと いろが かわって あかるく ひかり、ながれぼしが ながれる
+const cv = document.getElementById('cv'), fx = document.getElementById('fx'), btn = document.getElementById('btn');
+let hue = 0.38, glow = 0.6, speed = 1, combo = 0, lastPress = 0, phase = 0;
+
+const SHADER = /* wgsl */`
+struct U { res: vec2f, time: f32, phase: f32, hue: f32, glow: f32, pad: vec2f };
+@group(0) @binding(0) var<uniform> u: U;
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  var p = array<vec2f, 3>(vec2f(-1.0, -3.0), vec2f(-1.0, 1.0), vec2f(3.0, 1.0));
+  return vec4f(p[i], 0.0, 1.0);
+}
+fn hsv(h: f32, s: f32, v: f32) -> vec3f {
+  let k = vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0);
+  let p = abs(fract(vec3f(h) + k) * 6.0 - 3.0);
+  return v * mix(vec3f(1.0), clamp(p - 1.0, vec3f(0.0), vec3f(1.0)), s);
+}
+fn hash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
+fn noise(p: vec2f) -> f32 {
+  let i = floor(p); let f = fract(p); let w = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2f(1.0, 0.0)), w.x), mix(hash(i + vec2f(0.0, 1.0)), hash(i + vec2f(1.0, 1.0)), w.x), w.y);
+}
+fn fbm(p0: vec2f) -> f32 {
+  var p = p0; var v = 0.0; var a = 0.5;
+  for (var i = 0; i < 4; i = i + 1) { v = v + a * noise(p); p = p * 2.03; a = a * 0.5; }
+  return v;
+}
+@fragment
+fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let uv = fc.xy / u.res;
+  let asp = u.res.x / u.res.y;
+  var col = mix(vec3f(0.01, 0.02, 0.06), vec3f(0.03, 0.06, 0.12), uv.y);
+  // ほし
+  let g = floor(fc.xy / 3.0);
+  let h = hash(g);
+  if (h > 0.996) { col = col + vec3f(0.6 + 0.4 * sin(u.time * 2.0 + h * 90.0)) * (1.0 - uv.y * 0.6); }
+  // オーロラの カーテン（3まい）
+  for (var k = 0; k < 3; k = k + 1) {
+    let fk = f32(k);
+    let x = uv.x * asp * (1.2 + fk * 0.3) + fk * 3.7;
+    let wave = fbm(vec2f(x * 0.8 + u.phase * (0.15 + fk * 0.05), fk + u.phase * 0.05));
+    let base = 0.5 + fk * 0.06 + (wave - 0.5) * 0.32;             // カーテンの したの はし（いちばん あかるい）
+    let d = base - uv.y;                                           // うえに いくほど おおきい
+    let streak = 0.6 + 0.4 * noise(vec2f(x * 14.0 + u.phase * 0.6, fk * 5.0)); // たての すじ
+    let shape = smoothstep(-0.02, 0.01, d) * exp(-max(d, 0.0) * (3.6 - fk * 0.6));
+    let ribbon = smoothstep(0.05, 0.0, abs(d)) * 0.35;
+    let c = mix(hsv(u.hue + fk * 0.08, 0.8, 1.0), hsv(u.hue + 0.35 + fk * 0.05, 0.7, 1.0), clamp(d * 3.0, 0.0, 1.0));
+    col = col + c * (shape * streak + ribbon * streak) * u.glow * (0.55 - fk * 0.12);
+  }
+  // やまの かげ
+  let m = 0.9 - 0.07 * fbm(vec2f(uv.x * 4.0, 1.0)) - 0.05 * sin(uv.x * 9.0);
+  if (uv.y > m) { col = vec3f(0.005, 0.01, 0.02); }
+  return vec4f(col, 1.0);
+}`;
+
+(async () => {
+  // はいけいの オーロラ（シェーダー）
+  const adapter = await navigator.gpu.requestAdapter();
+  const device = await adapter.requestDevice();
+  const ctx = cv.getContext('webgpu'), format = navigator.gpu.getPreferredCanvasFormat();
+  ctx.configure({ device, format, alphaMode: 'opaque' });
+  const mod = device.createShaderModule({ code: SHADER });
+  const pipe = device.createRenderPipeline({ layout: 'auto', vertex: { module: mod, entryPoint: 'vs' }, fragment: { module: mod, entryPoint: 'fs', targets: [{ format }] } });
+  const ubuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const bg = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+  fitCanvas(cv); addEventListener('resize', () => fitCanvas(cv));
+
+  // ながれぼし と きらきら（ひかりの つぶ エンジン）
+  const sys = await GPUParticles.create(fx, { count: 30000 });
+  sys.params.drag = 0.9;
+
+  function shootingStar() {
+    const x = rand(innerWidth * 0.1, innerWidth * 0.9), y = rand(20, innerHeight * 0.35);
+    const a = rand(0.35, 0.6) * (Math.random() < 0.5 ? 1 : -1) + Math.PI / 2 * 0, sp = rand(700, 1100), dir = Math.random() < 0.5 ? 1 : -1;
+    const vx = Math.cos(a) * sp * dir, vy = Math.abs(Math.sin(a)) * sp;
+    const list = [];
+    for (let i = 0; i < 60; i++) { // しっぽ（すこしずつ おくれて でる つぶ）
+      const k = i / 60;
+      list.push({ x: x - vx * k * 0.15, y: y - vy * k * 0.15, vx: vx * (1 - k * 0.3), vy: vy * (1 - k * 0.3), r: 1, g: 0.95, b: 0.85, life: 0.9 - k * 0.5, size: 7 - k * 5, shape: i === 0 ? 3 : 0 });
+    }
+    sys.emit(list);
+  }
+
+  btn.addEventListener('pointerdown', () => {
+    const now = performance.now();
+    combo = now - lastPress < 500 ? combo + 1 : 0; lastPress = now;
+    hue = (hue + rand(0.12, 0.3)) % 1;
+    glow = Math.min(1.8, glow + 0.4);
+    speed = Math.min(6, speed + 0.8);
+    for (let i = 0; i < 1 + Math.min(3, Math.floor(combo / 3)); i++) setTimeout(shootingStar, i * 120);
+    // きらきら
+    const r = btn.getBoundingClientRect(), list = [];
+    for (let i = 0; i < 200 + Math.min(combo, 10) * 40; i++) {
+      const a = -Math.PI / 2 + rand(-1.4, 1.4), sp = rand(150, 600);
+      const c = GPUParticles.hsv((hue + rand(-0.1, 0.1) + 1) % 1, 0.5, 1);
+      list.push({ x: r.left + r.width / 2, y: r.top + 20, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: c[0], g: c[1], b: c[2], life: rand(1, 2.2), size: rand(4, 9), shape: Math.random() < 0.2 ? 3 : 0 });
+    }
+    sys.emit(list);
+    // しゃらららん
+    [0, 4, 7, 11, 14].forEach((s, i) => Sfx.tone(440 * Math.pow(2, (s + Math.min(combo, 7)) / 12), 1.2, 'sine', 0.07, i * 0.07));
+  });
+
+  let nextStar = 3;
+  sys.start((dt, t) => {
+    glow += (0.6 - glow) * Math.min(1, dt * 0.5);
+    speed += (1 - speed) * Math.min(1, dt * 0.6);
+    phase += dt * speed;
+    nextStar -= dt;
+    if (nextStar <= 0) { nextStar = rand(4, 9); shootingStar(); }
+    device.queue.writeBuffer(ubuf, 0, new Float32Array([cv.width, cv.height, t, phase, hue, glow, 0, 0]));
+    const enc = device.createCommandEncoder();
+    const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store' }] });
+    p.setPipeline(pipe); p.setBindGroup(0, bg); p.draw(3); p.end();
+    device.queue.submit([enc.finish()]);
+  });
+})();
+</script>
+</body>
+</html>

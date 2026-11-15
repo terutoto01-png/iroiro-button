@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>さくら</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: linear-gradient(#120d33, #3a2766 45%, #7a4f8f 75%, #c98aa8); }
+  .tree { position: fixed; left: -6%; top: -8%; width: 55vmin; height: 55vmin; border-radius: 50%; pointer-events: none; filter: blur(2px);
+          background: radial-gradient(circle at 40% 40%, rgba(255,190,215,.55), rgba(240,140,180,.35) 55%, rgba(200,100,150,0) 72%); }
+  .tree.t2 { left: auto; right: -10%; top: -12%; width: 48vmin; height: 48vmin; }
+  .lantern { position: fixed; bottom: 6%; width: 26px; height: 36px; border-radius: 10px; background: #ffb347; pointer-events: none;
+             box-shadow: 0 0 30px 12px rgba(255,170,70,.45); }
+  canvas.full { touch-action: none; }
+  .big-btn { --c1: #ff8fb8; --c2: #c25784; }
+</style>
+</head>
+<body>
+<div class="tree"></div><div class="tree t2"></div>
+<div class="lantern" style="left:12%"></div><div class="lantern" style="left:34%"></div><div class="lantern" style="right:12%"></div><div class="lantern" style="right:34%"></div>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🌸</span></button></div>
+<script src="common.js?v=7"></script>
+<script src="gpu-particles.js?v=1"></script>
+<script>
+// さくら: よざくらの はなびら。おすと かぜが ふいて はなふぶき。なぞると うずまく
+const cv = document.getElementById('cv'), btn = document.getElementById('btn');
+const fingers = new Map();
+const YO = [293.66, 329.63, 392, 440, 493.88, 587.33, 659.25, 783.99]; // にほんの かんじの おとの ならび
+let combo = 0, lastPress = 0, gust = [0, 0];
+
+function petal(x, y, vx, vy, extra = {}) {
+  const t = Math.random();
+  const c = t < 0.15 ? [1, 0.95, 0.97] : t < 0.3 ? [1, 0.45, 0.65] : [1, 0.68 + rand(-0.06, 0.06), 0.8];
+  return { x, y, vx, vy, r: c[0] * 0.85, g: c[1] * 0.85, b: c[2] * 0.85, life: rand(9, 16), size: rand(8, 13), shape: 2, ...extra };
+}
+
+(async () => {
+  const sys = await GPUParticles.create(cv, { count: 50000 });
+  sys.params.drag = 0.55; sys.params.turb = 70; sys.params.grav = [0, 45];
+
+  btn.addEventListener('pointerdown', () => {
+    const now = performance.now();
+    combo = now - lastPress < 450 ? combo + 1 : 0; lastPress = now;
+    const r = btn.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top;
+    // かぜ！
+    const power = 500 + Math.min(combo, 10) * 120;
+    gust = [rand(-1, 1) * power, -power * 0.6];
+    const n = 220 + Math.min(combo, 12) * 70, list = [];
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + rand(-1.1, 1.1), sp = rand(200, 800) * (1 + Math.min(combo, 10) * 0.07);
+      list.push(petal(x + rand(-40, 40), y, Math.cos(a) * sp, Math.sin(a) * sp));
+    }
+    if (combo >= 5) for (let i = 0; i < 80; i++) { // れんだで きらきらも まじる
+      const a = Math.random() * Math.PI * 2, sp = rand(100, 600);
+      list.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 200, r: 1, g: 0.85, b: 0.95, life: rand(1.5, 3), size: rand(10, 18), shape: 3 });
+    }
+    sys.emit(list);
+    Sfx.noise(1.2, 0.25 + Math.min(combo, 8) * 0.03, 900, 0, 'bandpass'); // ひゅうう
+    const k = YO[Math.min(combo, YO.length - 1)];
+    Sfx.tone(k, 0.8, 'triangle', 0.14); Sfx.tone(k * 1.5, 0.6, 'sine', 0.05, 0.06); // ぽろん
+  });
+
+  cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture(e.pointerId); fingers.set(e.pointerId, { x: e.clientX, y: e.clientY }); Sfx.tone(pick(YO), 0.6, 'triangle', 0.08); });
+  cv.addEventListener('pointermove', (e) => { const f = fingers.get(e.pointerId); if (f) { f.x = e.clientX; f.y = e.clientY; } });
+  for (const t of ['pointerup', 'pointercancel']) cv.addEventListener(t, (e) => fingers.delete(e.pointerId));
+
+  let spawn = 0;
+  sys.start((dt, t) => {
+    gust[0] *= Math.pow(0.25, dt); gust[1] *= Math.pow(0.25, dt);
+    sys.params.wind = [30 + Math.sin(t * 0.4) * 25 + gust[0], gust[1]];
+    sys.attractors = [...fingers.values()].map(f => ({ x: f.x, y: f.y, s: 300, swirl: 2600 })); // ゆびの まわりで うずまく
+    // きから ひらひら
+    spawn += dt * 45;
+    const list = [];
+    while (spawn > 1) {
+      spawn--;
+      const left = Math.random() < 0.55;
+      list.push(petal(left ? rand(0, innerWidth * 0.4) : rand(innerWidth * 0.6, innerWidth), rand(-20, innerHeight * 0.3), rand(-30, 30), rand(0, 40)));
+    }
+    if (list.length) sys.emit(list);
+  });
+})();
+</script>
+</body>
+</html>

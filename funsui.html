@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ひかりのふんすい</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: linear-gradient(#050818, #0e1640 60%, #0a2a4a 78%, #08324a); }
+  .pool { position: fixed; left: 8%; right: 8%; bottom: 0; height: 22%; pointer-events: none; border-radius: 50% 50% 0 0 / 30% 30% 0 0;
+          background: radial-gradient(ellipse at 50% 20%, rgba(80,180,255,.45), rgba(20,60,120,.6) 60%, rgba(10,30,60,.9));
+          box-shadow: 0 -6px 0 rgba(200,220,255,.25), 0 0 80px rgba(80,160,255,.3); }
+  canvas.full { touch-action: none; }
+  .big-btn { --c1: #3db6ff; --c2: #1a6fa8; }
+  .corner .big-btn { width: min(28vw, 150px); height: min(28vw, 150px); }
+</style>
+</head>
+<body>
+<div class="pool"></div>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">⛲</span></button></div>
+<script src="common.js?v=7"></script>
+<script src="gpu-particles.js?v=1"></script>
+<script>
+// ひかりの ふんすい: おすと にじいろの ふんすいが ふきあがる。れんだで たかく、なんぼんも
+const cv = document.getElementById('cv'), btn = document.getElementById('btn');
+let combo = 0, lastPress = 0, hue = Math.random(), jets = [], splashes = [];
+
+const nozzleY = () => innerHeight * 0.8;
+
+btn.addEventListener('pointerdown', () => {
+  const now = performance.now();
+  combo = now - lastPress < 450 ? combo + 1 : 0; lastPress = now;
+  hue = (hue + 0.09) % 1;
+  const W = innerWidth, power = 1 + Math.min(combo, 10) * 0.045;
+  // まんなか。れんだすると りょうがわにも
+  const xs = [W / 2];
+  if (combo >= 3) xs.push(W * 0.3, W * 0.7);
+  if (combo >= 7) xs.push(W * 0.15, W * 0.85);
+  for (const x of xs) jets.push({ x, hue: (hue + (x - W / 2) / W * 0.3 + 1) % 1, until: now + 650, power: power * (x === W / 2 ? 1 : 0.8), lean: (x - W / 2) / W * -0.5 });
+  setTimeout(() => splashes.push({ until: performance.now() + 800, hue }), 1100);
+  Sfx.noise(0.7, 0.35, 1800 + combo * 150, 0, 'bandpass'); // しゅわー
+  Sfx.tone(300 + combo * 40, 0.5, 'sine', 0.12, 0, 900 + combo * 80);
+});
+
+(async () => {
+  const sys = await GPUParticles.create(cv, { count: 70000 });
+  sys.params.grav = [0, 950]; sys.params.drag = 0.85; sys.params.turb = 10;
+  let idle = 0, plink = 0;
+  sys.start((dt, t) => {
+    const now = performance.now(), list = [], ny = nozzleY();
+    // いつも ちいさく でている ふんすい
+    idle += dt * 160;
+    while (idle > 1) {
+      idle--;
+      const a = -Math.PI / 2 + rand(-0.08, 0.08), sp = Math.sqrt(2 * 950 * innerHeight * 0.18) * rand(0.9, 1.05);
+      list.push({ x: innerWidth / 2 + rand(-4, 4), y: ny, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: 0.55, g: 0.8, b: 1, life: rand(1.2, 1.6), size: rand(3, 6) });
+    }
+    // おした ふんすい
+    jets = jets.filter(j => j.until > now);
+    for (const j of jets) {
+      // がめんの たかさに あわせた いきおい（れんだで いちばん うえ ちかくまで）
+      const base = Math.sqrt(2 * 950 * innerHeight * 0.55);
+      for (let i = 0; i < 45; i++) {
+        const a = -Math.PI / 2 + j.lean + rand(-0.1, 0.1), sp = base * rand(0.9, 1.05) * j.power;
+        const c = GPUParticles.hsv((j.hue + rand(-0.06, 0.06) + 1) % 1, 0.75, 1);
+        list.push({ x: j.x + rand(-6, 6), y: ny, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, r: c[0] * 0.8, g: c[1] * 0.8, b: c[2] * 0.8, life: rand(1.8, 2.6), size: rand(4, 8), shape: Math.random() < 0.06 ? 3 : 0 });
+      }
+    }
+    // みずに おちた しぶき
+    splashes = splashes.filter(s => s.until > now);
+    for (const s of splashes) for (let i = 0; i < 25; i++) {
+      const c = GPUParticles.hsv((s.hue + rand(-0.1, 0.1) + 1) % 1, 0.5, 1);
+      list.push({ x: rand(innerWidth * 0.15, innerWidth * 0.85), y: ny + rand(0, 20), vx: rand(-60, 60), vy: -rand(150, 380), r: c[0], g: c[1], b: c[2], life: rand(0.5, 0.9), size: rand(3, 6) });
+    }
+    if (list.length) sys.emit(list);
+    // ぽちゃ ぽちゃ
+    plink -= dt;
+    if (jets.length && plink <= 0) { plink = 0.12; Sfx.tone(rand(900, 1800), 0.08, 'sine', 0.06, 0, rand(1800, 2600)); }
+  });
+})();
+</script>
+</body>
+</html>
