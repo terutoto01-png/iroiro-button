@@ -2,11 +2,11 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>にげるボタン</title>
-<link rel="stylesheet" href="common.css?v=9">
+<link rel="stylesheet" href="common.css?v=10">
 <style>
   body { background: #fff0c9; }
   #btn { position: fixed; left: 0; top: 0; --c1: #8e44ff; --c2: #5a1fc2;
@@ -19,15 +19,18 @@
 </head>
 <body>
 <button id="btn" class="big-btn"><span class="emoji">🐰</span></button>
-<script src="common.js?v=9"></script>
+<script src="common.js?v=10"></script>
 <script>
 const btn = document.getElementById('btn');
 let wait = 1400, timer;
 
 function moveAway() {
   const s = btn.offsetWidth;
-  btn.style.left = rand(10, innerWidth - s - 10) + 'px';
-  btn.style.top = rand(70, innerHeight - s - 20) + 'px';
+  const sat = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat')) || 0;
+  const topMargin = Math.max(80, sat + 60); // .back/.vol エリアを避ける
+  const sideMargin = 10;
+  btn.style.left = rand(sideMargin, innerWidth - s - sideMargin) + 'px';
+  btn.style.top = rand(topMargin, innerHeight - s - 20) + 'px';
   Sfx.tone(rand(600, 900), 0.08, 'sine', 0.12, 0, 1500);
   clearTimeout(timer);
   timer = setTimeout(moveAway, wait);

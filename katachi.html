@@ -2,11 +2,11 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>かたちはめ</title>
-<link rel="stylesheet" href="common.css?v=9">
+<link rel="stylesheet" href="common.css?v=10">
 <style>
   body { background: #fdf3df; }
   #board { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); width: min(92vw, 720px); height: min(34vh, 260px);
@@ -24,7 +24,7 @@
 <body>
 <div id="board"></div>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔺</span></button></div>
-<script src="common.js?v=9"></script>
+<script src="common.js?v=10"></script>
 <script>
 // かたちはめ: おなじ かたちの あなに はめる
 const star = (() => { let p = ''; for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 20 : 47; p += `${50 + Math.cos(a) * r},${53 + Math.sin(a) * r} `; } return p; })();
