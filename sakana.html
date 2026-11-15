@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>さかな</title>
+<link rel="stylesheet" href="common.css?v=3">
+<style>
+  body { background: linear-gradient(#5fd0ff, #1478c8 60%, #0b3d82); }
+  .big-btn { --c1: #ff9933; --c2: #c2651a; }
+  .sand { position: fixed; left: 0; right: 0; bottom: 0; height: 40px; background: #f2d49b; border-radius: 50% 50% 0 0 / 30px 30px 0 0; }
+  .weed { position: fixed; bottom: 20px; font-size: 80px; transform-origin: 50% 100%; animation: sway 3s ease-in-out infinite alternate; pointer-events: none; }
+  @keyframes sway { from { rotate: -8deg; } to { rotate: 8deg; } }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="sand"></div>
+<div class="weed" style="left:5%">🌿</div><div class="weed" style="left:80%; animation-delay:-1s">🌿</div><div class="weed" style="left:60%; font-size:60px; animation-delay:-2s">🪸</div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🐠</span></button></div>
+<script src="common.js?v=3"></script>
+<script>
+const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
+const btn = document.getElementById('btn');
+fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
+const KINDS = ['🐟', '🐠', '🐠', '🐡', '🦈', '🐙', '🦀', '🐬', '🐳', '🦑', '🐢', '🪼'];
+let fish = [], bubbles = [];
+
+btn.addEventListener('pointerdown', () => {
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const e = pick(KINDS);
+  const size = e === '🐳' || e === '🦈' ? rand(110, 160) : rand(50, 90);
+  fish.push({ e, size, dir, x: dir > 0 ? -size : innerWidth + size, y: rand(80, innerHeight - 300),
+              sp: rand(80, 180), ph: rand(0, 6), boost: 0 });
+  if (fish.length > 25) fish.shift();
+  for (let i = 0; i < 6; i++) bubbles.push({ x: innerWidth / 2 + rand(-30, 30), y: innerHeight - 200, r: rand(3, 9), v: rand(60, 140) });
+  Sfx.tone(rand(300, 500), 0.15, 'sine', 0.3, 0, rand(700, 1000));
+  for (let i = 0; i < 3; i++) Sfx.tone(rand(800, 1400), 0.06, 'sine', 0.1, 0.1 + i * 0.08, 1800);
+});
+
+// さかなを タッチすると びゅーん
+canvas.addEventListener('pointerdown', (ev) => {
+  for (const f of fish) {
+    if (Math.hypot(f.x - ev.clientX, f.y - ev.clientY) < f.size * 0.7) {
+      f.boost = 1; Sfx.tone(500, 0.2, 'sine', 0.3, 0, 1500);
+      for (let i = 0; i < 5; i++) bubbles.push({ x: f.x, y: f.y, r: rand(3, 8), v: rand(80, 160) });
+      return;
+    }
+  }
+  bubbles.push({ x: ev.clientX, y: ev.clientY, r: 10, v: 120 });
+  Sfx.tone(rand(700, 1000), 0.08, 'sine', 0.15, 0, 1600);
+});
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight;
+  ctx.clearRect(0, 0, W, H);
+  // ひかりの すじ
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  for (let i = 0; i < 4; i++) {
+    const x = (i * 0.3 + 0.1) * W + Math.sin(now / 2000 + i) * 40;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 60, 0); ctx.lineTo(x + 220, H); ctx.lineTo(x + 100, H); ctx.fill();
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#000'; // えもじは ふとうめいな いろで かく（ひかりの すじの うすい いろが のこらないように）
+  for (const f of fish) {
+    f.boost *= Math.pow(0.2, dt);
+    f.ph += dt * 3;
+    f.x += f.dir * f.sp * (1 + f.boost * 6) * dt;
+    const y = f.y + Math.sin(f.ph) * 15;
+    ctx.save(); ctx.translate(f.x, y);
+    if (f.dir > 0) ctx.scale(-1, 1); // えもじは ひだりむき
+    ctx.rotate(Math.cos(f.ph) * 0.08);
+    ctx.font = `${f.size}px serif`; ctx.fillText(f.e, 0, 0);
+    ctx.restore();
+    if (Math.random() < dt * 0.8) bubbles.push({ x: f.x - f.dir * f.size * 0.4, y, r: rand(2, 5), v: rand(40, 90) });
+  }
+  // がめんの はしに いったら はんたいから もどってくる
+  for (const f of fish) {
+    if (f.dir > 0 && f.x > W + f.size) { f.x = -f.size; f.y = rand(80, H - 300); }
+    if (f.dir < 0 && f.x < -f.size) { f.x = W + f.size; f.y = rand(80, H - 300); }
+  }
+  for (const b of bubbles) {
+    b.y -= b.v * dt; b.x += Math.sin(b.y / 20) * 0.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.stroke();
+  }
+  bubbles = bubbles.filter(b => b.y > -20);
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>なみ</title>
+<link rel="stylesheet" href="common.css?v=3">
+<style>
+  body { background: #0a5a7a; }
+  .big-btn { --c1: #20b2e8; --c2: #0d6f99; }
+  canvas.full { touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🪨</span></button></div>
+<script src="common.js?v=3"></script>
+<script>
+// みずの なみ: WebGPU コンピュートで波の方程式をとく。ゆびで なぞっても なみが たつ
+const MAXD = 16;
+const canvas = document.getElementById('cv');
+const btn = document.getElementById('btn');
+let drops = [];
+
+const STRUCT = /* wgsl */`
+struct U { gw: u32, gh: u32, n: u32, time: f32, res: vec2f, pad: vec2f, drops: array<vec4f, ${MAXD}> };
+`;
+const SIM = STRUCT + /* wgsl */`
+@group(0) @binding(0) var<storage, read> cur: array<f32>;
+@group(0) @binding(1) var<storage, read_write> prev: array<f32>;
+@group(0) @binding(2) var<uniform> u: U;
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= u.gw || id.y >= u.gh) { return; }
+  let w = i32(u.gw); let h = i32(u.gh);
+  let x = i32(id.x); let y = i32(id.y);
+  let i = y * w + x;
+  let l = cur[y * w + max(x - 1, 0)];
+  let r = cur[y * w + min(x + 1, w - 1)];
+  let t = cur[max(y - 1, 0) * w + x];
+  let b = cur[min(y + 1, h - 1) * w + x];
+  var v = (l + r + t + b) * 0.5 - prev[i];
+  v = v * 0.988;
+  for (var k = 0u; k < u.n; k = k + 1u) {
+    let d = u.drops[k];
+    let dd = distance(vec2f(f32(x), f32(y)), d.xy);
+    if (dd < d.z) { v = v + d.w * (cos(dd / d.z * 3.14159) * 0.5 + 0.5); }
+  }
+  prev[i] = v;
+}`;
+const DRAW = STRUCT + /* wgsl */`
+@group(0) @binding(0) var<storage, read> hgt: array<f32>;
+@group(0) @binding(1) var<uniform> u: U;
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  var p = array<vec2f, 3>(vec2f(-1.0, -3.0), vec2f(-1.0, 1.0), vec2f(3.0, 1.0));
+  return vec4f(p[i], 0.0, 1.0);
+}
+fn H(x: i32, y: i32) -> f32 {
+  let cx = clamp(x, 0, i32(u.gw) - 1);
+  let cy = clamp(y, 0, i32(u.gh) - 1);
+  return hgt[cy * i32(u.gw) + cx];
+}
+fn sampleH(g: vec2f) -> f32 {
+  let f = fract(g); let i = vec2i(floor(g));
+  let a = mix(H(i.x, i.y), H(i.x + 1, i.y), f.x);
+  let b = mix(H(i.x, i.y + 1), H(i.x + 1, i.y + 1), f.x);
+  return mix(a, b, f.y);
+}
+@fragment
+fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let uv = fc.xy / u.res;
+  let g = uv * vec2f(f32(u.gw), f32(u.gh)) - 0.5;
+  let dx = sampleH(g + vec2f(1.0, 0.0)) - sampleH(g - vec2f(1.0, 0.0));
+  let dy = sampleH(g + vec2f(0.0, 1.0)) - sampleH(g - vec2f(0.0, 1.0));
+  let n = normalize(vec3f(-dx, -dy, 0.35));
+  // プールの そこ（タイル）を 波で ゆがめて見る
+  let q = (uv + n.xy * 0.04) * vec2f(u.res.x / u.res.y, 1.0) * 9.0;
+  let tile = fract(q);
+  let line = 1.0 - smoothstep(0.0, 0.06, min(min(tile.x, 1.0 - tile.x), min(tile.y, 1.0 - tile.y)));
+  var col = mix(vec3f(0.05, 0.45, 0.62), vec3f(0.1, 0.62, 0.78), uv.y);
+  col = mix(col, vec3f(0.75, 0.95, 1.0), line * 0.35);
+  // ひかり
+  let l = normalize(vec3f(0.4, -0.6, 1.0));
+  let spec = pow(max(dot(reflect(-l, n), vec3f(0.0, 0.0, 1.0)), 0.0), 60.0);
+  let caus = pow(max(n.z, 0.0), 1.0) ;
+  col = col * (0.75 + 0.35 * (1.0 - caus) * 6.0) + vec3f(spec * 1.2);
+  return vec4f(col, 1.0);
+}`;
+
+function addDrop(x, y, r, s) { if (drops.length < MAXD) drops.push([x, y, r, s]); }
+
+btn.addEventListener('pointerdown', () => {
+  // いしを ぽちゃん（ばしょは ランダム）
+  const x = rand(0.15, 0.85) * innerWidth, y = rand(0.15, 0.6) * innerHeight;
+  addDrop(x, y, 26, 6);
+  Sfx.tone(rand(250, 350), 0.18, 'sine', 0.4, 0, 900);
+  Sfx.noise(0.4, 0.4, 1500, 0.02);
+  for (let i = 0; i < 3; i++) Sfx.tone(rand(900, 1600), 0.08, 'sine', 0.08, 0.1 + i * 0.07, 2200);
+});
+
+// ゆび（なんぼんでも）
+const lastPos = new Map();
+canvas.addEventListener('pointerdown', (e) => {
+  lastPos.set(e.pointerId, [e.clientX, e.clientY]);
+  addDrop(e.clientX, e.clientY, 14, 3);
+  Sfx.tone(rand(500, 800), 0.1, 'sine', 0.2, 0, 1400);
+});
+canvas.addEventListener('pointermove', (e) => {
+  const p = lastPos.get(e.pointerId);
+  if (!p) return;
+  if (Math.hypot(e.clientX - p[0], e.clientY - p[1]) > 8) {
+    addDrop(e.clientX, e.clientY, 9, 0.9);
+    lastPos.set(e.pointerId, [e.clientX, e.clientY]);
+  }
+});
+for (const t of ['pointerup', 'pointercancel', 'pointerleave']) canvas.addEventListener(t, (e) => lastPos.delete(e.pointerId));
+
+(async () => {
+  const gpu = await initWebGPU(canvas);
+  const { device, ctx, format } = gpu;
+  const gw = 320, gh = Math.round(320 * innerHeight / innerWidth);
+  const size = gw * gh * 4;
+  const bufs = [0, 1].map(() => device.createBuffer({ size, usage: GPUBufferUsage.STORAGE }));
+  const ubuf = device.createBuffer({ size: 32 + MAXD * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const sim = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: SIM }), entryPoint: 'main' } });
+  const dmod = device.createShaderModule({ code: DRAW });
+  const draw = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: dmod, entryPoint: 'vs' },
+    fragment: { module: dmod, entryPoint: 'fs', targets: [{ format }] },
+  });
+  // ping-pong: simBG[k] は bufs[k] を いま、bufs[1-k] を まえ として、bufs[1-k] に かきこむ
+  const simBG = [0, 1].map(k => device.createBindGroup({ layout: sim.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: bufs[k] } }, { binding: 1, resource: { buffer: bufs[1 - k] } }, { binding: 2, resource: { buffer: ubuf } },
+  ] }));
+  const drawBG = [0, 1].map(k => device.createBindGroup({ layout: draw.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: bufs[k] } }, { binding: 1, resource: { buffer: ubuf } },
+  ] }));
+  fitCanvas(canvas); addEventListener('resize', () => fitCanvas(canvas));
+
+  const ab = new ArrayBuffer(32 + MAXD * 16), u32 = new Uint32Array(ab), f32 = new Float32Array(ab);
+  let k = 0;
+  const loop = (t) => {
+    u32[0] = gw; u32[1] = gh; u32[2] = drops.length; f32[3] = t / 1000;
+    f32[4] = canvas.width; f32[5] = canvas.height;
+    drops.forEach((d, i) => {
+      const o = 8 + i * 4;
+      f32[o] = d[0] / innerWidth * gw; f32[o+1] = d[1] / innerHeight * gh;
+      f32[o+2] = d[2] * gw / 800; f32[o+3] = d[3];
+    });
+    drops = [];
+    device.queue.writeBuffer(ubuf, 0, ab);
+    const enc = device.createCommandEncoder();
+    const c = enc.beginComputePass();
+    c.setPipeline(sim); c.setBindGroup(0, simBG[k]);
+    c.dispatchWorkgroups(Math.ceil(gw / 8), Math.ceil(gh / 8)); c.end();
+    k = 1 - k; // いま かいたほうが つぎの「いま」
+    const r = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store' }] });
+    r.setPipeline(draw); r.setBindGroup(0, drawBG[k]); r.draw(3); r.end();
+    device.queue.submit([enc.finish()]);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

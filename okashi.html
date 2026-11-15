@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>おかし</title>
+<link rel="stylesheet" href="common.css?v=3">
+<style>
+  body { background: repeating-linear-gradient(45deg, #ffe3ef 0 30px, #fff0f6 30px 60px); }
+  .big-btn { --c1: #ff6fae; --c2: #c23c7a; }
+  .bottom-center { bottom: auto; top: 16px; }
+  .bottom-center .big-btn { width: min(26vw, 130px); height: min(26vw, 130px); }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🍬</span></button></div>
+<script src="common.js?v=3"></script>
+<script>
+// おかしが ふってきて つもる。さわると たべちゃう
+const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
+const btn = document.getElementById('btn');
+fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
+const SWEETS = ['🍬', '🍭', '🍫', '🍩', '🍪', '🧁', '🍰', '🍡', '🍮', '🍦', '🍓', '🍒', '🍙'];
+let items = [], crumbs = [];
+
+btn.addEventListener('pointerdown', () => {
+  for (let i = 0; i < 6; i++) {
+    items.push({ e: pick(SWEETS), x: rand(40, innerWidth - 40), y: rand(-300, -40), vx: rand(-60, 60), vy: rand(0, 100),
+                 r: rand(24, 36), rot: rand(0, 6), vr: rand(-4, 4) });
+  }
+  if (items.length > 120) items.splice(0, items.length - 120);
+  [0, 4, 7].forEach((s, i) => Sfx.tone(784 * Math.pow(2, s / 12), 0.15, 'sine', 0.12, i * 0.05));
+});
+
+canvas.addEventListener('pointerdown', (e) => {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (Math.hypot(it.x - e.clientX, it.y - e.clientY) < it.r * 1.2) {
+      items.splice(i, 1);
+      for (let k = 0; k < 10; k++) crumbs.push({ x: it.x, y: it.y, vx: rand(-200, 200), vy: rand(-300, -50), life: 0.6, c: `hsl(${rand(0, 50)}, 70%, 60%)` });
+      // もぐもぐ
+      for (let k = 0; k < 3; k++) Sfx.noise(0.07, 0.6, 900, k * 0.12, 'bandpass');
+      popText('もぐもぐ', it.x, it.y - 30, '#c23c7a', 36);
+      return;
+    }
+  }
+});
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight;
+  for (const it of items) {
+    it.vy += 1200 * dt; it.vx *= Math.pow(0.5, dt);
+    it.x += it.vx * dt; it.y += it.vy * dt; it.rot += it.vr * dt;
+    if (it.y > H - it.r) { it.y = H - it.r; it.vy *= -0.3; it.vr *= 0.8; it.vx *= 0.9; }
+    if (it.x < it.r) { it.x = it.r; it.vx = Math.abs(it.vx); }
+    if (it.x > W - it.r) { it.x = W - it.r; it.vx = -Math.abs(it.vx); }
+  }
+  // つみかさなる
+  for (let n = 0; n < 2; n++) for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+    const a = items[i], b = items[j];
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = (a.r + b.r) * 0.9;
+    if (d > 0 && d < min) {
+      const nx = dx / d, ny = dy / d, over = (min - d) / 2;
+      a.x -= nx * over; a.y -= ny * over; b.x += nx * over; b.y += ny * over;
+      const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+      if (rv < 0) { a.vx += nx * rv * 0.5; a.vy += ny * rv * 0.5; b.vx -= nx * rv * 0.5; b.vy -= ny * rv * 0.5; }
+      a.vr *= 0.95; b.vr *= 0.95;
+    }
+  }
+  ctx.clearRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#000'; ctx.globalAlpha = 1;
+  for (const it of items) {
+    ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot);
+    ctx.font = `${it.r * 2}px serif`; ctx.fillText(it.e, 0, 0);
+    ctx.restore();
+  }
+  for (const c of crumbs) {
+    c.vy += 900 * dt; c.x += c.vx * dt; c.y += c.vy * dt; c.life -= dt;
+    ctx.fillStyle = c.c; ctx.globalAlpha = Math.max(0, c.life / 0.6);
+    ctx.fillRect(c.x, c.y, 6, 6);
+  }
+  ctx.globalAlpha = 1;
+  crumbs = crumbs.filter(c => c.life > 0);
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

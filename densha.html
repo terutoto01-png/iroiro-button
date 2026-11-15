@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>でんしゃ</title>
+<link rel="stylesheet" href="common.css?v=3">
+<style>
+  body { background: linear-gradient(#8fd3ff 0 50%, #c9ecff 50% 58%, #7cc96a 58%); }
+  .big-btn { --c1: #2bb24c; --c2: #187a31; }
+  .bottom-center { bottom: 20px; }
+  .bottom-center .big-btn { width: min(30vw, 160px); height: min(30vw, 160px); }
+  .rail { bottom: 42%; }
+  .mt { position: fixed; bottom: 50%; width: 0; height: 0; border-left: 160px solid transparent; border-right: 160px solid transparent;
+        border-bottom: 140px solid #6aa86f; pointer-events: none; }
+  .mt::after { content: ''; position: absolute; left: -40px; top: 0; border-left: 40px solid transparent; border-right: 40px solid transparent;
+        border-bottom: 35px solid #fff; }
+  .smoke { position: fixed; z-index: 4; width: 40px; height: 40px; border-radius: 50%; background: rgba(240,240,240,.9); pointer-events: none;
+           animation: smoke 1.6s ease-out forwards; }
+  @keyframes smoke { to { transform: translate(var(--dx), -160px) scale(3); opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="mt" style="left:5%"></div><div class="mt" style="left:45%; border-bottom-width:180px"></div><div class="mt" style="left:75%"></div>
+<div class="rail"></div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚃</span></button></div>
+<script src="common.js?v=3"></script>
+<script>
+const btn = document.getElementById('btn');
+const KINDS = ['local', 'orange', 'yellow', 'shinkansen', 'sl'];
+const ICON = { local: '🚃', orange: '🚃', yellow: '🚄', shinkansen: '🚅', sl: '🚂' };
+let next = pick(KINDS), running = 0;
+btn.querySelector('.emoji').textContent = ICON[next];
+
+function whistle(kind) {
+  if (kind === 'sl') { Sfx.tone(523, 1.0, 'sine', 0.15); Sfx.tone(659, 1.0, 'sine', 0.12); Sfx.tone(784, 1.0, 'sine', 0.08); }
+  else if (kind === 'shinkansen' || kind === 'yellow') { Sfx.tone(300, 1.2, 'sawtooth', 0.04, 0, 900); Sfx.noise(1.2, 0.3, 2000, 0, 'bandpass'); }
+  else { Sfx.tone(587, 0.5, 'sawtooth', 0.06); Sfx.tone(740, 0.5, 'sawtooth', 0.05); }
+}
+
+btn.addEventListener('pointerdown', () => {
+  if (running >= 2) return;
+  const kind = next;
+  next = pick(KINDS);
+  btn.querySelector('.emoji').textContent = ICON[next];
+  running++;
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const t = makeTrain(kind);
+  t.style.bottom = innerHeight * 0.42 + 20 + 'px';
+  document.body.appendChild(t);
+  const len = t.offsetWidth;
+  const speed = kind === 'shinkansen' ? 1000 : kind === 'yellow' ? 850 : kind === 'sl' ? 260 : 400;
+  let x = dir > 0 ? -len : innerWidth, last = performance.now(), gt = 0, st = 0;
+  const beat = 206 / speed;
+  whistle(kind);
+  (function step(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    x += dir * speed * dt;
+    t.style.transform = `translateX(${x}px)` + (dir < 0 ? ' scaleX(-1)' : '');
+    gt += dt;
+    if (gt > beat) { gt -= beat; Sfx.noise(0.08, 0.5, 300); Sfx.noise(0.08, 0.4, 250, Math.min(0.2, beat * 0.25)); } // ガタン ゴトン
+    if (kind === 'sl') {
+      st += dt;
+      if (st > 0.35) { // しゅっ しゅっ
+        st = 0;
+        Sfx.noise(0.15, 0.3, 3000, 0, 'highpass');
+        const s = document.createElement('div');
+        s.className = 'smoke';
+        s.style.left = (dir > 0 ? x + len - 66 : x + 40) + 'px'; // えんとつの ばしょ
+        s.style.bottom = innerHeight * 0.42 + 20 + 110 + 'px';
+        s.style.setProperty('--dx', -dir * 80 + 'px');
+        document.body.appendChild(s); setTimeout(() => s.remove(), 1600);
+      }
+    }
+    if ((dir > 0 && x > innerWidth + 20) || (dir < 0 && x < -len - 20)) { t.remove(); running--; return; }
+    requestAnimationFrame(step);
+  })(last);
+});
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@ html, body {
   margin: 0; height: 100%; overflow: hidden;
   font-family: "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Meiryo", system-ui, sans-serif;
   user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; /* iPad の ながおしメニューを ださない */
   touch-action: manipulation;
 }
 canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
@@ -77,3 +78,23 @@ canvas .big-btn, .big-btn.hic {
   box-shadow: inset 0 -14px 0 var(--c2);
   transform: none !important;
 }
+
+/* でんしゃ（ふみきり・でんしゃ ページで つかう） */
+.train { position: fixed; display: flex; align-items: flex-end; gap: 6px; z-index: 3; pointer-events: none; will-change: transform; }
+.car { position: relative; width: 200px; height: 82px; flex: none; background: var(--body); border-radius: 10px; box-shadow: inset 0 -6px 0 rgba(0,0,0,.12); }
+.car::before { content: ''; position: absolute; left: 14px; right: 14px; top: 12px; height: 26px;
+  background: repeating-linear-gradient(90deg, #a8dcff 0 30px, transparent 30px 44px); border-radius: 4px; }
+.car::after { content: ''; position: absolute; left: 0; right: 0; top: 48px; height: 9px; background: var(--stripe); }
+.car.round { border-radius: 10px 36px 10px 10px; }
+.car.nose { width: 250px; border-radius: 10px 120px 10px 10px / 10px 70px 10px 10px; }
+.car.nose::before { right: 70px; }
+.car.loco { background: #2b2b2b; border-radius: 10px 10px 6px 6px; }
+.car.loco::before { left: 14px; right: auto; width: 46px; height: 34px; background: #ffd27a; }
+.car.loco::after { background: #c0392b; }
+.car.brown { background: #7a4a2a; }
+.chimney { position: absolute; right: 34px; top: -34px; width: 26px; height: 36px; background: #2b2b2b; border-radius: 6px 6px 0 0; }
+.wheel { position: absolute; bottom: -16px; width: 30px; height: 30px; border-radius: 50%; background: #444;
+  border: 5px dashed #999; box-sizing: border-box; animation: wheelspin .4s linear infinite; }
+@keyframes wheelspin { to { rotate: 360deg; } }
+.rail { position: fixed; left: 0; right: 0; height: 26px; z-index: 2;
+  background: linear-gradient(#888 0 6px, transparent 6px), repeating-linear-gradient(90deg, #6b4a2b 0 14px, transparent 14px 40px); }

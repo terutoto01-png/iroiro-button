@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="common.css?v=3">
 <style>
   html, body { overflow: auto; }
   body { background: linear-gradient(135deg, #ffe7f3, #e2f3ff, #e9ffe2); min-height: 100%; }
@@ -19,7 +19,7 @@
 </head>
 <body data-no-back>
 <nav class="grid" id="grid"></nav>
-<script src="common.js"></script>
+<script src="common.js?v=3"></script>
 <script>
 // 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'hic' = HTML-in-Canvas）
 const PAGES = [
@@ -33,6 +33,12 @@ const PAGES = [
   ['kaminari', '⚡', '#ffe600', '#b3a000'], ['ohana', '🌷', '#ff7ab8', '#c94585'],
   ['kao', '🙂', '#ffd23f', '#d19e00'], ['kuruma', '🚗', '#2e86ff', '#1655b8'],
   ['onara', '💨', '#9ccc3d', '#678a1f'], ['taiko', '🥁', '#c0392b', '#7a1f14'],
+  ['densha', '🚃', '#2bb24c', '#187a31'], ['fumikiri', '🚸', '#ffcc00', '#b38f00'],
+  ['nami', '🌊', '#20b2e8', '#0d6f99', 'gpu'], ['tamago', '🥚', '#f3d9a8', '#c4a167'],
+  ['roketto', '🚀', '#ff3b3b', '#a81c1c'], ['kyouryuu', '🦖', '#4caf50', '#2e7031'],
+  ['keeki', '🎂', '#ff8fb8', '#c95a85'], ['obake', '👻', '#b388ff', '#6a3fc2'],
+  ['sakana', '🐠', '#ff9933', '#c2651a'], ['saikoro', '🎲', '#ff6b35', '#b8431a'],
+  ['okashi', '🍬', '#ff6fae', '#c23c7a'], ['biidama', '🔮', '#5b8cff', '#2f55b8'],
 ];
 const grid = document.getElementById('grid');
 

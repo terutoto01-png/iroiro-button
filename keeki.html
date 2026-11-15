@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ケーキ</title>
+<link rel="stylesheet" href="common.css?v=3">
+<style>
+  body { background: #ffe6f0; transition: background .5s; }
+  body.dark { background: #3a2a40; }
+  .big-btn { --c1: #ff8fb8; --c2: #c95a85; }
+  #cake { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); width: min(80vw, 420px); }
+  #candles { display: flex; justify-content: center; gap: min(4vw, 22px); height: 110px; align-items: flex-end; }
+  .candle { width: 16px; height: 70px; border-radius: 4px; position: relative;
+            background: repeating-linear-gradient(45deg, var(--c) 0 8px, #fff 8px 16px); animation: pop .3s cubic-bezier(.3,1.8,.5,1); }
+  @keyframes pop { from { scale: 0; } }
+  .flame { position: absolute; left: 50%; top: -34px; width: 18px; height: 30px; margin-left: -9px;
+           border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%; background: radial-gradient(circle at 50% 70%, #fff 0 20%, #ffd23f 40%, #ff7a00);
+           box-shadow: 0 0 25px 8px rgba(255,200,60,.6); animation: flick .15s infinite alternate; transform-origin: 50% 100%; }
+  @keyframes flick { to { scale: .9 1.1; rotate: 4deg; } }
+  .candle.out .flame { display: none; }
+  .tier { margin: 0 auto; border-radius: 14px 14px 8px 8px; position: relative; }
+  .t1 { width: 70%; height: 80px; background: #fff3f7; border-bottom: 10px solid #ffc2d6; }
+  .t2 { width: 100%; height: 110px; background: #ffd1e1; border-bottom: 12px solid #f39bbb; }
+  .tier::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 22px; border-radius: 14px 14px 50% 50%;
+                  background: radial-gradient(circle at 10% 100%, #fff 0 12px, transparent 13px) 0 0 / 40px 22px repeat-x, #fff; }
+  .berry { position: absolute; top: -10px; font-size: 30px; }
+</style>
+</head>
+<body>
+<div id="cake">
+  <div id="candles"></div>
+  <div class="tier t1"><span class="berry" style="left:10%">🍓</span><span class="berry" style="left:45%">🍓</span><span class="berry" style="right:10%">🍓</span></div>
+  <div class="tier t2"></div>
+</div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🕯️</span></button></div>
+<script src="common.js?v=3"></script>
+<script>
+// ハッピーバースデー（パブリックドメイン）
+const G4 = 392, A4 = 440, B4 = 493.88, C5 = 523.25, D5 = 587.33, E5 = 659.25, F5 = 698.46, G5 = 783.99;
+const SONG = [[G4,.75],[G4,.25],[A4,1],[G4,1],[C5,1],[B4,2], [G4,.75],[G4,.25],[A4,1],[G4,1],[D5,1],[C5,2],
+              [G4,.75],[G4,.25],[G5,1],[E5,1],[C5,1],[B4,1],[A4,2], [F5,.75],[F5,.25],[E5,1],[C5,1],[D5,1],[C5,2]];
+const COLORS = ['#ff5a8a', '#3fa9f5', '#ffcc00', '#4cd964', '#a66bff'];
+const candles = document.getElementById('candles'), btn = document.getElementById('btn');
+let busy = false;
+
+function playSong() {
+  const beat = 0.42; let t = 0;
+  for (const [f, d] of SONG) {
+    Sfx.tone(f, d * beat * 0.95, 'triangle', 0.22, t);
+    Sfx.tone(f * 2, d * beat * 0.6, 'sine', 0.05, t);
+    t += d * beat;
+  }
+  return t;
+}
+
+btn.addEventListener('pointerdown', () => {
+  if (busy) return;
+  const c = document.createElement('div');
+  c.className = 'candle';
+  c.style.setProperty('--c', COLORS[candles.children.length % COLORS.length]);
+  c.innerHTML = '<div class="flame"></div>';
+  candles.appendChild(c);
+  Sfx.noise(0.15, 0.4, 2500, 0, 'bandpass'); // しゅっ（マッチ）
+  Sfx.tone(880, 0.15, 'sine', 0.1, 0.05);
+  if (candles.children.length >= 5) {
+    busy = true;
+    document.body.classList.add('dark');
+    setTimeout(() => {
+      const len = playSong();
+      setTimeout(() => {
+        // ふーっ
+        Sfx.noise(0.9, 0.6, 900);
+        [...candles.children].forEach((c, i) => setTimeout(() => c.classList.add('out'), i * 80));
+        document.body.classList.remove('dark');
+        setTimeout(() => { Sfx.yay(); popText('おめでとう！', innerWidth / 2, innerHeight * 0.2, '#ff5a8a', 64); }, 600);
+        setTimeout(() => { candles.innerHTML = ''; busy = false; }, 2500);
+      }, len * 1000 + 300);
+    }, 500);
+  }
+});
+</script>
+</body>
+</html>

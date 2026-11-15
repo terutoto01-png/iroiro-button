@@ -201,3 +201,44 @@ const HIC = {
     }
   },
 };
+
+// ---- でんしゃを つくる（ひだり→みぎ むき。はんたいは scaleX(-1)） ----
+const TRAINS = {
+  local:      { body: '#e8edf2', stripe: '#2bb24c', head: 'round', cars: 4 },
+  orange:     { body: '#f08a24', stripe: '#fff3', head: 'round', cars: 4 },
+  yellow:     { body: '#ffd400', stripe: '#1e5bbf', head: 'nose', cars: 5 },
+  shinkansen: { body: '#f7f7f7', stripe: '#1f4fbf', head: 'nose', cars: 6 },
+  sl:         { body: '#2b2b2b', stripe: '#c0392b', head: 'loco', cars: 4 },
+};
+function makeTrain(kind) {
+  const k = TRAINS[kind];
+  const el = document.createElement('div');
+  el.className = 'train';
+  el.style.setProperty('--body', k.body); el.style.setProperty('--stripe', k.stripe);
+  for (let i = 0; i < k.cars; i++) {
+    const c = document.createElement('div');
+    const head = i === k.cars - 1;
+    c.className = 'car' + (head ? ' ' + k.head : (k.head === 'loco' ? ' brown' : ''));
+    c.innerHTML = '<span class="wheel" style="left:22px"></span><span class="wheel" style="right:22px"></span>' + (head && k.head === 'loco' ? '<span class="chimney"></span>' : '');
+    el.appendChild(c);
+  }
+  // うしろの せんとうも まるく
+  if (k.head !== 'loco') el.firstChild.style.borderRadius = k.head === 'nose' ? '120px 10px 10px 10px / 70px 10px 10px 10px' : '36px 10px 10px 10px';
+  return el;
+}
+
+// ---- iPad / iPhone むけ: さいしょに ゆびを はなしたときに 音と声を つかえるようにする ----
+(() => {
+  let done = false;
+  const unlock = () => {
+    if (done) return; done = true;
+    try {
+      const c = Sfx.ac();
+      const b = c.createBuffer(1, 1, 22050), s = c.createBufferSource();
+      s.buffer = b; s.connect(c.destination); s.start(0);
+    } catch (e) {}
+    try { if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } } catch (e) {}
+    for (const t of ['pointerup', 'touchend', 'click']) removeEventListener(t, unlock, true);
+  };
+  for (const t of ['pointerup', 'touchend', 'click']) addEventListener(t, unlock, true);
+})();

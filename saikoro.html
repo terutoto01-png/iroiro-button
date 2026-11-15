@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>サイコロ</title>
+<link rel="stylesheet" href="common.css?v=3">
+<style>
+  body { background: radial-gradient(circle, #3fae5a, #1d6b33); }
+  .big-btn { --c1: #ff6b35; --c2: #b8431a; }
+  .bottom-center .big-btn { width: min(30vw, 150px); height: min(30vw, 150px); }
+  #scene { position: fixed; left: 50%; top: 40%; width: var(--s); height: var(--s); margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+           --s: min(40vw, 200px); perspective: 900px; }
+  #dice { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transform: rotateX(-25deg) rotateY(30deg); }
+  .face { position: absolute; inset: 0; background: #fff; border-radius: 18%; border: 2px solid #ddd;
+          display: grid; grid-template: repeat(3, 1fr) / repeat(3, 1fr); padding: 14%; box-shadow: inset 0 0 20px rgba(0,0,0,.12); }
+  .pip { width: 70%; height: 70%; margin: auto; border-radius: 50%; background: #222; }
+  .pip.red { background: #e33; width: 90%; height: 90%; }
+  .f1 { transform: translateZ(calc(var(--s) / 2)); }
+  .f6 { transform: rotateY(180deg) translateZ(calc(var(--s) / 2)); }
+  .f2 { transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); }
+  .f5 { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
+  .f3 { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
+  .f4 { transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
+  #shadow { position: fixed; left: 50%; top: calc(40% + min(26vw, 130px)); width: min(40vw, 200px); height: 24px; margin-left: min(-20vw, -100px);
+            border-radius: 50%; background: rgba(0,0,0,.25); filter: blur(6px); }
+  #num { position: fixed; left: 50%; top: 12%; transform: translateX(-50%); font-size: min(20vw, 110px); font-weight: bold; color: #fff;
+         text-shadow: 0 6px 0 rgba(0,0,0,.3); pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="shadow"></div>
+<div id="scene"><div id="dice"></div></div>
+<div id="num"></div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎲</span></button></div>
+<script src="common.js?v=3"></script>
+<script>
+// 3x3 のマスの どこに てんを うつか
+const PIPS = { 1: [4], 2: [2, 6], 3: [2, 4, 6], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+// その目を まえに むける かいてん
+const ROT = { 1: [0, 0], 6: [0, 180], 2: [0, -90], 5: [0, 90], 3: [90, 0], 4: [-90, 0] };
+const WORDS = { 1: 'いち', 2: 'に', 3: 'さん', 4: 'よん', 5: 'ご', 6: 'ろく' };
+const dice = document.getElementById('dice'), num = document.getElementById('num'), btn = document.getElementById('btn');
+for (let n = 1; n <= 6; n++) {
+  const f = document.createElement('div');
+  f.className = 'face f' + n;
+  for (let i = 0; i < 9; i++) {
+    const c = document.createElement('div');
+    if (PIPS[n].includes(i)) c.className = 'pip' + (n === 1 ? ' red' : '');
+    f.appendChild(c);
+  }
+  dice.appendChild(f);
+}
+let rolling = false, curX = -25, curY = 30;
+
+btn.addEventListener('pointerdown', () => {
+  if (rolling) return;
+  rolling = true; num.textContent = '';
+  const n = 1 + Math.floor(Math.random() * 6);
+  const [rx, ry] = ROT[n];
+  // いまの かくどから 2〜3かいてん して めあての めに とまる
+  const nx = Math.ceil((curX + 720 + 25 - rx) / 360) * 360 + rx - 25;
+  const ny = Math.ceil((curY + 720 - 30 - ry) / 360) * 360 + ry + 30;
+  const from = `rotateX(${curX}deg) rotateY(${curY}deg)`;
+  const to = `rotateX(${nx}deg) rotateY(${ny}deg)`;
+  curX = nx; curY = ny;
+  const anim = dice.animate([
+    { transform: from, translate: '0 0' },
+    { translate: '0 -160px', offset: 0.35 },
+    { translate: '0 0', offset: 0.7 },
+    { translate: '0 -30px', offset: 0.85 },
+    { transform: to, translate: '0 0' },
+  ], { duration: 1400, easing: 'cubic-bezier(.2,.7,.3,1)', fill: 'forwards' });
+  // ころころ おと
+  for (let i = 0; i < 7; i++) Sfx.noise(0.05, 0.5, 2500, 0.15 + i * i * 0.025, 'bandpass');
+  anim.onfinish = () => {
+    dice.style.transform = to; anim.cancel();
+    num.textContent = n;
+    num.animate([{ scale: 0 }, { scale: 1.2 }, { scale: 1 }], { duration: 400 });
+    speak(WORDS[n] + '！');
+    for (let i = 0; i < n; i++) Sfx.tone(660 * Math.pow(2, i / 12 * 2), 0.15, 'sine', 0.15, i * 0.09);
+    rolling = false;
+  };
+});
+</script>
+</body>
+</html>

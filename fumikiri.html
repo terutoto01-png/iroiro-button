@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ふみきり</title>
+<link rel="stylesheet" href="common.css?v=3">
+<style>
+  body { background: linear-gradient(#bfe6ff 0 62%, #9bd27a 62%); }
+  .big-btn { --c1: #ffcc00; --c2: #b38f00; color: #222; }
+  .bottom-center { left: auto; right: 24px; transform: none; bottom: 24px; z-index: 20; }
+  .bottom-center .big-btn { width: min(26vw, 140px); height: min(26vw, 140px); }
+  .rail { bottom: 32%; }
+  #road { position: fixed; left: 30%; width: 22%; bottom: 0; height: 32%; background: #777; z-index: 1;
+          clip-path: polygon(30% 0, 70% 0, 100% 100%, 0 100%); }
+  /* ふみきりの はしら（でんしゃより てまえ） */
+  #post { position: fixed; left: 30%; bottom: 14%; width: 16px; height: 46%; margin-left: -8px; z-index: 10;
+          background: repeating-linear-gradient(#fff 0 20px, #222 20px 40px); border-radius: 4px; }
+  #cross { position: absolute; top: -10px; left: 50%; width: 130px; height: 130px; margin-left: -65px; }
+  #cross i { position: absolute; left: 50%; top: 50%; width: 150px; height: 24px; margin: -12px 0 0 -75px;
+             background: repeating-linear-gradient(90deg, #ffcc00 0 20px, #222 20px 40px); border-radius: 4px; }
+  #cross i:nth-child(1) { rotate: 45deg; } #cross i:nth-child(2) { rotate: -45deg; }
+  #lamps { position: absolute; top: 120px; left: 50%; width: 170px; height: 70px; margin-left: -85px; background: #222; border-radius: 35px;
+           display: flex; justify-content: space-between; padding: 6px; }
+  .lamp { width: 58px; height: 58px; border-radius: 50%; background: #5a1010; transition: background .05s, box-shadow .05s; }
+  .lamp.on { background: #ff2a2a; box-shadow: 0 0 30px 12px rgba(255,40,40,.7); }
+  #arrow { position: absolute; top: 200px; left: 50%; width: 120px; height: 44px; margin-left: -60px; background: #222; border-radius: 8px;
+           color: #333; font-size: 36px; font-weight: bold; text-align: center; line-height: 44px; }
+  #arrow.on { color: #ffcc00; text-shadow: 0 0 10px #ffcc00; }
+  /* しゃだんき */
+  #arm { position: absolute; bottom: 22%; left: 8px; width: min(40vw, 420px); height: 18px; z-index: 11; transform-origin: 0 50%;
+         background: repeating-linear-gradient(90deg, #ffcc00 0 30px, #222 30px 60px); border-radius: 9px; rotate: -80deg;
+         transition: rotate 1.6s ease-in-out; }
+  #arm.down { rotate: 0deg; }
+</style>
+</head>
+<body>
+<div id="road"></div>
+<div class="rail"></div>
+<div id="post">
+  <div id="cross"><i></i><i></i></div>
+  <div id="lamps"><div class="lamp" id="l1"></div><div class="lamp" id="l2"></div></div>
+  <div id="arrow"></div>
+  <div id="arm"></div>
+</div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚸</span></button></div>
+<script src="common.js?v=3"></script>
+<script>
+const btn = document.getElementById('btn'), arm = document.getElementById('arm'), arrow = document.getElementById('arrow');
+const l1 = document.getElementById('l1'), l2 = document.getElementById('l2');
+let ringing = null, blink = 0, busy = false, trainsLeft = 0;
+
+function kan() { // カン
+  Sfx.tone(740, 0.35, 'square', 0.07); Sfx.tone(1110, 0.25, 'triangle', 0.06); Sfx.tone(1480, 0.15, 'sine', 0.04);
+}
+function startRing() {
+  if (ringing) return;
+  ringing = setInterval(() => {
+    blink ^= 1;
+    l1.classList.toggle('on', blink === 1); l2.classList.toggle('on', blink === 0);
+    kan();
+  }, 420);
+}
+function stopRing() {
+  clearInterval(ringing); ringing = null;
+  l1.classList.remove('on'); l2.classList.remove('on'); arrow.textContent = ''; arrow.classList.remove('on');
+}
+
+function runTrain(dir) {
+  const kind = pick(['local', 'local', 'orange', 'yellow', 'shinkansen', 'sl']);
+  const t = makeTrain(kind);
+  const railBottom = innerHeight * 0.32 + 26;
+  t.style.bottom = railBottom - 6 + 'px';
+  document.body.appendChild(t);
+  const len = t.offsetWidth;
+  const speed = kind === 'shinkansen' ? 900 : kind === 'sl' ? 280 : 420;
+  let x = dir > 0 ? -len : innerWidth, last = performance.now(), gt = 0;
+  // ガタン ゴトン
+  const carLen = 206, beat = carLen / speed;
+  if (kind === 'sl') { Sfx.tone(520, 0.9, 'sine', 0.15); Sfx.tone(660, 0.9, 'sine', 0.12); }
+  else Sfx.tone(kind === 'shinkansen' ? 880 : 587, 0.5, 'sawtooth', 0.06);
+  return new Promise(res => {
+    (function step(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      x += dir * speed * dt;
+      t.style.transform = `translateX(${x}px)` + (dir < 0 ? ' scaleX(-1)' : '');
+      gt += dt;
+      if (gt > beat) { gt -= beat; Sfx.noise(0.08, 0.5, 300); Sfx.noise(0.08, 0.4, 250, beat * 0.25); }
+      if ((dir > 0 && x > innerWidth + 20) || (dir < 0 && x < -len - 20)) { t.remove(); res(); return; }
+      requestAnimationFrame(step);
+    })(last);
+  });
+}
+
+btn.addEventListener('pointerdown', async () => {
+  if (busy) return;
+  busy = true;
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const two = Math.random() < 0.25; // ときどき りょうほうから
+  arrow.textContent = two ? '⇄' : dir > 0 ? '→' : '←';
+  arrow.classList.add('on');
+  startRing();
+  arm.classList.add('down');
+  await new Promise(r => setTimeout(r, 2600));
+  if (two) await Promise.all([runTrain(dir), new Promise(r => setTimeout(r, 1200)).then(() => runTrain(-dir))]);
+  else await runTrain(dir);
+  await new Promise(r => setTimeout(r, 500));
+  arm.classList.remove('down');
+  setTimeout(() => { stopRing(); busy = false; }, 1700);
+});
+</script>
+</body>
+</html>
