@@ -3,7 +3,7 @@
 // ・HTML は network-first、バージョン付きアセットは cache-first
 
 const CACHE_PREFIX = 'iroiro';
-const CORE_CACHE = `${CACHE_PREFIX}-core-v13`;
+const CORE_CACHE = `${CACHE_PREFIX}-core-v14`;
 const RUNTIME_CACHE = `${CACHE_PREFIX}-runtime`;
 
 // 初回インストール時に確実に持っておくアプリシェル
@@ -73,7 +73,8 @@ self.addEventListener('fetch', (e) => {
 async function networkFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
   try {
-    const res = await fetch(req);
+    // ブラウザの HTTP キャッシュ（GitHub Pages は 10分）を とおさず、かならず サーバーに たしかめる
+    const res = await fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' });
     if (res && res.status === 200) {
       await cache.put(req, res.clone());
     }
