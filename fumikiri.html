@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>ふみきり</title>
-<link rel="stylesheet" href="common.css?v=6">
+<link rel="stylesheet" href="common.css?v=7">
 <style>
   body { background: linear-gradient(#bfe6ff 0 62%, #9bd27a 62%); }
   .big-btn { --c1: #ffcc00; --c2: #b38f00; color: #222; }
@@ -44,7 +44,7 @@
   <div id="arm"></div>
 </div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚸</span></button></div>
-<script src="common.js?v=6"></script>
+<script src="common.js?v=7"></script>
 <script>
 const btn = document.getElementById('btn'), arm = document.getElementById('arm'), arrow = document.getElementById('arrow');
 const l1 = document.getElementById('l1'), l2 = document.getElementById('l2');
@@ -92,21 +92,43 @@ function runTrain(dir) {
   });
 }
 
-btn.addEventListener('pointerdown', async () => {
-  if (busy) return;
-  busy = true;
+// phase: idle → waiting（しゃだんきが おりる）→ running（でんしゃが とおる）→ closing（あがる）
+let phase = 'idle', active = 0, extra = 0, closeTimer = 0, raiseTimer = 0;
+async function train(dir) {
+  active++;
+  await runTrain(dir);
+  active--;
+  if (active === 0 && phase === 'running') {
+    if (extra > 0) { extra--; train(Math.random() < 0.5 ? 1 : -1); return; }
+    phase = 'closing';
+    raiseTimer = setTimeout(() => {
+      arm.classList.remove('down');
+      closeTimer = setTimeout(() => { stopRing(); phase = 'idle'; }, 1700);
+    }, 500);
+  }
+}
+function close() {
+  phase = 'waiting';
+  clearTimeout(closeTimer); clearTimeout(raiseTimer);
   const dir = Math.random() < 0.5 ? 1 : -1;
   const two = Math.random() < 0.25; // ときどき りょうほうから
   arrow.textContent = two ? '⇄' : dir > 0 ? '→' : '←';
   arrow.classList.add('on');
   startRing();
   arm.classList.add('down');
-  await new Promise(r => setTimeout(r, 2600));
-  if (two) await Promise.all([runTrain(dir), new Promise(r => setTimeout(r, 1200)).then(() => runTrain(-dir))]);
-  else await runTrain(dir);
-  await new Promise(r => setTimeout(r, 500));
-  arm.classList.remove('down');
-  setTimeout(() => { stopRing(); busy = false; }, 1700);
+  setTimeout(() => {
+    phase = 'running';
+    train(dir);
+    if (two) setTimeout(() => train(-dir), 1200);
+  }, 2600);
+}
+btn.addEventListener('pointerdown', () => {
+  if (phase === 'idle') { close(); return; }
+  // れんだ: でんしゃが もっと くる
+  kan();
+  if (phase === 'waiting') { if (extra < 3) extra++; }
+  else if (phase === 'running') { if (active < 3) train(Math.random() < 0.5 ? 1 : -1); else if (extra < 3) extra++; }
+  else if (phase === 'closing') { close(); } // あがるまえに また おりる
 });
 </script>
 </body>

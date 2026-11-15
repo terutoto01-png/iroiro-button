@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>こえまね</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: #2a1f4f; transition: background .3s; }
+  body.rec { background: #5a1f3f; }
+  #who { position: fixed; left: 50%; top: 38%; transform: translate(-50%, -50%); font-size: min(50vw, 40vh); line-height: 1; pointer-events: none; }
+  #who span { display: inline-block; }
+  #ring { position: fixed; left: 50%; top: 38%; width: 10px; height: 10px; border-radius: 50%; transform: translate(-50%, -50%);
+          border: 10px solid rgba(255,255,255,.5); pointer-events: none; opacity: 0; }
+  .big-btn { --c1: #ff4d6d; --c2: #b3203e; }
+</style>
+</head>
+<body>
+<div id="ring"></div>
+<div id="who"><span>👂</span></div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎤</span></button></div>
+<script src="common.js?v=7"></script>
+<script>
+// こえまね: ボタンを おして しゃべると、へんな こえで かえってくる。れんだすると まいかい ちがう こえ
+const btn = document.getElementById('btn'), who = document.getElementById('who'), whoE = who.querySelector('span');
+const ring = document.getElementById('ring');
+const EFFECTS = [
+  { e: '🐭', rate: 1.8 },                 // ねずみ（たかい こえ）
+  { e: '🐻', rate: 0.62 },                // くま（ひくい こえ）
+  { e: '🤖', rate: 1.0, robot: true },    // ロボット
+  { e: '🔄', rate: 1.2, reverse: true },  // さかさま
+  { e: '⛰️', rate: 1.0, echo: true },     // やまびこ
+  { e: '🐿️', rate: 2.3 },                // りす（もっと たかい）
+  { e: '🐘', rate: 0.5 },                 // ぞう（もっと ひくい）
+];
+let state = 'idle', recorder = null, stream = null, buffer = null, playing = null, ei = -1, meterRAF = 0, endedAt = 0;
+
+async function startRec() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false } });
+  } catch (e) {
+    whoE.textContent = '🙉'; Sfx.boing(); return;
+  }
+  state = 'rec';
+  document.body.classList.add('rec');
+  whoE.textContent = '👂';
+  Sfx.tone(880, 0.1, 'sine', 0.15);
+  const chunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop()); // マイクは すぐ とめる
+    document.body.classList.remove('rec');
+    cancelAnimationFrame(meterRAF); ring.style.opacity = 0;
+    try {
+      const ab = await new Blob(chunks, { type: recorder.mimeType }).arrayBuffer();
+      buffer = await Sfx.ac().decodeAudioData(ab);
+      state = 'play';
+      play();
+    } catch (e) { state = 'idle'; whoE.textContent = '❓'; }
+  };
+  recorder.start();
+  meter();
+  setTimeout(() => { if (recorder && recorder.state === 'recording') recorder.stop(); }, 2500);
+}
+
+// きいている あいだ、こえの おおきさで わっかが ひろがる
+function meter() {
+  const c = Sfx.ac(), src = c.createMediaStreamSource(stream), an = c.createAnalyser();
+  an.fftSize = 512; src.connect(an);
+  const d = new Uint8Array(an.fftSize);
+  const f = () => {
+    an.getByteTimeDomainData(d);
+    let m = 0; for (const v of d) m = Math.max(m, Math.abs(v - 128));
+    const s = 160 + m * 6;
+    ring.style.width = ring.style.height = s + 'px'; ring.style.opacity = 0.3 + m / 100;
+    whoE.style.scale = 1 + m / 200;
+    if (state === 'rec') meterRAF = requestAnimationFrame(f);
+  };
+  f();
+}
+
+function play() {
+  if (!buffer) return;
+  if (playing) { try { playing.stop(); } catch (e) {} }
+  let i; do { i = Math.floor(Math.random() * EFFECTS.length); } while (i === ei); ei = i;
+  const fx = EFFECTS[i], c = Sfx.ac();
+  whoE.textContent = fx.e;
+  whoE.animate([{ scale: 0.3 }, { scale: 1.15 }, { scale: 1 }], { duration: 350, easing: 'ease-out' });
+  let buf = buffer;
+  if (fx.reverse) {
+    buf = c.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) buf.getChannelData(ch).set(buffer.getChannelData(ch).slice().reverse());
+  }
+  const src = c.createBufferSource(); src.buffer = buf; src.playbackRate.value = fx.rate;
+  const g = c.createGain(); g.gain.value = 1.6;
+  let node = src;
+  if (fx.robot) { // ロボット（おとを ぶるぶる ふるわせる）
+    const rm = c.createGain(); rm.gain.value = 0;
+    const lfo = c.createOscillator(); lfo.frequency.value = 55; lfo.connect(rm.gain); lfo.start(); lfo.stop(c.currentTime + buf.duration + 0.2);
+    node.connect(rm); node = rm;
+  }
+  node.connect(g).connect(Sfx.out());
+  if (fx.echo) { // やまびこ
+    const dl = c.createDelay(1); dl.delayTime.value = 0.3;
+    const fb = c.createGain(); fb.gain.value = 0.45;
+    g.connect(dl); dl.connect(fb).connect(dl); dl.connect(Sfx.out());
+  }
+  src.start();
+  playing = src;
+  src.onended = () => { if (playing === src) { playing = null; endedAt = performance.now(); } };
+}
+
+btn.addEventListener('pointerdown', () => {
+  if (state === 'idle') startRec();
+  else if (state === 'rec') { if (recorder && recorder.state === 'recording') recorder.stop(); } // はやく おわりにする
+  else if (state === 'play') {
+    // さいせいちゅう（と おわって すぐ）は れんだ: べつの こえで もういちど
+    // しばらく あいてから おしたら: あたらしく きく
+    if (playing || performance.now() - endedAt < 1500) play();
+    else { state = 'idle'; startRec(); }
+  }
+});
+</script>
+</body>
+</html>

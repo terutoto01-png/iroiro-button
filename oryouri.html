@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>おりょうり</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: repeating-linear-gradient(0deg, #f3e3c3 0 50px, #ead6b0 50px 100px); }
+  .big-btn { --c1: #ff7b00; --c2: #b35500; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🥕</span></button></div>
+<script src="common.js?v=7"></script>
+<script>
+// おりょうり: ボタンで ぐが フライパンに とびこむ。なぞると まぜる。たたくと ぽーん
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+const FOODS = ['🥚', '🥕', '🧅', '🍅', '🥦', '🍄', '🧀', '🥓', '🍤', '🌽', '🫑', '🍗', '🥔', '🍖', '🫛', '🦐'];
+let foods = [], steam = [], sizzle = 0, toss = 0, nextFood = pick(FOODS);
+btn.querySelector('.emoji').textContent = nextFood;
+
+function pan() { const W = innerWidth, H = innerHeight; const r = Math.min(W * 0.36, H * 0.3, 260); return { x: W / 2, y: H * 0.5, r }; }
+
+btn.addEventListener('pointerdown', () => {
+  const p = pan();
+  foods.push({ e: nextFood, x: p.x + rand(-p.r, p.r) * 0.5, y: -60, vx: rand(-40, 40), vy: rand(100, 300), z: 0, rot: rand(0, 6), vr: rand(-6, 6), s: rand(54, 70), inPan: false });
+  nextFood = pick(FOODS);
+  btn.querySelector('.emoji').textContent = nextFood;
+  Sfx.tone(rand(500, 800), 0.25, 'sine', 0.15, 0, 250); // ひゅー
+  if (foods.filter(f => !f.out).length > 26) flip(); // いっぱいに なったら ぽーん！（とびだした ぐは かぞえない）
+});
+
+// なぞると まぜる
+const fingers = new Map();
+cv.addEventListener('pointerdown', (e) => {
+  cv.setPointerCapture(e.pointerId);
+  fingers.set(e.pointerId, { x: e.clientX, y: e.clientY, moved: 0 });
+});
+cv.addEventListener('pointermove', (e) => {
+  const f = fingers.get(e.pointerId); if (!f) return;
+  const dx = e.clientX - f.x, dy = e.clientY - f.y;
+  f.moved += Math.hypot(dx, dy);
+  for (const it of foods) {
+    if (!it.inPan) continue;
+    const d = Math.hypot(it.x - e.clientX, it.y - e.clientY);
+    if (d < 90) { it.vx += dx * 12; it.vy += dy * 12; it.vr += (dx + dy) * 0.05; }
+  }
+  if (f.moved > 60) { f.moved = 0; Sfx.noise(0.15, 0.15, 1800, 0, 'bandpass'); }
+  f.x = e.clientX; f.y = e.clientY;
+});
+const up = (e) => {
+  const f = fingers.get(e.pointerId); fingers.delete(e.pointerId);
+  if (f && f.moved < 10) { // たたくと ぽーん（ちいさく）
+    const p = pan();
+    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < p.r) hop(0.5);
+  }
+};
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+function hop(power) {
+  toss = 1;
+  for (const it of foods) if (it.inPan) { it.vz = rand(400, 700) * power; it.vr += rand(-10, 10); }
+  Sfx.tone(200, 0.2, 'triangle', 0.25, 0, 500);
+}
+function flip() { // おおきく ぽーん！ そして からっぽに
+  toss = 1.5;
+  for (const it of foods) { it.inPan = false; it.vx = rand(-600, 600); it.vy = -rand(700, 1200); it.vr = rand(-15, 15); it.out = true; }
+  Sfx.yay(); Sfx.tone(150, 0.4, 'triangle', 0.3, 0, 700);
+  popText('ぽーん！', innerWidth / 2, innerHeight * 0.25, '#fff', 64);
+}
+
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now;
+  const W = innerWidth, H = innerHeight, p = pan();
+  toss *= Math.pow(0.02, dt);
+  let inCount = 0;
+  for (const it of foods) {
+    it.rot += it.vr * dt; it.vr *= Math.pow(0.3, dt);
+    if (!it.inPan) {
+      it.vy += 1500 * dt; it.x += it.vx * dt; it.y += it.vy * dt;
+      if (!it.out && it.y > p.y - p.r * 0.3 && Math.hypot(it.x - p.x, (it.y - p.y) * 1.4) < p.r) {
+        it.inPan = true; it.vz = 0; it.z = 0; it.vy *= 0.2; it.vx *= 0.3;
+        Sfx.noise(0.6, 0.35, 5000, 0, 'highpass'); // じゅー
+        Sfx.tone(rand(150, 250), 0.1, 'sine', 0.3);
+      }
+      if (it.y > H + 100) it.dead = true;
+    } else {
+      inCount++;
+      it.vx *= Math.pow(0.05, dt); it.vy *= Math.pow(0.05, dt);
+      it.x += it.vx * dt; it.y += it.vy * dt;
+      // ふらいぱんの なかに とどめる（だえん）
+      const dx = it.x - p.x, dy = (it.y - p.y) * 1.4, d = Math.hypot(dx, dy), lim = p.r - it.s * 0.4;
+      if (d > lim) { it.x = p.x + dx / d * lim; it.y = p.y + dy / d * lim / 1.4; it.vx *= -0.4; it.vy *= -0.4; }
+      // とびはね（ぽーん）
+      if (it.vz) { it.z += it.vz * dt; it.vz -= 1800 * dt; if (it.z <= 0) { it.z = 0; it.vz = 0; } }
+    }
+  }
+  foods = foods.filter(f => !f.dead);
+  // じゅーじゅー の ゆげ と おと
+  sizzle += dt;
+  if (inCount > 0 && sizzle > 0.6) { sizzle = 0; Sfx.noise(0.6, 0.04 + inCount * 0.006, 6000, 0, 'highpass'); }
+  if (inCount > 0 && Math.random() < 0.3) steam.push({ x: p.x + rand(-p.r * 0.6, p.r * 0.6), y: p.y, r: rand(10, 20), life: 1.5 });
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // コンロ の ひ
+  for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; drawEmoji(ctx, '🔥', p.x + Math.cos(a) * p.r * 0.7, p.y + p.r * 0.55 + Math.sin(a) * 18 + 30, 40); }
+  // フライパン
+  const ty = -Math.sin(toss * 3) * toss * 20;
+  ctx.save(); ctx.translate(0, ty);
+  ctx.fillStyle = '#3a3a3a'; ctx.beginPath(); ctx.roundRect(p.x + p.r * 0.9, p.y - 16, p.r * 0.9, 32, 14); ctx.fill();
+  ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.ellipse(p.x, p.y + 10, p.r + 8, (p.r + 8) / 1.4, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#4a4a4a'; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r, p.r / 1.4, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.beginPath(); ctx.ellipse(p.x - p.r * 0.3, p.y - p.r * 0.2, p.r * 0.4, p.r * 0.2, -0.3, 0, 7); ctx.fill();
+  ctx.restore();
+  // ぐ
+  for (const it of foods) {
+    ctx.save(); ctx.translate(it.x, it.y - it.z + (it.inPan ? ty : 0)); ctx.rotate(it.rot);
+    drawEmoji(ctx, it.e, 0, 0, it.s * (1 + it.z / 800));
+    ctx.restore();
+  }
+  // ゆげ
+  for (const s of steam) {
+    s.y -= 60 * dt; s.r += 15 * dt; s.life -= dt;
+    ctx.fillStyle = `rgba(255,255,255,${Math.max(0, s.life / 1.5) * 0.5})`;
+    ctx.beginPath(); ctx.arc(s.x + Math.sin(s.y / 20) * 8, s.y, s.r, 0, 7); ctx.fill();
+  }
+  steam = steam.filter(s => s.life > 0);
+  requestAnimationFrame(loop);
+})(lastT);
+</script>
+</body>
+</html>

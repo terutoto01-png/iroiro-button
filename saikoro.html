@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>サイコロ</title>
-<link rel="stylesheet" href="common.css?v=6">
+<link rel="stylesheet" href="common.css?v=7">
 <style>
   body { background: radial-gradient(circle, #3fae5a, #1d6b33); }
   .big-btn { --c1: #ff6b35; --c2: #b8431a; }
@@ -33,7 +33,7 @@
 <div id="scene"><div id="dice"></div></div>
 <div id="num"></div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎲</span></button></div>
-<script src="common.js?v=6"></script>
+<script src="common.js?v=7"></script>
 <script>
 // 3x3 のマスの どこに てんを うつか
 const PIPS = { 1: [4], 2: [2, 6], 3: [2, 4, 6], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
@@ -51,10 +51,10 @@ for (let n = 1; n <= 6; n++) {
   }
   dice.appendChild(f);
 }
-let rolling = false, curX = -25, curY = 30;
+let rolling = false, curX = -25, curY = 30, anim0 = null;
 
 btn.addEventListener('pointerdown', () => {
-  if (rolling) return;
+  if (anim0) anim0.cancel(); // ころがっている とちゅうでも もういちど ふれる
   rolling = true; num.textContent = '';
   const n = 1 + Math.floor(Math.random() * 6);
   const [rx, ry] = ROT[n];
@@ -73,7 +73,9 @@ btn.addEventListener('pointerdown', () => {
   ], { duration: 1400, easing: 'cubic-bezier(.2,.7,.3,1)', fill: 'forwards' });
   // ころころ おと
   for (let i = 0; i < 7; i++) Sfx.noise(0.05, 0.5, 2500, 0.15 + i * i * 0.025, 'bandpass');
+  anim0 = anim;
   anim.onfinish = () => {
+    anim0 = null;
     dice.style.transform = to; anim.cancel();
     num.textContent = n;
     num.animate([{ scale: 0 }, { scale: 1.2 }, { scale: 1 }], { duration: 400 });

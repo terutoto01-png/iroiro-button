@@ -5,7 +5,7 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // ---- おと（Web Audio で合成。音声ファイル不要） ----
 const Sfx = (() => {
-  let ctx = null, master = null;
+  let ctx = null, master = null, noiseBuf = null;
   let level = 1;
   try { const v = parseFloat(localStorage.getItem('iroiro-volume')); if (!isNaN(v)) level = v; } catch (e) {}
   function ac() {
@@ -13,14 +13,32 @@ const Sfx = (() => {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       master = ctx.createGain();
       master.gain.value = 0.7 * level;
-      master.connect(ctx.destination);
+      // れんだで おとが かさなっても われないように
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -12; comp.knee.value = 12; comp.ratio.value = 6;
+      master.connect(comp).connect(ctx.destination);
+      // ノイズは 1かいだけ つくって つかいまわす（れんだで おもくならないように）
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     }
     if (ctx.state === 'suspended') ctx.resume();
     return ctx;
   }
+  // どうじに なる おとの かずを おさえる（れんだ たいさく）
+  const MAX_VOICES = 36;
+  let voices = [];
+  function room(c, end) {
+    const now = c.currentTime;
+    voices = voices.filter(e => e > now);
+    if (voices.length >= MAX_VOICES) return false;
+    voices.push(end);
+    return true;
+  }
   // 単音。slideTo を指定すると周波数がすべる
   function tone(freq, dur = 0.3, type = 'sine', vol = 0.25, when = 0, slideTo = null) {
     const c = ac(), t = c.currentTime + when;
+    if (!room(c, t + dur)) return;
     const o = c.createOscillator(), g = c.createGain();
     o.type = type;
     o.frequency.setValueAtTime(freq, t);
@@ -34,15 +52,16 @@ const Sfx = (() => {
   // ノイズ（ばーん、しゅー など）
   function noise(dur = 0.4, vol = 0.4, filterFreq = 1200, when = 0, filterType = 'lowpass') {
     const c = ac(), t = c.currentTime + when;
-    const len = Math.floor(c.sampleRate * dur);
-    const buf = c.createBuffer(1, len, c.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
-    const src = c.createBufferSource(); src.buffer = buf;
+    dur = Math.min(dur, 1.9);
+    if (!room(c, t + dur)) return;
+    const src = c.createBufferSource(); src.buffer = noiseBuf;
     const f = c.createBiquadFilter(); f.type = filterType; f.frequency.value = filterFreq;
-    const g = c.createGain(); g.gain.value = vol;
+    const g = c.createGain();
+    // だんだん ちいさく（まえの (1-x)^2 に ちかい かたち）
+    g.gain.setValueAtTime(vol, t);
+    g.gain.setTargetAtTime(0.0001, t, dur / 3.5);
     src.connect(f).connect(g).connect(master);
-    src.start(t);
+    src.start(t, Math.random() * (2 - dur), dur);
   }
   // 音量（0〜1）。全ページ共通でブラウザに覚えておく
   function setLevel(v) {

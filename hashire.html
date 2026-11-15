@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>はしれ</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: linear-gradient(#8fd3ff, #d8f2ff 62%, #7cc96a 62%); }
+  .big-btn { --c1: #ff6a3d; --c2: #b8401c; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">👟</span></button></div>
+<script src="common.js?v=7"></script>
+<script>
+// はしれ: れんだ するほど はやく はしる。おんがくも はやくなる
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+const RUNNERS = ['🐕', '🐎', '🐆', '🐇', '🐈', '🦖', '🐖', '🐢', '🐓', '🦔'];
+let runner = pick(RUNNERS), speed = 0, dist = 0, bob = 0, dust = [], lines = [], hops = 0;
+const MAX = 2400;
+const clouds = Array.from({ length: 6 }, () => ({ x: Math.random() * 2000, y: rand(40, 220), s: rand(50, 90) }));
+const props = Array.from({ length: 10 }, (_, i) => ({ x: i * 260 + rand(0, 120), e: pick(['🌳', '🌲', '🌷', '🏠', '🌻', '🪨']), s: rand(50, 90) }));
+
+btn.addEventListener('pointerdown', () => {
+  speed = Math.min(MAX, speed + 160 + speed * 0.08);
+  hops++;
+  Sfx.tone(300 + speed * 0.3, 0.06, 'square', 0.05);
+  if (speed > MAX * 0.95 && Math.random() < 0.3) popText(pick(['びゅーん！', 'はやーい！', '💨', '⚡']), rand(100, innerWidth - 100), rand(100, innerHeight * 0.4), '#fff', 56);
+});
+
+// はしる おんがく（オリジナルの みじかい くりかえし）。はやさで テンポが かわる
+const MELO = [0, 4, 7, 4, 9, 7, 4, 2, 0, 2, 4, 7, 12, 7, 4, 0];
+let mi = 0, nextBeat = 0;
+function music(now) {
+  if (speed < 40) { nextBeat = now; return; }
+  const interval = Math.max(70, 420 - speed * 0.15); // ミリびょう
+  if (now < nextBeat) return;
+  nextBeat = now + interval;
+  const n = MELO[mi++ % MELO.length];
+  Sfx.tone(392 * Math.pow(2, n / 12), interval / 1000 * 0.9, 'triangle', 0.1);
+  if (mi % 2 === 0) Sfx.tone(98 * Math.pow(2, (MELO[(mi + 8) % 16] % 12) / 12), interval / 1000, 'sine', 0.12);
+  if (mi % 4 === 0) Sfx.noise(0.05, 0.3, 4000, 0, 'highpass');
+}
+
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  const W = innerWidth, H = innerHeight, ground = H * 0.62;
+  speed *= Math.pow(0.45, dt); // だんだん ゆっくり
+  if (speed < 5) speed = 0;
+  dist += speed * dt;
+  bob += dt * (4 + speed / 120);
+  music(now);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // くも（ゆっくり）
+  for (const c of clouds) {
+    const x = ((c.x - dist * 0.08) % (W + 300) + W + 300) % (W + 300) - 150;
+    drawEmoji(ctx, '☁️', x, c.y, c.s);
+  }
+  // やま
+  ctx.fillStyle = '#9ad58a';
+  ctx.beginPath(); ctx.moveTo(0, ground);
+  for (let x = 0; x <= W; x += 20) ctx.lineTo(x, ground - 60 - Math.sin((x + dist * 0.3) / 140) * 40 - Math.sin((x + dist * 0.3) / 57) * 15);
+  ctx.lineTo(W, ground); ctx.fill();
+  // き や いえ
+  for (const p of props) {
+    const span = 260 * props.length;
+    const x = ((p.x - dist) % span + span) % span - 100;
+    if (x < W + 100) drawEmoji(ctx, p.e, x, ground - p.s * 0.45, p.s);
+  }
+  // じめんの しましま
+  ctx.fillStyle = '#6ab757';
+  for (let x = -((dist * 1.0) % 80); x < W; x += 80) ctx.fillRect(x, ground + 30, 40, 10);
+  // スピードの せん
+  if (speed > 600 && Math.random() < speed / 2400) lines.push({ x: W + 20, y: rand(ground - 220, ground + 60), l: rand(80, 200), life: 0.4 });
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  for (const l of lines) { l.x -= speed * 1.5 * dt; l.life -= dt; ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(l.x + l.l, l.y); ctx.stroke(); }
+  lines = lines.filter(l => l.life > 0);
+  // はしる こ
+  const rx = W * 0.35 + Math.min(1, speed / MAX) * W * 0.15;
+  const jump = Math.abs(Math.sin(bob)) * (10 + Math.min(40, speed / 50));
+  const ry = ground - 50 - jump;
+  if (speed > 100 && Math.random() < 0.5) dust.push({ x: rx - 30, y: ground - 5, r: rand(6, 14), vx: -rand(50, 150) - speed * 0.2, life: 0.5 });
+  ctx.fillStyle = 'rgba(160,120,80,0.35)';
+  for (const d of dust) { d.x += d.vx * dt; d.r += 20 * dt; d.life -= dt; ctx.globalAlpha = Math.max(0, d.life * 2); ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  dust = dust.filter(d => d.life > 0);
+  // かげ
+  ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.beginPath(); ctx.ellipse(rx, ground + 4, 50 - jump * 0.4, 10, 0, 0, 7); ctx.fill();
+  ctx.save(); ctx.translate(rx, ry);
+  ctx.rotate(-Math.min(0.25, speed / 6000)); // まえのめり
+  ctx.scale(-1, 1); // えもじは ひだりむき → みぎへ はしる
+  drawEmoji(ctx, runner, 0, 0, 110);
+  ctx.restore();
+  requestAnimationFrame(loop);
+})(lastT);
+</script>
+</body>
+</html>

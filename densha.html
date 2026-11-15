@@ -4,13 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>でんしゃ</title>
-<link rel="stylesheet" href="common.css?v=6">
+<link rel="stylesheet" href="common.css?v=7">
 <style>
   body { background: linear-gradient(#8fd3ff 0 50%, #c9ecff 50% 58%, #7cc96a 58%); }
   .big-btn { --c1: #2bb24c; --c2: #187a31; }
   .bottom-center { bottom: 20px; }
   .bottom-center .big-btn { width: min(30vw, 160px); height: min(30vw, 160px); }
   .rail { bottom: 42%; }
+  .rail.r2 { bottom: 22%; }
   .mt { position: fixed; bottom: 50%; width: 0; height: 0; border-left: 160px solid transparent; border-right: 160px solid transparent;
         border-bottom: 140px solid #6aa86f; pointer-events: none; }
   .mt::after { content: ''; position: absolute; left: -40px; top: 0; border-left: 40px solid transparent; border-right: 40px solid transparent;
@@ -22,14 +23,15 @@
 </head>
 <body>
 <div class="mt" style="left:5%"></div><div class="mt" style="left:45%; border-bottom-width:180px"></div><div class="mt" style="left:75%"></div>
-<div class="rail"></div>
+<div class="rail"></div><div class="rail r2"></div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚃</span></button></div>
-<script src="common.js?v=6"></script>
+<script src="common.js?v=7"></script>
 <script>
 const btn = document.getElementById('btn');
 const KINDS = ['local', 'orange', 'yellow', 'shinkansen', 'sl'];
 const ICON = { local: '🚃', orange: '🚃', yellow: '🚄', shinkansen: '🚅', sl: '🚂' };
-let next = pick(KINDS), running = 0;
+let next = pick(KINDS), running = 0, ti = 0;
+const TRACKS = [0.42, 0.22]; // せんろ 2ほん
 btn.querySelector('.emoji').textContent = ICON[next];
 
 function whistle(kind) {
@@ -39,14 +41,15 @@ function whistle(kind) {
 }
 
 btn.addEventListener('pointerdown', () => {
-  if (running >= 2) return;
+  if (running >= 5) { whistle(next); return; } // いっぱいの ときは ぷぁーん だけ
   const kind = next;
   next = pick(KINDS);
   btn.querySelector('.emoji').textContent = ICON[next];
   running++;
   const dir = Math.random() < 0.5 ? 1 : -1;
   const t = makeTrain(kind);
-  t.style.bottom = innerHeight * 0.42 + 20 + 'px';
+  const tr = TRACKS[ti++ % TRACKS.length];
+  t.style.bottom = innerHeight * tr + 20 + 'px';
   document.body.appendChild(t);
   const len = t.offsetWidth;
   const speed = kind === 'shinkansen' ? 1000 : kind === 'yellow' ? 850 : kind === 'sl' ? 260 : 400;
@@ -67,7 +70,7 @@ btn.addEventListener('pointerdown', () => {
         const s = document.createElement('div');
         s.className = 'smoke';
         s.style.left = (dir > 0 ? x + len - 66 : x + 40) + 'px'; // えんとつの ばしょ
-        s.style.bottom = innerHeight * 0.42 + 20 + 110 + 'px';
+        s.style.bottom = innerHeight * tr + 20 + 110 + 'px';
         s.style.setProperty('--dx', -dir * 80 + 'px');
         document.body.appendChild(s); setTimeout(() => s.remove(), 1600);
       }

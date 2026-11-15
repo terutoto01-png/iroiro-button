@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>くすぐり</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: radial-gradient(circle at 50% 45%, #fffbe6, #ffe08a); overflow: hidden; }
+  #face { position: fixed; left: 50%; top: 45%; width: min(70vw, 60vh); height: min(70vw, 60vh); margin: calc(min(70vw, 60vh) / -2) 0 0 calc(min(70vw, 60vh) / -2);
+          border: none; background: none; padding: 0; font-size: min(60vw, 52vh); line-height: 1; cursor: pointer; }
+  #face span { display: inline-block; pointer-events: none; }
+  #feather { position: fixed; font-size: 90px; pointer-events: none; z-index: 8; opacity: 0; }
+  .big-btn { --c1: #b388ff; --c2: #6a3fc2; }
+</style>
+</head>
+<body>
+<button id="face" aria-label="かお"><span>🙂</span></button>
+<div id="feather">🪶</div>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🪶</span></button></div>
+<script src="common.js?v=7"></script>
+<script>
+// くすぐり: つつくほど わらう。れんだすると ころげまわって おおわらい
+const FACES = ['🙂', '😊', '😄', '😆', '🤣'];
+const face = document.getElementById('face'), em = face.querySelector('span');
+const feather = document.getElementById('feather'), btn = document.getElementById('btn');
+let tickle = 0, laughT = 0, roll = 0, rollV = 0, px = 0;
+
+// はっはっは（のこぎり波を こえの ような フィルターに とおす）
+function ha(pitch, vol) {
+  const c = Sfx.ac(), t = c.currentTime;
+  const o = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(pitch, t); o.frequency.exponentialRampToValueAtTime(pitch * 0.8, t + 0.12);
+  f.type = 'bandpass'; f.frequency.value = rand(700, 1100); f.Q.value = 3;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+  o.connect(f).connect(g).connect(Sfx.out()); o.start(t); o.stop(t + 0.16);
+}
+
+function doTickle(amount) {
+  tickle = Math.min(10, tickle + amount);
+  if (tickle > 8) { rollV += rand(-1, 1) > 0 ? 6 : -6; } // ころげまわる
+}
+face.addEventListener('pointerdown', (e) => {
+  doTickle(1);
+  em.animate([{ scale: '1.15 .85' }, { scale: '1 1' }], { duration: 200 });
+});
+// なでても くすぐれる
+let lastMove = null;
+face.addEventListener('pointermove', (e) => {
+  if (!e.buttons && e.pointerType === 'mouse') return;
+  if (lastMove) doTickle(Math.min(0.3, Math.hypot(e.clientX - lastMove[0], e.clientY - lastMove[1]) / 200));
+  lastMove = [e.clientX, e.clientY];
+});
+face.addEventListener('pointerup', () => { lastMove = null; });
+
+// はねで こちょこちょ
+btn.addEventListener('pointerdown', () => {
+  const r = face.getBoundingClientRect();
+  const x = r.left + r.width * rand(0.2, 0.8), y = r.top + r.height * rand(0.5, 0.9);
+  feather.style.left = (x - 45) + 'px'; feather.style.top = (y - 45) + 'px';
+  feather.animate([
+    { opacity: 1, transform: 'translate(-30px,0) rotate(-30deg)' }, { transform: 'translate(30px,-10px) rotate(20deg)' },
+    { transform: 'translate(-30px,0) rotate(-30deg)' }, { opacity: 0, transform: 'translate(30px,-10px) rotate(20deg)' },
+  ], { duration: 500 });
+  Sfx.noise(0.3, 0.2, 5000, 0, 'highpass');
+  doTickle(1.2);
+});
+
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  tickle = Math.max(0, tickle - dt * 1.2);
+  const lv = Math.min(FACES.length - 1, Math.floor(tickle / 2));
+  if (em.textContent !== FACES[lv]) em.textContent = FACES[lv];
+  // わらいごえ（くすぐるほど はやく、たかく）
+  if (tickle > 0.8) {
+    laughT -= dt;
+    if (laughT <= 0) {
+      laughT = 0.22 - tickle * 0.013;
+      ha(260 + tickle * 30 + rand(-20, 20), Math.min(0.5, 0.15 + tickle * 0.035));
+    }
+  }
+  // ぷるぷる・ころころ
+  rollV *= Math.pow(0.3, dt);
+  roll += rollV * dt * 60;
+  px += rollV * dt * 60 * 2.2;
+  px *= Math.pow(0.4, dt); // まんなかに もどる
+  const shake = tickle * 1.5;
+  em.style.transform = `translate(${px + rand(-shake, shake)}px, ${rand(-shake, shake) - Math.abs(Math.sin(now / 90)) * tickle * 3}px) rotate(${roll + Math.sin(now / 70) * tickle * 2}deg)`;
+  requestAnimationFrame(loop);
+})(lastT);
+</script>
+</body>
+</html>

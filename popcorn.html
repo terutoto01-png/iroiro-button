@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ぽっぷこーん</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: repeating-linear-gradient(90deg, #ff5a5a 0 60px, #fff 60px 120px); }
+  .big-btn { --c1: #ffcc00; --c2: #b38f00; }
+  .bottom-center { bottom: 24px; }
+</style>
+</head>
+<body>
+<canvas id="pile" class="full"></canvas>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🍿</span></button></div>
+<script src="common.js?v=7"></script>
+<script>
+// ぽっぷこーん: おすたびに はじける。れんだすると なべから あふれる
+const pileCv = document.getElementById('pile'), pctx = pileCv.getContext('2d');
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn');
+let dpr = 1, COL = 14, heights = [], flying = [], last = 0, combo = 0, shake = 0, blowing = false;
+let stuck = []; // つもった つぶ（あふれたとき とばすため）
+
+// ポップコーンの つぶを 1かいだけ えにしておく
+const kernel = document.createElement('canvas');
+kernel.width = kernel.height = 64;
+(() => {
+  const k = kernel.getContext('2d');
+  for (const [x, y, r, c] of [[24, 30, 15, '#fffaf0'], [40, 26, 13, '#fff6e0'], [34, 42, 14, '#fffdf7'], [22, 44, 10, '#ffeec8'], [32, 32, 6, '#f4c46a']]) {
+    k.fillStyle = c; k.beginPath(); k.arc(x, y, r, 0, 7); k.fill();
+  }
+  k.strokeStyle = 'rgba(200,150,60,.4)'; k.lineWidth = 1.5;
+  k.beginPath(); k.arc(24, 30, 15, 0, 7); k.arc(40, 26, 13, 0, 7); k.stroke();
+})();
+
+// なべは ボタンの うえに おく（ひ の ぶんも あける）
+function pot() {
+  const W = innerWidth, top = btn.getBoundingClientRect().top;
+  return { x: W / 2, y: Math.max(20, top - 130 - 70), w: Math.min(360, W * 0.6), h: 130 };
+}
+function resize() {
+  dpr = fitCanvas(cv, ctx); fitCanvas(pileCv, pctx);
+  heights = new Array(Math.ceil(innerWidth / COL) + 1).fill(0);
+  stuck = [];
+}
+resize(); addEventListener('resize', resize);
+
+btn.addEventListener('pointerdown', () => {
+  const now = performance.now();
+  combo = now - last < 400 ? combo + 1 : 0; last = now;
+  if (blowing) return;
+  const p = pot(), n = 1 + Math.min(5, Math.floor(combo / 3));
+  shake = 1;
+  for (let i = 0; i < n; i++) {
+    flying.push({ x: p.x + rand(-p.w * 0.35, p.w * 0.35), y: p.y - 10, vx: rand(-260, 260) * (1 + combo * 0.04), vy: -rand(600, 1000) - combo * 15,
+                  rot: rand(0, 6), vr: rand(-10, 10), s: rand(34, 46) });
+  }
+  Sfx.tone(rand(700, 1300), 0.05, 'square', 0.08, 0, rand(300, 500)); // ぽん
+  Sfx.noise(0.05, 0.5, 2500, 0, 'bandpass');
+});
+
+function land(f) {
+  const i = Math.max(0, Math.min(heights.length - 1, Math.round(f.x / COL)));
+  const y = innerHeight - heights[i] - f.s * 0.35;
+  pctx.save(); pctx.translate(f.x, y); pctx.rotate(f.rot);
+  pctx.drawImage(kernel, -f.s / 2, -f.s / 2, f.s, f.s);
+  pctx.restore();
+  stuck.push({ x: f.x, y, s: f.s, rot: f.rot });
+  // まわりにも すこし つもる（やまの かたち）
+  for (let d = -2; d <= 2; d++) {
+    const j = i + d; if (j < 0 || j >= heights.length) continue;
+    heights[j] = Math.max(heights[j], heights[i] + f.s * 0.5 - Math.abs(d) * f.s * 0.18);
+  }
+  if (heights[i] > innerHeight * 0.55) overflow();
+}
+function overflow() { // あふれた！ ぜんぶ とんでいく
+  blowing = true;
+  Sfx.yay(); Sfx.noise(0.8, 0.8, 1500);
+  popText('あふれた〜！', innerWidth / 2, innerHeight * 0.3, '#fff', 64);
+  for (const s of stuck) flying.push({ x: s.x, y: s.y, vx: rand(-700, 700), vy: -rand(500, 1300), rot: s.rot, vr: rand(-15, 15), s: s.s, away: true });
+  stuck = []; heights.fill(0);
+  pctx.clearRect(0, 0, innerWidth, innerHeight);
+  setTimeout(() => { blowing = false; }, 1500);
+}
+
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now;
+  const W = innerWidth, H = innerHeight, p = pot();
+  shake *= Math.pow(0.01, dt);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  for (const f of flying) {
+    f.vy += 1500 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vr * dt;
+    if (f.x < 10) { f.x = 10; f.vx = Math.abs(f.vx) * 0.5; }
+    if (f.x > W - 10) { f.x = W - 10; f.vx = -Math.abs(f.vx) * 0.5; }
+    if (!f.away && f.vy > 0) {
+      const i = Math.max(0, Math.min(heights.length - 1, Math.round(f.x / COL)));
+      if (f.y >= H - heights[i] - f.s * 0.35) { f.done = true; land(f); continue; }
+    }
+    if (f.away && f.y > H + 60) f.done = true;
+    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot);
+    ctx.drawImage(kernel, -f.s / 2, -f.s / 2, f.s, f.s);
+    ctx.restore();
+  }
+  flying = flying.filter(f => !f.done);
+  if (flying.length > 500) flying.splice(0, flying.length - 500);
+  // なべ（てまえ）
+  const sx = Math.sin(now / 25) * shake * 8;
+  ctx.save(); ctx.translate(p.x + sx, p.y);
+  ctx.fillStyle = '#444'; ctx.fillRect(-p.w / 2 - 30, 10, 30, 16); ctx.fillRect(p.w / 2, 10, 30, 16);
+  ctx.fillStyle = '#6d6d6d'; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 30, 30]); ctx.fill();
+  ctx.fillStyle = '#8a8a8a'; ctx.fillRect(-p.w / 2 - 8, -8, p.w + 16, 16);
+  ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(-p.w / 2 + 20, 20, 20, p.h - 40);
+  ctx.restore();
+  // ひ
+  for (let i = 0; i < 5; i++) drawEmoji(ctx, '🔥', p.x - 80 + i * 40 + Math.sin(now / 90 + i) * 3, p.y + p.h + 22, 34 + shake * 10);
+  requestAnimationFrame(loop);
+})(lastT);
+</script>
+</body>
+</html>

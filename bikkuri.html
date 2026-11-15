@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>びっくりばこ</title>
+<link rel="stylesheet" href="common.css?v=7">
+<style>
+  body { background: radial-gradient(circle at 50% 80%, #fff3c9, #ffc6dd); }
+  .big-btn { --c1: #ff4d8d; --c2: #b8245c; width: min(46vw, 240px); height: min(46vw, 240px); border-radius: 28px; }
+  .big-btn .emoji { font-size: 2.6em; }
+  .big-btn.open { animation: open .3s cubic-bezier(.3,1.8,.5,1); }
+  @keyframes open { 30% { scale: 1.15 .85; } 60% { scale: .92 1.1; } }
+  .item { position: fixed; z-index: 5; line-height: 1; pointer-events: none; will-change: transform; }
+</style>
+</head>
+<body>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎁</span></button></div>
+<script src="common.js?v=7"></script>
+<script>
+// びっくりばこ: おすたびに なにかが とびだす
+const THINGS = ['🐸', '🐵', '🐻', '🐱', '🐶', '🐷', '🐥', '🦄', '🐙', '🦕', '👻', '🎈', '⭐', '🌈', '🍭', '🍩', '🧸', '🚀', '🦆', '🐳', '🍄', '🌻', '🎃', '🍓', '🦋'];
+const btn = document.getElementById('btn');
+let count = 0, items = [];
+
+const SOUNDS = [
+  () => Sfx.boing(),
+  () => Sfx.tone(300, 0.5, 'sine', 0.25, 0, 1400),             // ひゅ〜い（スライドホイッスル）
+  () => Sfx.pop(),
+  () => { Sfx.tone(220, 0.15, 'square', 0.1); Sfx.tone(180, 0.2, 'square', 0.1, 0.15); }, // ぷっぷー
+  () => Sfx.tone(900, 0.2, 'triangle', 0.2, 0, 400),            // ぴゅー
+  () => [0, 7, 12].forEach((s, i) => Sfx.tone(660 * Math.pow(2, s / 12), 0.12, 'square', 0.07, i * 0.05)), // ぴろりん
+];
+
+btn.addEventListener('pointerdown', () => {
+  count++;
+  btn.classList.remove('open'); void btn.offsetWidth; btn.classList.add('open');
+  const r = btn.getBoundingClientRect();
+  const sx = r.left + r.width / 2, sy = r.top + r.height * 0.3;
+  const big = count % 12 === 0; // ときどき おおきいのが でる
+  const n = big ? 12 : 1;
+  for (let i = 0; i < n; i++) launch(sx, sy, big);
+  pick(SOUNDS)();
+  if (big) { Sfx.yay(); Sfx.noise(0.5, 0.6, 3000); }
+});
+
+function launch(sx, sy, big) {
+  const el = document.createElement('div');
+  el.className = 'item';
+  el.textContent = pick(THINGS);
+  const size = big ? rand(70, 120) : rand(80, 140);
+  el.style.fontSize = size + 'px';
+  el.style.left = (sx - size / 2) + 'px'; el.style.top = (sy - size / 2) + 'px';
+  document.body.appendChild(el);
+  // とびでて、どこかに おちて ぽよんと する
+  const tx = rand(-innerWidth * 0.45, innerWidth * 0.45), ty = -rand(innerHeight * 0.15, innerHeight * 0.6);
+  const peak = ty - rand(80, 200), spin = rand(-360, 360);
+  const a = el.animate([
+    { transform: 'translate(0,0) scale(.2) rotate(0deg)' },
+    { transform: `translate(${tx * 0.5}px, ${peak}px) scale(1.2) rotate(${spin * 0.6}deg)`, offset: 0.45 },
+    { transform: `translate(${tx}px, ${ty}px) scale(.9,1.1) rotate(${spin}deg)`, offset: 0.8 },
+    { transform: `translate(${tx}px, ${ty}px) scale(1) rotate(${spin}deg)` },
+  ], { duration: 900, easing: 'ease-out', fill: 'forwards' });
+  a.onfinish = () => {
+    el.animate([{ translate: '0 0' }, { translate: '0 -12px' }, { translate: '0 0' }], { duration: 1200, iterations: 3, easing: 'ease-in-out' });
+    setTimeout(() => el.animate([{ opacity: 1 }, { opacity: 0, scale: 0.3 }], { duration: 500, fill: 'forwards' }).onfinish = () => el.remove(), 3600);
+  };
+  items.push(el);
+  items = items.filter(e => e.isConnected);
+  if (items.length > 40) items.shift().remove();
+}
+</script>
+</body>
+</html>

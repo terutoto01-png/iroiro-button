@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>ロケット</title>
-<link rel="stylesheet" href="common.css?v=6">
+<link rel="stylesheet" href="common.css?v=7">
 <style>
   body { background: linear-gradient(#0b1033, #24307a 60%, #6f86d6); }
   .big-btn { --c1: #ff3b3b; --c2: #a81c1c; }
@@ -24,7 +24,7 @@
 <div id="rocket">🚀</div>
 <div id="count"></div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🔴</span></button></div>
-<script src="common.js?v=6"></script>
+<script src="common.js?v=7"></script>
 <script>
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
 const btn = document.getElementById('btn'), rocket = document.getElementById('rocket'), count = document.getElementById('count');
@@ -39,8 +39,19 @@ function say(n, text, f) {
   Sfx.tone(f, 0.25, 'square', 0.1);
 }
 
+// れんだ: カウントダウンちゅうは ゴゴゴ、とんでいるときは もっと はやく
+function mash() {
+  if (flying) {
+    rv += 260; shake = Math.min(1.5, shake + 0.5);
+    Sfx.noise(0.4, 0.6, 600); Sfx.tone(rand(500, 800), 0.25, 'sine', 0.1, 0, 1600);
+    popText(pick(['びゅーん', 'ごおっ', '🔥', '💨']), innerWidth / 2 + rand(-120, 120), innerHeight * rand(0.3, 0.6), '#ffcc33', 48);
+  } else {
+    shake = Math.min(1.2, shake + 0.35);
+    Sfx.noise(0.25, 0.5, 250); Sfx.tone(rand(50, 80), 0.3, 'sawtooth', 0.08);
+  }
+}
 btn.addEventListener('pointerdown', () => {
-  if (busy) return;
+  if (busy) { mash(); return; }
   busy = true;
   say('3', 'さん', 440);
   setTimeout(() => say('2', 'に', 440), 1000);

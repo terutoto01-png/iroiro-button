@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css?v=6">
+<link rel="stylesheet" href="common.css?v=7">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -35,9 +35,9 @@
 <nav class="grid" id="grid"></nav>
 <div id="fade" class="hide"></div>
 <button id="more" class="big-btn hide" aria-label="した"><span>⬇️</span></button>
-<script src="common.js?v=6"></script>
+<script src="common.js?v=7"></script>
 <script>
-// 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'hic' = HTML-in-Canvas）
+// 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'hic' = HTML-in-Canvas, 'mic' = マイク録音）
 const PAGES = [
   ['hanabi', '🎆', '#ff8a00', '#b85d00', 'gpu'], ['niji', '🌈', '#7b5cff', '#4b2fc4', 'gpu'],
   ['purupuru', '💧', '#33cc88', '#1f8a5a', 'gpu'], ['uchuu', '🪐', '#2b3fbf', '#141f6b', 'gpu'],
@@ -59,6 +59,9 @@ const PAGES = [
   ['drive', '🛣️', '#2e86ff', '#1655b8'], ['nadenade', '🐶', '#ff7ab8', '#c94585'],
   ['biyoon', '🎯', '#ff5a5a', '#c22f2f'], ['katachi', '🔺', '#ff9f1c', '#c47200'],
   ['mizuyari', '🌱', '#66bb44', '#3f8a26'],
+  ['hashire', '👟', '#ff6a3d', '#b8401c'], ['popcorn', '🍿', '#ffcc00', '#b38f00'],
+  ['bikkuri', '🎁', '#ff4d8d', '#b8245c'], ['kusuguri', '🤣', '#b388ff', '#6a3fc2'],
+  ['oryouri', '🍳', '#ff7b00', '#b35500'], ['koemane', '🎤', '#ff4d6d', '#b3203e', 'mic'],
 ];
 const grid = document.getElementById('grid');
 
@@ -69,7 +72,7 @@ async function hasWebGPU() {
 }
 
 (async () => {
-const can = { gpu: await hasWebGPU(), hic: HIC.supported };
+const can = { gpu: await hasWebGPU(), hic: HIC.supported, mic: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) };
 // うごかないと わかっているボタンは ださない
 for (const [file, emoji, c1, c2, need] of PAGES) {
   if (need && !can[need]) continue;
