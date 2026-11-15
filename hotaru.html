@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
 <title>ほたる</title>
-<link rel="stylesheet" href="common.css?v=8">
+<link rel="stylesheet" href="common.css?v=9">
 <style>
   body { background: linear-gradient(#030716, #0b1a3a 55%, #0d2a2a 80%, #071a12); }
   .moon { position: fixed; right: 9%; top: 8%; width: 90px; height: 90px; border-radius: 50%; background: #fff6d0;
@@ -21,8 +23,8 @@
 <div class="grass"></div>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🌟</span></button></div>
-<script src="common.js?v=8"></script>
-<script src="gpu-particles.js?v=2"></script>
+<script src="common.js?v=9"></script>
+<script src="gpu-particles.js?v=3"></script>
 <script>
 // ほたる: てんめつする ひかりが たくさん。おすと いっせいに とびたつ。ゆびを おくと あつまってくる
 const cv = document.getElementById('cv'), btn = document.getElementById('btn');

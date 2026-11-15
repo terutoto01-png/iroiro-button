@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
 <title>さかな</title>
-<link rel="stylesheet" href="common.css?v=8">
+<link rel="stylesheet" href="common.css?v=9">
 <style>
   body { background: linear-gradient(#5fd0ff, #1478c8 60%, #0b3d82); }
   .big-btn { --c1: #ff9933; --c2: #c2651a; }
@@ -18,7 +20,7 @@
 <div class="sand"></div>
 <div class="weed" style="left:5%">🌿</div><div class="weed" style="left:80%; animation-delay:-1s">🌿</div><div class="weed" style="left:60%; font-size:60px; animation-delay:-2s">🪸</div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🐠</span></button></div>
-<script src="common.js?v=8"></script>
+<script src="common.js?v=9"></script>
 <script>
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
 const btn = document.getElementById('btn');

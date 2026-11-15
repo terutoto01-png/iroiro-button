@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
 <title>ころころ</title>
-<link rel="stylesheet" href="common.css?v=8">
+<link rel="stylesheet" href="common.css?v=9">
 <style>
   body { background: #bfe9ff; }
   .big-btn { --c1: #ff4040; --c2: #b31d1d; width: min(30vw, 150px); height: min(30vw, 150px); }
@@ -12,7 +14,7 @@
 </head>
 <body>
 <canvas id="cv" class="full"><button id="btn" class="big-btn"><span class="emoji">⚽</span></button></canvas>
-<script src="common.js?v=8"></script>
+<script src="common.js?v=9"></script>
 <script>
 // ころころ: HTML-in-Canvas で本物のボタンがボールになってはねる
 const canvas = document.getElementById('cv');

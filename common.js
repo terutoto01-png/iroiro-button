@@ -300,3 +300,42 @@ function drawEmoji(ctx, e, cx, cy, size) {
     if (!canScroll || e.touches.length > 1) e.preventDefault(); // スクロールしない ページ と、2本ゆびは とめる
   }, { passive: false });
 })();
+
+// ---- PWA: Service Worker 登録 と 更新通知 ----
+(() => {
+  if (!('serviceWorker' in navigator)) return;
+  let updateToast = null;
+
+  function showUpdateToast() {
+    if (updateToast) return;
+    updateToast = document.createElement('button');
+    updateToast.className = 'update-toast';
+    updateToast.textContent = '🔄 あたらしくなったよ';
+    updateToast.setAttribute('aria-label', 'ページを更新する');
+    updateToast.addEventListener('pointerdown', (e) => e.stopPropagation());
+    updateToast.addEventListener('click', () => window.location.reload());
+    document.body.appendChild(updateToast);
+    // 5秒後にふわっと表示
+    requestAnimationFrame(() => updateToast.classList.add('show'));
+  }
+
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'UPDATE_READY') showUpdateToast();
+  });
+
+  navigator.serviceWorker.register('sw.js')
+    .then(reg => {
+      // すでに待機中の更新があれば即座に反映を促す
+      if (reg.waiting) showUpdateToast();
+      reg.addEventListener('updatefound', () => {
+        const newSw = reg.installing;
+        if (!newSw) return;
+        newSw.addEventListener('statechange', () => {
+          if (newSw.state === 'installed' && navigator.serviceWorker.controller) {
+            showUpdateToast();
+          }
+        });
+      });
+    })
+    .catch(err => console.warn('[pwa] sw registration failed', err));
+})();

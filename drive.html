@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
 <title>ドライブ</title>
-<link rel="stylesheet" href="common.css?v=8">
+<link rel="stylesheet" href="common.css?v=9">
 <style>
   body { background: #8fd16a; }
   #bg { pointer-events: none; }
@@ -14,7 +16,7 @@
 <body>
 <canvas id="road" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚗</span></button></div>
-<script src="common.js?v=8"></script>
+<script src="common.js?v=9"></script>
 <script>
 // ドライブ: ゆびで みちを かくと くるまが そのうえを はしる
 const cv = document.getElementById('road'), ctx = cv.getContext('2d');
