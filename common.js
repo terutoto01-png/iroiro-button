@@ -323,8 +323,9 @@ function drawEmoji(ctx, e, cx, cy, size) {
     if (e.data && e.data.type === 'UPDATE_READY') showUpdateToast();
   });
 
-  navigator.serviceWorker.register('sw.js')
+  navigator.serviceWorker.register('sw.js', { scope: './' })
     .then(reg => {
+      console.log('[pwa] sw registered:', reg.scope, 'controller:', !!navigator.serviceWorker.controller);
       // すでに待機中の更新があれば即座に反映を促す
       if (reg.waiting) showUpdateToast();
       reg.addEventListener('updatefound', () => {

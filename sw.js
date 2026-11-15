@@ -3,7 +3,7 @@
 // ・HTML は network-first、バージョン付きアセットは cache-first
 
 const CACHE_PREFIX = 'iroiro';
-const CORE_CACHE = `${CACHE_PREFIX}-core-v11`;
+const CORE_CACHE = `${CACHE_PREFIX}-core-v12`;
 const RUNTIME_CACHE = `${CACHE_PREFIX}-runtime`;
 
 // 初回インストール時に確実に持っておくアプリシェル
@@ -13,7 +13,7 @@ const CORE_ASSETS = [
   './index.html',
   './manifest.json',
   './common.css?v=11',
-  './common.js?v=11',
+  './common.js?v=12',
   './game.js?v=2',
   './gpu-particles.js?v=3',
   './field-scene.js?v=2',
@@ -81,33 +81,42 @@ async function networkFirst(req, cacheName) {
   } catch (err) {
     const cached = await cache.match(req);
     if (cached) return cached;
-    throw err;
+    // どちらも失敗したらシンプルなオフライン応答
+    return new Response('オフラインです', { status: 503, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
   }
 }
 
 async function cacheFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
-  const cached = await cache.match(req);
-  if (cached) return cached;
-  const res = await fetch(req);
-  if (res && res.status === 200) {
-    await cache.put(req, res.clone());
-    await trimCache(cacheName);
-  }
-  return res;
-}
-
-async function staleWhileRevalidate(req, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(req);
-  const network = fetch(req).then(async (res) => {
+  try {
+    const cached = await cache.match(req);
+    if (cached) return cached;
+    const res = await fetch(req);
     if (res && res.status === 200) {
       await cache.put(req, res.clone());
       await trimCache(cacheName);
     }
     return res;
-  }).catch(() => cached);
-  return cached || network;
+  } catch (err) {
+    return new Response('', { status: 503 });
+  }
+}
+
+async function staleWhileRevalidate(req, cacheName) {
+  const cache = await caches.open(cacheName);
+  try {
+    const cached = await cache.match(req);
+    const network = fetch(req).then(async (res) => {
+      if (res && res.status === 200) {
+        await cache.put(req, res.clone());
+        await trimCache(cacheName);
+      }
+      return res;
+    }).catch(() => cached);
+    return cached || network || new Response('', { status: 503 });
+  } catch (err) {
+    return new Response('', { status: 503 });
+  }
 }
 
 // ランタイムキャッシュが大きくなりすぎたら古いものを削除
