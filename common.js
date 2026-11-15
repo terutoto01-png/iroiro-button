@@ -267,3 +267,17 @@ function drawEmoji(ctx, e, cx, cy, size) {
   const s = size * 1.25;
   ctx.drawImage(EmojiSprite(e), cx - s / 2, cy - s / 2, s, s);
 }
+
+// ---- iPad: かくだい と ひっぱり を とめる ----
+// メニュー（<body data-scroll>）は たてスクロールだけ できる。ほかの ページは まったく うごかない。
+(() => {
+  const canScroll = document.body && document.body.hasAttribute('data-scroll');
+  document.documentElement.classList.add(canScroll ? 'can-scroll' : 'no-scroll');
+  const stop = (e) => e.preventDefault();
+  // Safari の ピンチ（gesture*）は touch-action を むしすることがあるので ちょくせつ とめる
+  for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, stop, { passive: false });
+  document.addEventListener('dblclick', stop, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (!canScroll || e.touches.length > 1) e.preventDefault(); // スクロールしない ページ と、2本ゆびは とめる
+  }, { passive: false });
+})();

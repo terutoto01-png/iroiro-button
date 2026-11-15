@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css?v=4">
+<link rel="stylesheet" href="common.css?v=6">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -31,11 +31,11 @@
   @keyframes bob { 50% { translate: 0 -6px; } }
 </style>
 </head>
-<body data-no-back>
+<body data-no-back data-scroll>
 <nav class="grid" id="grid"></nav>
 <div id="fade" class="hide"></div>
 <button id="more" class="big-btn hide" aria-label="した"><span>⬇️</span></button>
-<script src="common.js?v=4"></script>
+<script src="common.js?v=6"></script>
 <script>
 // 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'hic' = HTML-in-Canvas）
 const PAGES = [
@@ -55,6 +55,10 @@ const PAGES = [
   ['keeki', '🎂', '#ff8fb8', '#c95a85'], ['obake', '👻', '#b388ff', '#6a3fc2'],
   ['sakana', '🐠', '#ff9933', '#c2651a'], ['saikoro', '🎲', '#ff6b35', '#b8431a'],
   ['okashi', '🍬', '#ff6fae', '#c23c7a'], ['biidama', '🔮', '#5b8cff', '#2f55b8'],
+  ['fukifuki', '🧽', '#29b6f6', '#0277bd'], ['nijipen', '🖍️', '#ffcc00', '#b38f00'],
+  ['drive', '🛣️', '#2e86ff', '#1655b8'], ['nadenade', '🐶', '#ff7ab8', '#c94585'],
+  ['biyoon', '🎯', '#ff5a5a', '#c22f2f'], ['katachi', '🔺', '#ff9f1c', '#c47200'],
+  ['mizuyari', '🌱', '#66bb44', '#3f8a26'],
 ];
 const grid = document.getElementById('grid');
 
@@ -75,10 +79,25 @@ for (const [file, emoji, c1, c2, need] of PAGES) {
   a.style.setProperty('--c1', c1); a.style.setProperty('--c2', c2);
   a.innerHTML = `<span class="emoji">${emoji}</span>`;
   a.addEventListener('pointerdown', () => Sfx.pop());
+  a.addEventListener('click', saveScroll);
   grid.appendChild(a);
 }
+// まえに みていた ところへ もどす（ボタンを ならべてから）
+try {
+  const y = parseFloat(sessionStorage.getItem('menu-scroll'));
+  if (y > 0) scrollTo(0, y);
+} catch (e) {}
 updateMore();
 })();
+
+// ---- スクロールした いちを おぼえておく（このタブの あいだだけ） ----
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+function saveScroll() {
+  try { sessionStorage.setItem('menu-scroll', String(Math.round(scrollY))); } catch (e) {}
+}
+let saveTimer = 0;
+addEventListener('scroll', () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveScroll, 150); }, { passive: true });
+addEventListener('pagehide', saveScroll);
 
 // ---- したに まだ ボタンが あるときは ⬇️、いちばん したでは ⬆️ ----
 const more = document.getElementById('more'), fade = document.getElementById('fade');
@@ -91,10 +110,26 @@ function updateMore() {
   more.classList.toggle('top', atBottom);
   more.firstElementChild.textContent = atBottom ? '⬆️' : '⬇️';
 }
+// するする スクロール（ブラウザまかせの smooth が うごかない かんきょうでも うごくように じぶんで うごかす）
+let scrollAnim = 0;
+function glideTo(to) {
+  const max = document.scrollingElement.scrollHeight - innerHeight;
+  to = Math.max(0, Math.min(max, to));
+  const from = scrollY, t0 = performance.now(), dur = 450;
+  cancelAnimationFrame(scrollAnim);
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / dur);
+    const e = 1 - Math.pow(1 - k, 3);
+    scrollTo(0, from + (to - from) * e);
+    if (k < 1) scrollAnim = requestAnimationFrame(step);
+    else updateMore();
+  };
+  scrollAnim = requestAnimationFrame(step);
+}
 more.addEventListener('click', () => {
   Sfx.pop();
-  if (more.classList.contains('top')) scrollTo({ top: 0, behavior: 'smooth' });
-  else scrollBy({ top: innerHeight * 0.6, behavior: 'smooth' });
+  if (more.classList.contains('top')) glideTo(0);
+  else glideTo(scrollY + innerHeight * 0.6);
 });
 addEventListener('scroll', updateMore, { passive: true });
 addEventListener('resize', updateMore);

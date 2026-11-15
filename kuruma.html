@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>くるま</title>
-<link rel="stylesheet" href="common.css?v=4">
+<link rel="stylesheet" href="common.css?v=6">
 <style>
   body { background: linear-gradient(#9ee0ff 0 55%, #7ccf5a 55% 62%, #666 62% 85%, #7ccf5a 85%); }
   .road-line { position: fixed; top: 73%; left: 0; right: 0; height: 0; border-top: 8px dashed #fff; opacity: .8; }
@@ -15,14 +15,17 @@
   .car span { display: inline-block; animation: bump .25s ease-in-out infinite alternate; }
   @keyframes drive { from { left: -160px; } to { left: calc(100vw + 40px); } }
   @keyframes bump { from { transform: translateY(0); } to { transform: translateY(-6px); } }
-  .smoke { position: fixed; z-index: 4; font-size: 40px; pointer-events: none; animation: smoke 1s ease-out forwards; }
-  @keyframes smoke { to { transform: translate(-60px, -40px) scale(2); opacity: 0; } }
+  /* けむり（えもじを つかわず まるで かく。iPad で しかくく みえないように） */
+  .smoke { position: fixed; z-index: 4; width: 34px; height: 34px; border-radius: 50%; pointer-events: none;
+           background: radial-gradient(circle, rgba(255,255,255,.95) 0 40%, rgba(220,225,235,.7) 70%, rgba(220,225,235,0) 72%);
+           animation: smoke 1s ease-out forwards; }
+  @keyframes smoke { to { transform: translate(-60px, -40px) scale(2.2); opacity: 0; } }
 </style>
 </head>
 <body>
 <div class="road-line"></div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚗</span></button></div>
-<script src="common.js?v=4"></script>
+<script src="common.js?v=6"></script>
 <script>
 const VEHICLES = [
   { e: '🚗', horn: [440, 554], fast: 1 }, { e: '🚕', horn: [494, 587], fast: 1 },
@@ -57,8 +60,8 @@ btn.addEventListener('pointerdown', () => {
   const puff = setInterval(() => {
     const r = car.getBoundingClientRect();
     const s = document.createElement('div');
-    s.className = 'smoke'; s.textContent = '💨';
-    s.style.left = r.left - 40 + 'px'; s.style.top = r.bottom - 50 + 'px';
+    s.className = 'smoke';
+    s.style.left = r.left - 20 + 'px'; s.style.top = r.bottom - 40 + 'px';
     document.body.appendChild(s); setTimeout(() => s.remove(), 1000);
   }, 250);
   car.addEventListener('animationend', (e) => { if (e.target === car) { clearInterval(puff); car.remove(); } });

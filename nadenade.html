@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>なでなで</title>
+<link rel="stylesheet" href="common.css?v=6">
+<style>
+  body { background: radial-gradient(circle at 50% 45%, #fff6fb, #ffd3e6); transition: background .4s; }
+  #pet { position: fixed; left: 50%; top: 45%; transform: translate(-50%, -50%); font-size: min(55vw, 50vh); line-height: 1; }
+  #pet span { display: inline-block; transition: scale .15s; }
+  #pet.jump span { animation: jump .9s cubic-bezier(.3,1.6,.5,1); }
+  @keyframes jump { 30% { translate: 0 -25%; rotate: -10deg; } 60% { translate: 0 0; rotate: 8deg; } 100% { rotate: 0deg; } }
+  #pet.poke span { animation: poke .35s; }
+  @keyframes poke { 40% { scale: 1.12 .88; } }
+  #fx { pointer-events: none; z-index: 5; }
+  .big-btn { --c1: #ff7ab8; --c2: #c94585; }
+</style>
+</head>
+<body>
+<div id="pet"><span></span></div>
+<canvas id="fx" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🐾</span></button></div>
+<script src="common.js?v=6"></script>
+<script>
+// なでなで: どうぶつを なでると ハートが でて よろこぶ
+const PETS = [['🐶','わんわん','いぬ'],['🐱','にゃーん','ねこ'],['🐰','ぴょんぴょん','うさぎ'],['🐹','きゅっきゅっ','はむすたー'],
+              ['🐼','ぱんだ','ぱんだ'],['🐻','がおー','くま'],['🐨','こあら','こあら'],['🦊','こんこん','きつね'],['🐷','ぶーぶー','ぶた'],
+              ['🐣','ぴよぴよ','ひよこ'],['🐸','けろけろ','かえる'],['🐮','もーもー','うし']];
+const BGS = ['#ffd3e6', '#d9eeff', '#e3ffd6', '#fff1c4', '#ecdcff'];
+const pet = document.getElementById('pet'), face = pet.querySelector('span');
+const fx = document.getElementById('fx'), ctx = fx.getContext('2d');
+const btn = document.getElementById('btn');
+fitCanvas(fx, ctx); addEventListener('resize', () => fitCanvas(fx, ctx));
+let cur = null, love = 0, hearts = [], moved = new Map(), heartDist = 0, note = 0;
+
+function choose() {
+  let p; do { p = pick(PETS); } while (cur && p[0] === cur[0]);
+  cur = p; love = 0;
+  face.textContent = p[0];
+  document.body.style.background = `radial-gradient(circle at 50% 45%, #fffafc, ${pick(BGS)})`;
+  pet.className = ''; void pet.offsetWidth; pet.className = 'jump';
+  Sfx.boing();
+  speak(p[2]);
+}
+function onPet(x, y) {
+  const r = face.getBoundingClientRect();
+  return x > r.left - 20 && x < r.right + 20 && y > r.top - 20 && y < r.bottom + 20;
+}
+
+addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.corner, .vol, .back')) return;
+  moved.set(e.pointerId, { x: e.clientX, y: e.clientY, total: 0 });
+});
+addEventListener('pointermove', (e) => {
+  const m = moved.get(e.pointerId); if (!m) return;
+  const d = Math.hypot(e.clientX - m.x, e.clientY - m.y);
+  m.total += d; m.x = e.clientX; m.y = e.clientY;
+  if (!onPet(e.clientX, e.clientY)) return;
+  love += d; heartDist += d;
+  face.style.scale = `${1 + Math.sin(love / 40) * 0.04} ${1 - Math.sin(love / 40) * 0.04}`;
+  if (heartDist > 60) {
+    heartDist = 0;
+    hearts.push({ x: e.clientX, y: e.clientY, vy: rand(-140, -80), vx: rand(-40, 40), life: 1.4, s: rand(26, 44), e: pick(['💗', '💕', '💖', '❤️', '✨']) });
+    note = (note + 1) % 8;
+    Sfx.tone(523.25 * Math.pow(2, [0, 2, 4, 7, 9, 12, 9, 7][note] / 12), 0.25, 'sine', 0.12);
+  }
+  if (love > 1400) { // だいすき！
+    love = 0;
+    pet.className = ''; void pet.offsetWidth; pet.className = 'jump';
+    Sfx.yay();
+    for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2; const r = face.getBoundingClientRect();
+      hearts.push({ x: r.left + r.width / 2, y: r.top + r.height / 2, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, life: 1.2, s: 40, e: '💖' }); }
+    speak(`${cur[1]}！ うれしいな！`);
+  }
+});
+const up = (e) => {
+  const m = moved.get(e.pointerId); moved.delete(e.pointerId);
+  if (m && m.total < 12 && onPet(e.clientX, e.clientY)) { // つんつん
+    pet.className = ''; void pet.offsetWidth; pet.className = 'poke';
+    Sfx.tone(rand(500, 700), 0.12, 'sine', 0.2, 0, 900);
+  }
+};
+addEventListener('pointerup', up); addEventListener('pointercancel', up);
+
+btn.addEventListener('pointerdown', choose);
+
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  for (const h of hearts) {
+    h.x += h.vx * dt; h.y += h.vy * dt; h.vx *= 0.98; h.life -= dt;
+    ctx.globalAlpha = Math.max(0, Math.min(1, h.life));
+    drawEmoji(ctx, h.e, h.x, h.y, h.s);
+  }
+  ctx.globalAlpha = 1;
+  hearts = hearts.filter(h => h.life > 0);
+  requestAnimationFrame(loop);
+})(lastT);
+
+cur = pick(PETS); face.textContent = cur[0];
+</script>
+</body>
+</html>

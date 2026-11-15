@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ドライブ</title>
+<link rel="stylesheet" href="common.css?v=6">
+<style>
+  body { background: #8fd16a; }
+  #bg { pointer-events: none; }
+  .big-btn { --c1: #2e86ff; --c2: #1655b8; }
+</style>
+</head>
+<body>
+<canvas id="road" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚗</span></button></div>
+<script src="common.js?v=6"></script>
+<script>
+// ドライブ: ゆびで みちを かくと くるまが そのうえを はしる
+const cv = document.getElementById('road'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn');
+const CARS = ['🚗', '🚕', '🚙', '🚌', '🚒', '🚓', '🚑', '🚜', '🏎️', '🚚'];
+let car = '🚗', path = [], drawing = null, ride = null, deco = [];
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); makeDeco(); });
+
+function makeDeco() {
+  deco = Array.from({ length: 14 }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, e: pick(['🌳', '🌲', '🏠', '🌷', '🌼', '🏡']), s: rand(30, 50) }));
+}
+makeDeco();
+
+function defaultPath() { // みちが ないときの くねくね みち
+  const pts = [], W = innerWidth, H = innerHeight;
+  for (let i = 0; i <= 60; i++) { const k = i / 60; pts.push([W * 0.1 + W * 0.8 * k, H * 0.5 + Math.sin(k * Math.PI * 3) * H * 0.2]); }
+  return pts;
+}
+function startRide() {
+  if (path.length < 2) path = defaultPath();
+  // みちの ながさを はかっておく
+  const acc = [0];
+  for (let i = 1; i < path.length; i++) acc.push(acc[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
+  ride = { d: 0, acc, total: acc[acc.length - 1], beep: 0 };
+  Sfx.tone(220, 0.4, 'sawtooth', 0.06, 0, 330); // ぶるるん
+}
+
+cv.addEventListener('pointerdown', (e) => {
+  if (drawing) return;
+  cv.setPointerCapture(e.pointerId);
+  drawing = e.pointerId; ride = null;
+  path = [[e.clientX, e.clientY]];
+  Sfx.pop();
+});
+cv.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== drawing) return;
+  const l = path[path.length - 1];
+  if (Math.hypot(e.clientX - l[0], e.clientY - l[1]) > 10) {
+    path.push([e.clientX, e.clientY]);
+    if (path.length % 6 === 0) Sfx.tone(rand(300, 400), 0.04, 'sine', 0.05);
+  }
+});
+const endDraw = (e) => {
+  if (e.pointerId !== drawing) return;
+  drawing = null;
+  if (path.length > 4) startRide(); else path = [];
+};
+cv.addEventListener('pointerup', endDraw); cv.addEventListener('pointercancel', endDraw);
+
+btn.addEventListener('pointerdown', () => {
+  car = pick(CARS.filter(c => c !== car));
+  btn.querySelector('.emoji').textContent = car;
+  startRide();
+});
+
+function drawRoad() {
+  if (path.length < 2) return;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const line = (w, c, dash) => {
+    ctx.setLineDash(dash || []); ctx.strokeStyle = c; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(path[0][0], path[0][1]);
+    for (let i = 1; i < path.length; i++) ctx.lineTo(path[i][0], path[i][1]);
+    ctx.stroke();
+  };
+  line(96, '#5c5c5c'); line(80, '#777'); line(5, '#fff', [22, 18]);
+  ctx.setLineDash([]);
+}
+
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  for (const d of deco) drawEmoji(ctx, d.e, d.x, d.y, d.s);
+  drawRoad();
+  let cx, cy, ang = 0;
+  if (ride) {
+    ride.d = Math.min(ride.total, ride.d + 260 * dt);
+    let i = 1; while (i < ride.acc.length - 1 && ride.acc[i] < ride.d) i++;
+    const a = path[i - 1], b = path[i], seg = ride.acc[i] - ride.acc[i - 1] || 1, k = (ride.d - ride.acc[i - 1]) / seg;
+    cx = a[0] + (b[0] - a[0]) * k; cy = a[1] + (b[1] - a[1]) * k;
+    ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    ride.beep += dt;
+    if (ride.beep > 0.3) { ride.beep = 0; Sfx.noise(0.12, 0.08, 220); }
+    if (ride.d >= ride.total) { // とうちゃく
+      ride = null;
+      Sfx.tone(440, 0.15, 'sawtooth', 0.1); Sfx.tone(554, 0.15, 'sawtooth', 0.08);
+      Sfx.tone(440, 0.3, 'sawtooth', 0.1, 0.2); Sfx.tone(554, 0.3, 'sawtooth', 0.08, 0.2);
+      popText('ぷっぷー', b[0], b[1] - 60, '#fff', 44);
+      path.lastAng = ang;
+    }
+  } else if (path.length > 1 && !drawing) {
+    const p = path[path.length - 1]; cx = p[0]; cy = p[1]; ang = path.lastAng || 0;
+  }
+  if (cx !== undefined) {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+    ctx.scale(-1, Math.cos(ang) < 0 ? -1 : 1); // えもじは ひだりむき。さかさまに ならないように
+    drawEmoji(ctx, car, 0, -6, 70);
+    ctx.restore();
+  }
+  requestAnimationFrame(loop);
+})(lastT);
+startRide();
+</script>
+</body>
+</html>

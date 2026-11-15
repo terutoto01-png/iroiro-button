@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>にじペン</title>
+<link rel="stylesheet" href="common.css?v=6">
+<style>
+  body { background: #14112b; }
+  #fx { pointer-events: none; }
+  .big-btn { --c1: #ffcc00; --c2: #b38f00; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<canvas id="fx" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">✨</span></button></div>
+<script src="common.js?v=6"></script>
+<script>
+// にじペン: ゆびで なぞると にじいろの せん。ボタンで きらきら はじけて きえる
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const fx = document.getElementById('fx'), fctx = fx.getContext('2d');
+const btn = document.getElementById('btn');
+const resize = () => { fitCanvas(cv, ctx); fitCanvas(fx, fctx); };
+resize(); addEventListener('resize', resize);
+const PENTA = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.5];
+const pens = new Map();
+let points = [], sparks = [], hue = 0;
+
+function segment(p, x, y) {
+  const d = Math.hypot(x - p.x, y - p.y);
+  if (d < 2) return;
+  hue = (hue + d * 0.4) % 360;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.shadowColor = `hsl(${hue}, 100%, 60%)`; ctx.shadowBlur = 18;
+  ctx.strokeStyle = `hsl(${hue}, 100%, 60%)`; ctx.lineWidth = 24;
+  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(x, y); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(x, y); ctx.stroke();
+  if (points.length < 4000) points.push([x, y, hue]);
+  if (Math.random() < 0.3) sparks.push({ x, y, vx: rand(-40, 40), vy: rand(-60, 0), life: 0.6, hue, s: rand(2, 5) });
+  p.dist += d;
+  if (p.dist > 90) { // うごかすと ぽろん
+    p.dist = 0;
+    const n = PENTA[Math.max(0, Math.min(PENTA.length - 1, Math.floor((1 - y / innerHeight) * PENTA.length)))];
+    Sfx.tone(n, 0.3, 'sine', 0.1);
+  }
+  p.x = x; p.y = y;
+}
+
+cv.addEventListener('pointerdown', (e) => {
+  cv.setPointerCapture(e.pointerId);
+  const p = { x: e.clientX, y: e.clientY, dist: 100 };
+  pens.set(e.pointerId, p);
+  segment(p, e.clientX + 0.1, e.clientY + 2);
+});
+cv.addEventListener('pointermove', (e) => {
+  const p = pens.get(e.pointerId); if (!p) return;
+  const co = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  const evs = co.length ? co : [e]; // こまかい うごきが とれない ときは いまの いちで
+  for (const c of evs) segment(p, c.clientX, c.clientY);
+});
+for (const t of ['pointerup', 'pointercancel']) cv.addEventListener(t, (e) => pens.delete(e.pointerId));
+
+btn.addEventListener('pointerdown', () => {
+  // かいた せんが ぜんぶ ほしに なって とびちる
+  const step = Math.max(1, Math.floor(points.length / 600));
+  for (let i = 0; i < points.length; i += step) {
+    const [x, y, h] = points[i], a = Math.random() * Math.PI * 2, sp = rand(80, 400);
+    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rand(0.8, 1.6), hue: h, s: rand(3, 7), star: true });
+  }
+  points = [];
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  Sfx.noise(0.5, 0.3, 5000, 0, 'highpass');
+  [0, 4, 7, 12, 16, 19].forEach((s, i) => Sfx.tone(523.25 * Math.pow(2, s / 12), 0.4, 'triangle', 0.08, i * 0.05));
+});
+
+function star(x, y, r) {
+  fctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r * 0.45 : r; fctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  fctx.fill();
+}
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  fctx.clearRect(0, 0, innerWidth, innerHeight);
+  for (const s of sparks) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 200 * dt; s.life -= dt;
+    fctx.fillStyle = `hsla(${s.hue}, 100%, 75%, ${Math.max(0, Math.min(1, s.life))})`;
+    if (s.star) star(s.x, s.y, s.s * 1.6); else fctx.fillRect(s.x - s.s / 2, s.y - s.s / 2, s.s, s.s);
+  }
+  sparks = sparks.filter(s => s.life > 0);
+  if (sparks.length > 1500) sparks.splice(0, sparks.length - 1500);
+  requestAnimationFrame(loop);
+})(lastT);
+</script>
+</body>
+</html>

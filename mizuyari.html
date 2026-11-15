@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>みずやり</title>
+<link rel="stylesheet" href="common.css?v=6">
+<style>
+  body { background: linear-gradient(#bfe8ff, #eaf8ff 72%, #8a5a34 72%); }
+  #can { position: fixed; left: 0; top: 0; width: 150px; height: 120px; z-index: 10; pointer-events: none;
+         transform-origin: 70% 60%; transition: rotate .2s; }
+  .big-btn { --c1: #66bb44; --c2: #3f8a26; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<svg id="can" viewBox="0 0 150 120">
+  <path d="M10 40 L40 60" stroke="#2a8bd8" stroke-width="12" stroke-linecap="round"/>
+  <ellipse cx="8" cy="38" rx="9" ry="12" fill="#1f6fb0"/>
+  <rect x="38" y="35" width="80" height="70" rx="14" fill="#3aa0f0"/>
+  <path d="M118 50 C 150 50, 150 95, 118 95" stroke="#1f6fb0" stroke-width="10" fill="none"/>
+  <rect x="50" y="26" width="56" height="14" rx="7" fill="#1f6fb0"/>
+  <circle cx="64" cy="62" r="7" fill="#fff" opacity=".6"/>
+</svg>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🌱</span></button></div>
+<script src="common.js?v=6"></script>
+<script>
+// みずやり: じょうろを うごかして みずを あげると はなが さく
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const can = document.getElementById('can'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+const FLOWERS = ['🌻', '🌷', '🌹', '🌼', '🌸', '🌺', '💐', '🍓', '🍅', '🥕'];
+let plants = [], drops = [], pour = null, canX = innerWidth * 0.3, canY = innerHeight * 0.25, splash = 0;
+
+function seed() {
+  plants = [];
+  const n = innerWidth > 700 ? 5 : 4;
+  for (let i = 0; i < n; i++) plants.push({ x: innerWidth * (i + 0.5) / n, g: 0, f: pick(FLOWERS), bloom: false, wob: 0 });
+}
+// じょうろの そそぎぐちの さきっぽ（かたむけた かくどで けいさん）
+// SVG は ゆびの いちが (105,60)、かいてんの ちゅうしんが (105,72)、さきっぽが (8,38)、そそぎぐちの むきは (40,60)→(10,40)
+const TILT = -35;
+function spout() {
+  const t = TILT * Math.PI / 180, c = Math.cos(t), s = Math.sin(t);
+  const rot = (x, y) => [x * c - y * s, x * s + y * c];
+  const [tx, ty] = rot(8 - 105, 38 - 72);
+  const [dx, dy] = rot(-30, -20), len = Math.hypot(dx, dy);
+  return { x: canX + tx, y: canY + 12 + ty, dx: dx / len, dy: dy / len };
+}
+function moveCan(x, y) {
+  canX = x; canY = y;
+  can.style.left = (x - 105) + 'px'; can.style.top = (y - 60) + 'px';
+}
+
+addEventListener('pointerdown', (e) => {
+  if (e.target.closest('.corner, .vol, .back')) return;
+  pour = e.pointerId;
+  moveCan(e.clientX, e.clientY);
+  can.style.rotate = TILT + 'deg';
+  Sfx.noise(0.3, 0.15, 1500, 0, 'bandpass');
+});
+addEventListener('pointermove', (e) => { if (e.pointerId === pour) moveCan(e.clientX, e.clientY); });
+const stop = (e) => { if (e.pointerId === pour) { pour = null; can.style.rotate = '0deg'; } };
+addEventListener('pointerup', stop); addEventListener('pointercancel', stop);
+
+btn.addEventListener('pointerdown', () => { seed(); Sfx.pop(); [0, 5, 9].forEach((s, i) => Sfx.tone(392 * Math.pow(2, s / 12), 0.2, 'sine', 0.12, i * 0.08)); });
+
+function grow(p) {
+  if (p.bloom) return;
+  p.g = Math.min(1, p.g + 0.012);
+  p.wob = 1;
+  if (p.g >= 1) {
+    p.bloom = true;
+    Sfx.chime();
+    popText('さいた！', p.x, innerHeight * 0.72 - 260, '#ff4d8d', 44);
+    if (plants.every(q => q.bloom)) setTimeout(() => { Sfx.yay(); speak('ぜんぶ さいたね！'); }, 600);
+  }
+}
+
+let lastT = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  const W = innerWidth, H = innerHeight, ground = H * 0.72;
+  // じょうろの さきから みず
+  if (pour !== null) {
+    const sp = spout();
+    for (let i = 0; i < 4; i++) drops.push({ x: sp.x + rand(-5, 5), y: sp.y + rand(-5, 5), vx: sp.dx * rand(90, 150) + rand(-15, 15), vy: sp.dy * rand(90, 150) + rand(0, 30) });
+    splash += dt;
+    if (splash > 0.25) { splash = 0; Sfx.noise(0.25, 0.08, 2500, 0, 'bandpass'); }
+  }
+  for (const d of drops) {
+    d.vy += 900 * dt; d.x += d.vx * dt; d.y += d.vy * dt;
+    if (d.y > ground - 4) {
+      d.dead = true;
+      for (const p of plants) if (Math.abs(p.x - d.x) < 55) grow(p);
+    }
+  }
+  drops = drops.filter(d => !d.dead && d.y < H);
+  if (drops.length > 600) drops.splice(0, drops.length - 600);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawEmoji(ctx, '☀️', W - 90, 90, 90);
+  ctx.fillStyle = '#4fa3e8';
+  for (const d of drops) { ctx.beginPath(); ctx.ellipse(d.x, d.y, 3, 6, 0, 0, 7); ctx.fill(); }
+  for (const p of plants) {
+    p.wob *= Math.pow(0.05, dt);
+    const sway = Math.sin(now / 150) * p.wob * 4;
+    // つち の もりあがり
+    ctx.fillStyle = '#6b4226'; ctx.beginPath(); ctx.ellipse(p.x, ground, 46, 14, 0, Math.PI, 0); ctx.fill();
+    if (p.g < 0.08) { drawEmoji(ctx, '🫘', p.x, ground - 8, 26); continue; }
+    const h = 30 + p.g * 190, top = ground - h;
+    ctx.strokeStyle = '#3c9a3c'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(p.x, ground); ctx.quadraticCurveTo(p.x + sway * 3, ground - h / 2, p.x + sway, top); ctx.stroke();
+    // は
+    const ls = Math.min(1, p.g * 2) * 28;
+    ctx.fillStyle = '#52b752';
+    ctx.beginPath(); ctx.ellipse(p.x - ls * 0.7, ground - h * 0.4, ls, ls * 0.4, 0.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(p.x + ls * 0.7, ground - h * 0.6, ls, ls * 0.4, -0.5, 0, 7); ctx.fill();
+    if (p.bloom) drawEmoji(ctx, p.f, p.x + sway, top - 20, 80 + Math.sin(now / 300) * 4);
+    else if (p.g > 0.5) drawEmoji(ctx, '🌱', p.x + sway, top - 10, 30 + (p.g - 0.5) * 30);
+  }
+  requestAnimationFrame(loop);
+})(lastT);
+seed(); moveCan(canX, canY);
+</script>
+</body>
+</html>

@@ -98,3 +98,12 @@ canvas .big-btn, .big-btn.hic {
 @keyframes wheelspin { to { rotate: 360deg; } }
 .rail { position: fixed; left: 0; right: 0; height: 26px; z-index: 2;
   background: linear-gradient(#888 0 6px, transparent 6px), repeating-linear-gradient(90deg, #6b4a2b 0 14px, transparent 14px 40px); }
+
+/* iPad: ゆび2本の かくだい・はしの ひっぱり（びよーん）で がめんが うごかないように */
+html, body { overscroll-behavior: none; }
+html.no-scroll, html.no-scroll body { touch-action: none; }
+html.can-scroll, html.can-scroll body { touch-action: pan-y; }
+
+/* ゆびで あそぶ ページ: ボタンは みぎしたに ちいさめに おく */
+.corner { position: fixed; right: 20px; bottom: 20px; z-index: 30; }
+.corner .big-btn { width: min(24vw, 120px); height: min(24vw, 120px); font-size: min(7vw, 34px); }

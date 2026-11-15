@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>かたちはめ</title>
+<link rel="stylesheet" href="common.css?v=6">
+<style>
+  body { background: #fdf3df; }
+  #board { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); width: min(92vw, 720px); height: min(34vh, 260px);
+           background: #d9a066; border-radius: 28px; box-shadow: inset 0 -12px 0 #b07a44, 0 10px 20px rgba(0,0,0,.15); }
+  .piece, .hole { position: fixed; width: var(--s); height: var(--s); touch-action: none; }
+  .hole svg * { fill: rgba(80,40,10,.35); stroke: rgba(80,40,10,.5); stroke-width: 3; stroke-dasharray: 8 6; }
+  .piece { z-index: 10; cursor: grab; transition: left .35s cubic-bezier(.3,1.4,.5,1), top .35s cubic-bezier(.3,1.4,.5,1), scale .15s; filter: drop-shadow(0 8px 4px rgba(0,0,0,.25)); }
+  .piece.drag { transition: none; scale: 1.12; z-index: 20; }
+  .piece.done { filter: none; pointer-events: none; }
+  .piece svg { width: 100%; height: 100%; display: block; }
+  .piece svg * { stroke: rgba(255,255,255,.6); stroke-width: 4; }
+  .big-btn { --c1: #ff9f1c; --c2: #c47200; }
+</style>
+</head>
+<body>
+<div id="board"></div>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔺</span></button></div>
+<script src="common.js?v=6"></script>
+<script>
+// かたちはめ: おなじ かたちの あなに はめる
+const star = (() => { let p = ''; for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5 - Math.PI / 2, r = i % 2 ? 20 : 47; p += `${50 + Math.cos(a) * r},${53 + Math.sin(a) * r} `; } return p; })();
+const SHAPES = {
+  maru:    ['まる', '<circle cx="50" cy="50" r="45"/>'],
+  shikaku: ['しかく', '<rect x="7" y="7" width="86" height="86" rx="10"/>'],
+  sankaku: ['さんかく', '<polygon points="50,6 95,90 5,90"/>'],
+  hoshi:   ['ほし', `<polygon points="${star}"/>`],
+  heart:   ['はーと', '<path d="M50 90 C 12 62, 2 34, 24 17 C 39 6, 50 18, 50 28 C 50 18, 61 6, 76 17 C 98 34, 88 62, 50 90 Z"/>'],
+  hishi:   ['ひしがた', '<polygon points="50,4 94,50 50,96 6,50"/>'],
+};
+const COLORS = ['#ff4d6d', '#ffb703', '#3a86ff', '#38b000', '#9b5de5', '#ff7b00'];
+const btn = document.getElementById('btn'), board = document.getElementById('board');
+let pieces = [], holes = [];
+
+const svg = (inner, color) => `<svg viewBox="0 0 100 100"><g style="fill:${color}">${inner}</g></svg>`;
+function size() { return Math.min(innerWidth * 0.2, innerHeight * 0.17, 150); }
+
+function newRound() {
+  for (const el of document.querySelectorAll('.piece, .hole')) el.remove();
+  pieces = []; holes = [];
+  const kinds = Object.keys(SHAPES).sort(() => Math.random() - 0.5).slice(0, 3);
+  const cols = COLORS.slice().sort(() => Math.random() - 0.5);
+  const s = size(), br = board.getBoundingClientRect();
+  // あな（いたの うえ）
+  kinds.forEach((k, i) => {
+    const h = document.createElement('div');
+    h.className = 'hole'; h.style.setProperty('--s', s + 'px');
+    h.innerHTML = svg(SHAPES[k][1], 'transparent');
+    const x = br.left + br.width * (i + 0.5) / 3 - s / 2, y = br.top + br.height / 2 - s / 2;
+    h.style.left = x + 'px'; h.style.top = y + 'px';
+    document.body.appendChild(h);
+    holes.push({ k, x, y, el: h });
+  });
+  // かたち（したに ばらばら）
+  const order = kinds.slice().sort(() => Math.random() - 0.5);
+  order.forEach((k, i) => {
+    const p = document.createElement('div');
+    p.className = 'piece'; p.style.setProperty('--s', s + 'px');
+    p.innerHTML = svg(SHAPES[k][1], cols[i]);
+    const hx = innerWidth * 0.82 * (i + 0.5) / 3 - s / 2 + rand(-15, 15); // みぎしたの ボタンを よける
+    const hy = innerHeight * 0.68 - s / 2 + rand(-30, 30);
+    p.style.left = hx + 'px'; p.style.top = hy + 'px';
+    p.style.rotate = rand(-15, 15) + 'deg';
+    document.body.appendChild(p);
+    const obj = { k, el: p, hx, hy, done: false };
+    pieces.push(obj);
+    attach(obj, s);
+  });
+}
+
+function attach(obj, s) {
+  const el = obj.el;
+  let id = null, ox = 0, oy = 0;
+  el.addEventListener('pointerdown', (e) => {
+    if (obj.done) return;
+    id = e.pointerId; el.setPointerCapture(id);
+    const r = el.getBoundingClientRect(); ox = e.clientX - r.left; oy = e.clientY - r.top;
+    el.classList.add('drag'); el.style.rotate = '0deg';
+    Sfx.tone(500, 0.08, 'sine', 0.15, 0, 700);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== id) return;
+    el.style.left = e.clientX - ox + 'px'; el.style.top = e.clientY - oy + 'px';
+  });
+  const drop = (e) => {
+    if (e.pointerId !== id) return;
+    id = null; el.classList.remove('drag');
+    const x = parseFloat(el.style.left), y = parseFloat(el.style.top);
+    const near = holes.map(h => ({ h, d: Math.hypot(h.x - x, h.y - y) })).sort((a, b) => a.d - b.d)[0];
+    if (near && near.d < s * 0.6) {
+      if (near.h.k === obj.k && !near.h.used) { // ぴったり！
+        near.h.used = true; obj.done = true;
+        el.classList.add('done');
+        el.style.left = near.h.x + 'px'; el.style.top = near.h.y + 'px';
+        el.animate([{ scale: 1.25 }, { scale: 1 }], { duration: 350, easing: 'ease-out' });
+        Sfx.chime();
+        speak(SHAPES[obj.k][0] + '！');
+        if (pieces.every(p => p.done)) setTimeout(() => {
+          Sfx.yay(); popText('できた！', innerWidth / 2, innerHeight * 0.55, '#ff4d6d', 72); speak('ぜんぶ できたね！');
+        }, 700);
+        return;
+      }
+      // ちがう あな → もどる
+      Sfx.tone(300, 0.2, 'triangle', 0.2, 0, 160);
+      el.animate([{ translate: '0 0' }, { translate: '-12px 0' }, { translate: '12px 0' }, { translate: '0 0' }], { duration: 250 });
+      setTimeout(() => { el.style.left = obj.hx + 'px'; el.style.top = obj.hy + 'px'; }, 250);
+    } else {
+      Sfx.tone(350, 0.08, 'sine', 0.1);
+    }
+  };
+  el.addEventListener('pointerup', drop); el.addEventListener('pointercancel', drop);
+}
+
+btn.addEventListener('pointerdown', () => { Sfx.pop(); newRound(); });
+addEventListener('resize', newRound);
+newRound();
+</script>
+</body>
+</html>
