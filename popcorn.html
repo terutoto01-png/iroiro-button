@@ -84,21 +84,18 @@ function settle(f, p) {
   if (avg > p.h + 40) overflow(p); // やま ぜんたいが ふちより たかく なったら
 }
 
-// あふれる！ なべの なかみが ぜんぶ どばーっと そとへ。さらに ふんすいみたいに ふきだす
-let jump = 0;
+// あふれる！ なべの なかみ だけが ぜんぶ どばーっと そとへ（ふえたり しない）
+let jump = 0, emptyUntil = 0;
 function overflow(p) {
   for (const k of inPot) {
     const side = k.x < p.x ? -1 : 1;
-    flying.push({ x: k.x, y: k.y, vx: side * rand(150, 650), vy: -rand(300, 900), rot: k.rot, vr: rand(-14, 14), s: k.s, spill: true });
+    flying.push({ x: k.x, y: k.y, vx: side * rand(150, 650) + rand(-200, 200), vy: -rand(500, 1100), rot: k.rot, vr: rand(-14, 14), s: k.s, spill: true });
   }
   inPot = [];
   heap = heap.map(() => 0);
-  // ふきだし（0.9びょう かけて どんどん でる）
-  for (let i = 0; i < 90; i++) setTimeout(() => {
-    const q = pot();
-    flying.push({ x: q.x + rand(-q.w * 0.4, q.w * 0.4), y: q.y, vx: rand(-700, 700), vy: -rand(700, 1300), rot: rand(0, 6), vr: rand(-14, 14), s: rand(34, 46), spill: true });
-    if (i % 6 === 0) Sfx.tone(rand(700, 1400), 0.05, 'square', 0.06, 0, rand(300, 500));
-  }, i * 10);
+  // いま とんでいる つぶも、しばらく はじけた つぶも、なべには もどさない（からっぽの まま）
+  for (const f of flying) f.spill = true;
+  emptyUntil = performance.now() + 2500;
   shake = 3; jump = 1;
   Sfx.noise(1.5, 0.6, 2500, 0, 'bandpass'); // ざざーっ
   Sfx.yay();
@@ -129,7 +126,7 @@ let lastT = performance.now();
   // ガラスの なべ（なかが みえる）
   ctx.save(); ctx.translate(p.x + sx, p.y + jy);
   ctx.fillStyle = '#444'; ctx.fillRect(-p.w / 2 - 34, 24, 34, 18); ctx.fillRect(p.w / 2, 24, 34, 18);
-  ctx.fillStyle = 'rgba(255,248,225,0.85)'; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 34, 34]); ctx.fill();
+  ctx.fillStyle = 'rgba(225,242,255,0.45)'; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 34, 34]); ctx.fill();
   ctx.restore();
   // なかの ポップコーン
   for (const k of inPot) drawK(k.x + sx, k.y + jy, k.s, k.rot);
@@ -147,7 +144,7 @@ let lastT = performance.now();
     if (f.x < 15) { f.x = 15; f.vx = Math.abs(f.vx) * 0.5; }
     if (f.x > W - 15) { f.x = W - 15; f.vx = -Math.abs(f.vx) * 0.5; }
     if (f.vy > 0) {
-      const inside = Math.abs(f.x - p.x) < p.w / 2 - 14;
+      const inside = Math.abs(f.x - p.x) < p.w / 2 - 14 && performance.now() > emptyUntil;
       if (inside && !f.spill) {
         const c = Math.max(0, Math.min(heap.length - 1, colOf(p, f.x)));
         if (f.y >= p.bottom - heap[c] - f.s * 0.3) { f.done = true; settle(f, p); continue; }
