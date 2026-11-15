@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>うちゅう</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: #000; }
+  .big-btn { --c1: #2b3fbf; --c2: #141f6b; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🪐</span></button></div>
+<script src="common.js"></script>
+<script>
+// ぎんが: WebGPU コンピュートで星をうずまきに回す
+const N = 120000, STRIDE = 8; // a: r, theta, rTarget, hue / b: bright, speed, size, spare
+const canvas = document.getElementById('cv');
+const btn = document.getElementById('btn');
+let gpu, cursor = 0, spin = 1;
+
+const COMMON = /* wgsl */`
+struct P { a: vec4f, b: vec4f };
+struct U { res: vec2f, dt: f32, time: f32, scale: f32, spin: f32, pad: vec2f };
+`;
+const UPDATE = COMMON + /* wgsl */`
+@group(0) @binding(0) var<storage, read_write> ps: array<P>;
+@group(0) @binding(1) var<uniform> u: U;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i >= arrayLength(&ps)) { return; }
+  var p = ps[i];
+  if (p.b.x <= 0.0) { return; }
+  p.a.x = p.a.x + (p.a.z - p.a.x) * min(u.dt * 0.7, 1.0);
+  p.a.y = p.a.y + u.dt * u.spin * p.b.y * 0.9 * pow(80.0 / max(p.a.x, 15.0), 0.9);
+  ps[i] = p;
+}`;
+const RENDER = COMMON + /* wgsl */`
+@group(0) @binding(0) var<storage, read> ps: array<P>;
+@group(0) @binding(1) var<uniform> u: U;
+struct VO { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) col: vec3f };
+fn hsv(h: f32, s: f32, v: f32) -> vec3f {
+  let k = vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0);
+  let p = abs(fract(vec3f(h) + k) * 6.0 - 3.0);
+  return v * mix(vec3f(1.0), clamp(p - 1.0, vec3f(0.0), vec3f(1.0)), s);
+}
+@vertex
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
+  var corners = array<vec2f, 6>(vec2f(-1,-1), vec2f(1,-1), vec2f(-1,1), vec2f(-1,1), vec2f(1,-1), vec2f(1,1));
+  let p = ps[ii];
+  let c = corners[vi];
+  var o: VO;
+  o.uv = c;
+  if (p.b.x <= 0.0) { o.pos = vec4f(2.0, 2.0, 0.0, 1.0); o.col = vec3f(0.0); return o; }
+  let center = u.res * vec2f(0.5, 0.42);
+  let r = p.a.x * u.scale;
+  let q = center + vec2f(cos(p.a.y) * r, sin(p.a.y) * r * 0.6);
+  let size = p.b.z;
+  let px = q + c * size;
+  o.pos = vec4f(px.x / u.res.x * 2.0 - 1.0, 1.0 - px.y / u.res.y * 2.0, 0.0, 1.0);
+  let tw = 0.75 + 0.25 * sin(u.time * 3.0 + f32(ii) * 0.37);
+  let core = exp(-p.a.x / 60.0);
+  o.col = mix(hsv(p.a.w, 0.7, 1.0), vec3f(1.0, 0.95, 0.8), core) * p.b.x * tw;
+  return o;
+}
+@fragment
+fn fs(i: VO) -> @location(0) vec4f {
+  let d = dot(i.uv, i.uv);
+  return vec4f(i.col * exp(-d * 5.0), 1.0);
+}`;
+
+function writeParticles(arr, count) {
+  let off = 0;
+  while (off < count) {
+    const n = Math.min(count - off, N - cursor);
+    gpu.device.queue.writeBuffer(gpu.pbuf, cursor * STRIDE * 4, arr.subarray(off * STRIDE, (off + n) * STRIDE));
+    cursor = (cursor + n) % N; off += n;
+  }
+}
+
+// うでを1本つくる（hue の色）
+function addArm(hue, count, startFar) {
+  const arr = new Float32Array(count * STRIDE);
+  const base = Math.random() * Math.PI * 2;
+  for (let i = 0; i < count; i++) {
+    const t = Math.pow(Math.random(), 0.8);
+    const rT = 10 + t * 300;
+    const o = i * STRIDE;
+    arr[o] = startFar ? rT + rand(400, 900) : rT;
+    arr[o+1] = base + t * 5.5 + rand(-0.35, 0.35) * (1.2 - t);
+    arr[o+2] = rT + rand(-12, 12);
+    arr[o+3] = hue + rand(-0.06, 0.06);
+    arr[o+4] = rand(0.25, 0.9);
+    arr[o+5] = rand(0.8, 1.2);
+    arr[o+6] = rand(1.2, 3.2);
+  }
+  writeParticles(arr, count);
+}
+
+btn.addEventListener('pointerdown', () => {
+  addArm(Math.random(), 8000, true);
+  spin = 4; // くるっと はやく
+  Sfx.tone(80, 1.2, 'sawtooth', 0.08, 0, 600);
+  Sfx.tone(160, 1.2, 'sine', 0.15, 0, 1200);
+  [0, 7, 12, 19].forEach((s, i) => Sfx.tone(523 * Math.pow(2, s / 12), 0.8, 'sine', 0.08, 0.5 + i * 0.1));
+});
+
+(async () => {
+  gpu = await initWebGPU(canvas);
+  const { device, format, ctx } = gpu;
+  gpu.pbuf = device.createBuffer({ size: N * STRIDE * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const ubuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const cp = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: UPDATE }), entryPoint: 'main' } });
+  const rmod = device.createShaderModule({ code: RENDER });
+  const blend = { srcFactor: 'one', dstFactor: 'one', operation: 'add' };
+  const rp = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: rmod, entryPoint: 'vs' },
+    fragment: { module: rmod, entryPoint: 'fs', targets: [{ format, blend: { color: blend, alpha: blend } }] },
+  });
+  const entries = [{ binding: 0, resource: { buffer: gpu.pbuf } }, { binding: 1, resource: { buffer: ubuf } }];
+  const cbg = device.createBindGroup({ layout: cp.getBindGroupLayout(0), entries });
+  const rbg = device.createBindGroup({ layout: rp.getBindGroupLayout(0), entries });
+
+  fitCanvas(canvas); addEventListener('resize', () => fitCanvas(canvas));
+  addArm(0.6, 6000, false); addArm(0.85, 6000, false); addArm(0.1, 6000, false);
+
+  let last = performance.now();
+  const loop = (t) => {
+    const dt = Math.min(0.05, (t - last) / 1000); last = t;
+    spin += (1 - spin) * Math.min(dt * 1.2, 1);
+    const scale = Math.min(innerWidth, innerHeight) / 700;
+    device.queue.writeBuffer(ubuf, 0, new Float32Array([innerWidth, innerHeight, dt, t / 1000, scale, spin, 0, 0]));
+    const enc = device.createCommandEncoder();
+    const c = enc.beginComputePass(); c.setPipeline(cp); c.setBindGroup(0, cbg); c.dispatchWorkgroups(Math.ceil(N / 64)); c.end();
+    const r = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0.02, a: 1 } }] });
+    r.setPipeline(rp); r.setBindGroup(0, rbg); r.draw(6, N); r.end();
+    device.queue.submit([enc.finish()]);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

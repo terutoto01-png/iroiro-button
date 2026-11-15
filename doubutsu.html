@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>どうぶつ</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: #c8f2c2; transition: background .4s; }
+  .big-btn { --c1: #ff9f1c; --c2: #c47200; }
+  #stage { position: fixed; inset: 0 0 260px 0; display: flex; align-items: center; justify-content: center; flex-direction: column; pointer-events: none; }
+  #animal { font-size: min(40vw, 240px); line-height: 1; }
+  #cry { font-size: min(10vw, 64px); font-weight: bold; color: #fff; text-shadow: 0 4px 0 rgba(0,0,0,.25); min-height: 1.2em; }
+  .jump { animation: jump .6s cubic-bezier(.3,1.6,.5,1); }
+  @keyframes jump { 0% { transform: scale(0) rotate(-30deg); } 100% { transform: scale(1) rotate(0); } }
+  .wiggle { animation: wiggle .5s ease-in-out 2; }
+  @keyframes wiggle { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-10deg); } 75% { transform: rotate(10deg); } }
+</style>
+</head>
+<body>
+<div id="stage"><div id="animal"></div><div id="cry"></div></div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🐾</span></button></div>
+<script src="common.js"></script>
+<script>
+const ANIMALS = [
+  { e: '🐶', cry: 'わんわん', name: 'いぬ', bg: '#ffe0b3' },
+  { e: '🐱', cry: 'にゃーん', name: 'ねこ', bg: '#ffd6e7' },
+  { e: '🐷', cry: 'ぶーぶー', name: 'ぶた', bg: '#ffc8d8' },
+  { e: '🐮', cry: 'もーもー', name: 'うし', bg: '#e6f7d4' },
+  { e: '🐤', cry: 'ぴよぴよ', name: 'ひよこ', bg: '#fff6b3' },
+  { e: '🐸', cry: 'けろけろ', name: 'かえる', bg: '#c8f2c2' },
+  { e: '🐘', cry: 'ぱおーん', name: 'ぞう', bg: '#d6e4ff' },
+  { e: '🦁', cry: 'がおー', name: 'らいおん', bg: '#ffe6a8' },
+  { e: '🐑', cry: 'めぇめぇ', name: 'ひつじ', bg: '#f0f0f0' },
+  { e: '🐵', cry: 'うっきっき', name: 'さる', bg: '#f3dcc0' },
+  { e: '🐔', cry: 'こけこっこー', name: 'にわとり', bg: '#ffe8d6' },
+  { e: '🦆', cry: 'があがあ', name: 'あひる', bg: '#d6f3ff' },
+  { e: '🐴', cry: 'ひひーん', name: 'うま', bg: '#ecdcc8' },
+  { e: '🐺', cry: 'わおーん', name: 'おおかみ', bg: '#d8d8f0' },
+];
+const animal = document.getElementById('animal'), cry = document.getElementById('cry');
+const btn = document.getElementById('btn');
+let prev = -1;
+btn.addEventListener('pointerdown', () => {
+  let i; do { i = Math.floor(Math.random() * ANIMALS.length); } while (i === prev); prev = i;
+  const a = ANIMALS[i];
+  animal.textContent = a.e; cry.textContent = a.cry + '！';
+  document.body.style.background = a.bg;
+  animal.className = ''; void animal.offsetWidth; animal.className = 'jump';
+  setTimeout(() => { animal.className = 'wiggle'; }, 600);
+  Sfx.boing();
+  speak(`${a.cry}！ ${a.name}だよ`);
+});
+</script>
+</body>
+</html>

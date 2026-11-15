@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>かみなり</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: #2c3350; }
+  .big-btn { --c1: #ffe600; --c2: #b3a000; color: #333; }
+  #cloud { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); font-size: min(40vw, 220px); z-index: 5; pointer-events: none; }
+  #cloud.shake { animation: shake .08s linear 6; }
+  @keyframes shake { 0%,100% { transform: translateX(-52%); } 50% { transform: translateX(-48%); } }
+  body.flash { animation: flash .5s; }
+  @keyframes flash { 0%, 30% { background: #fff; } 15%, 45% { background: #b8c4ff; } 100% { background: #2c3350; } }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div id="cloud">🌩️</div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">⚡</span></button></div>
+<script src="common.js"></script>
+<script>
+const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
+const btn = document.getElementById('btn'), cloud = document.getElementById('cloud');
+fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
+let bolts = [], rain = [];
+for (let i = 0; i < 150; i++) rain.push({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, v: rand(500, 900) });
+
+function makeBolt(x1, y1, x2, y2, depth) {
+  const segs = [];
+  (function split(ax, ay, bx, by, off, d) {
+    if (d === 0) { segs.push([ax, ay, bx, by]); return; }
+    const mx = (ax + bx) / 2 + rand(-off, off), my = (ay + by) / 2 + rand(-off / 3, off / 3);
+    split(ax, ay, mx, my, off / 2, d - 1); split(mx, my, bx, by, off / 2, d - 1);
+    if (d > 2 && Math.random() < 0.3) split(mx, my, mx + rand(-120, 120), my + rand(60, 160), off / 2, d - 2);
+  })(x1, y1, x2, y2, 120, depth);
+  return segs;
+}
+
+btn.addEventListener('pointerdown', () => {
+  const r = cloud.getBoundingClientRect();
+  const x1 = r.left + r.width / 2, y1 = r.top + r.height * 0.6;
+  const n = Math.random() < 0.4 ? 2 : 1;
+  for (let i = 0; i < n; i++) bolts.push({ segs: makeBolt(x1 + rand(-40, 40), y1, rand(40, innerWidth - 40), innerHeight * rand(0.6, 0.9), 7), life: 0.5 });
+  document.body.classList.remove('flash'); void document.body.offsetWidth; document.body.classList.add('flash');
+  cloud.classList.remove('shake'); void cloud.offsetWidth; cloud.classList.add('shake');
+  Sfx.noise(0.15, 1.0, 5000, 0, 'highpass');       // ばりっ
+  Sfx.noise(2.0, 1.0, 180, 0.1);                     // ごろごろ
+  Sfx.tone(55, 1.5, 'sawtooth', 0.12, 0.05, 30);
+});
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  ctx.strokeStyle = 'rgba(180,200,255,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (const d of rain) {
+    d.y += d.v * dt; d.x -= d.v * 0.15 * dt;
+    if (d.y > innerHeight) { d.y = -20; d.x = Math.random() * (innerWidth + 100); }
+    ctx.moveTo(d.x, d.y); ctx.lineTo(d.x + 3, d.y - 18);
+  }
+  ctx.stroke();
+  for (const b of bolts) {
+    b.life -= dt;
+    const a = Math.max(0, b.life / 0.5) * (0.6 + 0.4 * Math.random());
+    ctx.lineCap = 'round';
+    for (const [w, c] of [[14, `rgba(150,170,255,${a * 0.3})`], [6, `rgba(220,230,255,${a * 0.7})`], [2.5, `rgba(255,255,255,${a})`]]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+      for (const s of b.segs) { ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); }
+      ctx.stroke();
+    }
+  }
+  bolts = bolts.filter(b => b.life > 0);
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>かみふぶき</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: #fff8e7; }
+  .big-btn { --c1: #ff4f7b; --c2: #c22a52; }
+  canvas.full { pointer-events: none; z-index: 20; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎉</span></button></div>
+<script src="common.js"></script>
+<script>
+const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
+const btn = document.getElementById('btn');
+fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
+const COLORS = ['#ff4f7b', '#ffcc00', '#33ccff', '#66dd55', '#aa66ff', '#ff8833', '#ffffff'];
+let bits = [];
+
+function blast(x, y) {
+  for (let i = 0; i < 160; i++) {
+    const a = -Math.PI / 2 + rand(-0.9, 0.9), sp = rand(500, 1300);
+    bits.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      w: rand(8, 16), h: rand(5, 10), rot: rand(0, 6), vr: rand(-12, 12),
+      flip: rand(0, 6), vf: rand(5, 15), color: pick(COLORS),
+      shape: Math.random() < 0.2 ? 'star' : Math.random() < 0.3 ? 'circle' : 'rect',
+    });
+  }
+  if (bits.length > 1500) bits.splice(0, bits.length - 1500);
+  Sfx.noise(0.25, 0.9, 4000, 0, 'highpass');
+  Sfx.noise(0.5, 0.6, 600);
+  Sfx.yay();
+}
+function star(r) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r * 0.45 : r;
+    ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  ctx.fill();
+}
+btn.addEventListener('pointerdown', () => {
+  const r = btn.getBoundingClientRect();
+  blast(r.left + r.width / 2, r.top + 20);
+  if (Math.random() < 0.3) setTimeout(() => { blast(40, innerHeight); blast(innerWidth - 40, innerHeight); }, 150);
+});
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  ctx.clearRect(0, 0, innerWidth, innerHeight);
+  for (const b of bits) {
+    b.vy += 900 * dt;
+    b.vx *= Math.pow(0.15, dt); b.vy = Math.min(b.vy * Math.pow(0.4, dt), 160 + b.w * 6);
+    b.x += (b.vx + Math.sin(b.flip) * 40) * dt; b.y += b.vy * dt;
+    b.rot += b.vr * dt; b.flip += b.vf * dt;
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.rot); ctx.scale(1, Math.cos(b.flip));
+    ctx.fillStyle = b.color;
+    if (b.shape === 'rect') ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+    else if (b.shape === 'circle') { ctx.beginPath(); ctx.arc(0, 0, b.h * 0.8, 0, 7); ctx.fill(); }
+    else star(b.w * 0.8);
+    ctx.restore();
+  }
+  bits = bits.filter(b => b.y < innerHeight + 40);
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

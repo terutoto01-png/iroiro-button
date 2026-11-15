@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ぷるぷる</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: #fff4d6; }
+  .big-btn { --c1: #33cc88; --c2: #1f8a5a; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">💧</span></button></div>
+<script src="common.js"></script>
+<script>
+// スライム（メタボール）: WebGPU フラグメントシェーダー
+const MAX = 24;
+const canvas = document.getElementById('cv');
+const btn = document.getElementById('btn');
+const blobs = [];
+let dpr = 1;
+
+const SHADER = /* wgsl */`
+struct U { res: vec2f, time: f32, dpr: f32, b: array<vec4f, ${MAX}> };
+@group(0) @binding(0) var<uniform> u: U;
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  var p = array<vec2f, 3>(vec2f(-1.0, -3.0), vec2f(-1.0, 1.0), vec2f(3.0, 1.0));
+  return vec4f(p[i], 0.0, 1.0);
+}
+fn hsv(h: f32, s: f32, v: f32) -> vec3f {
+  let k = vec3f(1.0, 2.0 / 3.0, 1.0 / 3.0);
+  let p = abs(fract(vec3f(h) + k) * 6.0 - 3.0);
+  return v * mix(vec3f(1.0), clamp(p - 1.0, vec3f(0.0), vec3f(1.0)), s);
+}
+@fragment
+fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
+  let p = fc.xy / u.dpr;
+  var f = 0.0;
+  var grad = vec2f(0.0);
+  var col = vec3f(0.0);
+  for (var i = 0; i < ${MAX}; i++) {
+    let b = u.b[i];
+    if (b.z <= 0.0) { continue; }
+    let d = p - b.xy;
+    let d2 = max(dot(d, d), 1.0);
+    let w = b.z * b.z / d2;
+    f = f + w;
+    grad = grad - 2.0 * w / d2 * d;
+    col = col + hsv(b.w, 0.65, 1.0) * w * w;
+  }
+  // はいけい（みずたま）
+  let dots = step(length(fract(p / 40.0) - 0.5), 0.12);
+  var bg = mix(vec3f(1.0, 0.957, 0.84), vec3f(1.0, 0.9, 0.75), dots);
+  if (f < 1.0) {
+    // かげ
+    let sh = smoothstep(0.4, 1.0, f) * 0.15;
+    return vec4f(bg * (1.0 - sh), 1.0);
+  }
+  var base = col / max(dot(vec3f(1.0), col) / 3.0, 0.0001);
+  base = clamp(base * 0.6, vec3f(0.0), vec3f(1.0));
+  let n = normalize(vec3f(-grad * 30.0, 1.0));
+  let l = normalize(vec3f(-0.5, -0.7, 0.8));
+  let diff = max(dot(n, l), 0.0);
+  let spec = pow(max(dot(reflect(-l, n), vec3f(0.0, 0.0, 1.0)), 0.0), 30.0);
+  let rim = smoothstep(1.15, 1.0, f) * 0.35;
+  var c = base * (0.45 + 0.65 * diff) + vec3f(spec * 0.9) - vec3f(rim * 0.3);
+  return vec4f(c, 1.0);
+}`;
+
+function addBlob() {
+  const r = btn.getBoundingClientRect();
+  if (blobs.length >= MAX) blobs.shift();
+  blobs.push({
+    x: r.left + r.width / 2 + rand(-20, 20), y: r.top,
+    vx: rand(-250, 250), vy: rand(-900, -600),
+    r: rand(35, 70), hue: Math.random(), wob: Math.random() * 10,
+  });
+  Sfx.tone(rand(200, 300), 0.25, 'sine', 0.35, 0, rand(600, 900));
+  Sfx.tone(rand(500, 700), 0.15, 'sine', 0.15, 0.08, 300);
+}
+btn.addEventListener('pointerdown', addBlob);
+
+// たたくと ぷるん と はねる
+canvas.addEventListener('pointerdown', (e) => {
+  let hit = false;
+  for (const b of blobs) {
+    const dx = b.x - e.clientX, dy = b.y - e.clientY, d = Math.hypot(dx, dy);
+    if (d < b.r * 2.5) {
+      b.vx += dx / (d + 1) * 600; b.vy += -500 + dy / (d + 1) * 300; b.wob += 3; hit = true;
+    }
+  }
+  if (hit) Sfx.boing();
+});
+
+function step(dt) {
+  const W = innerWidth, H = innerHeight;
+  for (const b of blobs) {
+    b.vy += 1400 * dt;
+    b.vx *= Math.pow(0.6, dt);
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    const rr = b.r * 0.8;
+    if (b.y > H - rr) { b.y = H - rr; if (b.vy > 200) Sfx.tone(120 + b.r, 0.12, 'sine', 0.15, 0, 80); b.vy *= -0.55; b.vx *= 0.9; }
+    if (b.x < rr) { b.x = rr; b.vx = Math.abs(b.vx) * 0.7; }
+    if (b.x > W - rr) { b.x = W - rr; b.vx = -Math.abs(b.vx) * 0.7; }
+    b.wob += dt;
+  }
+  // おたがいに すこし おしあう
+  for (let i = 0; i < blobs.length; i++) for (let j = i + 1; j < blobs.length; j++) {
+    const a = blobs[i], b = blobs[j];
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
+    const min = (a.r + b.r) * 0.7;
+    if (d < min) {
+      const push = (min - d) / d * 0.5;
+      a.x -= dx * push * 0.5; a.y -= dy * push * 0.5;
+      b.x += dx * push * 0.5; b.y += dy * push * 0.5;
+    }
+  }
+}
+
+(async () => {
+  const gpu = await initWebGPU(canvas);
+  const { device, ctx, format } = gpu;
+  const mod = device.createShaderModule({ code: SHADER });
+  const pipe = device.createRenderPipeline({
+    layout: 'auto',
+    vertex: { module: mod, entryPoint: 'vs' },
+    fragment: { module: mod, entryPoint: 'fs', targets: [{ format }] },
+  });
+  const ubuf = device.createBuffer({ size: 16 + MAX * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const bg = device.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: ubuf } }] });
+  const resize = () => { dpr = fitCanvas(canvas); };
+  resize(); addEventListener('resize', resize);
+  const u = new Float32Array(4 + MAX * 4);
+  let last = performance.now();
+  const loop = (t) => {
+    const dt = Math.min(0.033, (t - last) / 1000); last = t;
+    step(dt);
+    u.fill(0);
+    u[0] = canvas.width; u[1] = canvas.height; u[2] = t / 1000; u[3] = dpr;
+    blobs.forEach((b, i) => {
+      const o = 4 + i * 4;
+      u[o] = b.x; u[o+1] = b.y; u[o+2] = b.r * (1 + 0.05 * Math.sin(b.wob * 8)); u[o+3] = b.hue;
+    });
+    device.queue.writeBuffer(ubuf, 0, u);
+    const enc = device.createCommandEncoder();
+    const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store' }] });
+    p.setPipeline(pipe); p.setBindGroup(0, bg); p.draw(3); p.end();
+    device.queue.submit([enc.finish()]);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

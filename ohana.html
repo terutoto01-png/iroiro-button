@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>おはな</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: linear-gradient(#aee4ff, #e9f8ff 60%); }
+  .big-btn { --c1: #ff7ab8; --c2: #c94585; }
+  .bottom-center { bottom: auto; top: 40%; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🌷</span></button></div>
+<script src="common.js"></script>
+<script>
+const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
+const btn = document.getElementById('btn');
+fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
+let flowers = [], butterflies = [];
+const NOTES = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
+
+function plant(x) {
+  const ground = innerHeight - 60;
+  flowers.push({
+    x: x ?? rand(30, innerWidth - 30), base: ground + rand(0, 40), h: rand(90, 220), t: 0,
+    hue: rand(0, 360), petals: Math.floor(rand(5, 9)), r: rand(16, 30), sway: rand(0, 6),
+    leaf: Math.random() < 0.5 ? 1 : -1,
+  });
+  if (flowers.length > 60) flowers.shift();
+  if (Math.random() < 0.15 && butterflies.length < 6) butterflies.push({ x: -30, y: rand(80, innerHeight * 0.5), t: rand(0, 6), hue: rand(0, 360) });
+  const n = pick(NOTES);
+  Sfx.tone(n, 0.25, 'sine', 0.15); Sfx.tone(n * 1.5, 0.35, 'sine', 0.1, 0.1);
+}
+btn.addEventListener('pointerdown', () => { plant(); plant(); });
+canvas.addEventListener('pointerdown', (e) => plant(e.clientX));
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#8fdc6a'; ctx.beginPath(); ctx.moveTo(0, H - 70);
+  for (let x = 0; x <= W; x += 40) ctx.lineTo(x, H - 70 + Math.sin(x / 90) * 10);
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.fill();
+
+  for (const f of flowers) {
+    f.t = Math.min(1, f.t + dt * 1.3);
+    const g = 1 - Math.pow(1 - f.t, 3); // にょきっ
+    const sw = Math.sin(now / 700 + f.sway) * 6;
+    const topX = f.x + sw, topY = f.base - f.h * g;
+    ctx.strokeStyle = '#3fa34d'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(f.x, f.base); ctx.quadraticCurveTo(f.x, (f.base + topY) / 2, topX, topY); ctx.stroke();
+    ctx.fillStyle = '#4cbb5a';
+    ctx.beginPath(); ctx.ellipse(f.x + f.leaf * 14, f.base - f.h * g * 0.35, 16 * g, 7 * g, f.leaf * -0.5, 0, 7); ctx.fill();
+    const pr = f.r * Math.max(0, (f.t - 0.4) / 0.6);
+    if (pr > 0) {
+      for (let i = 0; i < f.petals; i++) {
+        const a = i / f.petals * Math.PI * 2 + now / 3000;
+        ctx.fillStyle = `hsl(${f.hue}, 85%, 70%)`;
+        ctx.beginPath(); ctx.ellipse(topX + Math.cos(a) * pr * 0.8, topY + Math.sin(a) * pr * 0.8, pr * 0.6, pr * 0.35, a, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.arc(topX, topY, pr * 0.4, 0, 7); ctx.fill();
+    }
+  }
+  for (const b of butterflies) {
+    b.t += dt; b.x += 60 * dt; b.y += Math.sin(b.t * 2) * 40 * dt;
+    const flap = Math.abs(Math.sin(b.t * 12));
+    ctx.fillStyle = `hsl(${b.hue}, 90%, 65%)`;
+    ctx.beginPath(); ctx.ellipse(b.x - 8, b.y, 10, 14 * flap + 2, -0.4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(b.x + 8, b.y, 10, 14 * flap + 2, 0.4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#333'; ctx.fillRect(b.x - 1.5, b.y - 8, 3, 16);
+  }
+  butterflies = butterflies.filter(b => b.x < W + 40);
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

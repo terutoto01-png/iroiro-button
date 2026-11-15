@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>かお</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: #fff3b0; display: flex; align-items: center; justify-content: center; }
+  .big-btn { --c1: #ffd23f; --c2: #d19e00; width: min(70vw, 340px); height: min(70vw, 340px); }
+  .big-btn .emoji { font-size: min(40vw, 200px); }
+  .big-btn.boing { animation: boing .45s cubic-bezier(.3,1.8,.5,1); }
+  @keyframes boing { 0% { scale: 1.25 .75; } 100% { scale: 1 1; } }
+</style>
+</head>
+<body>
+<button id="btn" class="big-btn"><span class="emoji">🙂</span></button>
+<script src="common.js"></script>
+<script>
+const FACES = [
+  ['😆', 'boing'], ['😜', 'silly'], ['😲', 'oh'], ['🥰', 'love'], ['😴', 'sleep'], ['🤪', 'silly'],
+  ['😎', 'cool'], ['🤧', 'achoo'], ['😡', 'angry'], ['😂', 'boing'], ['🥳', 'party'], ['🙃', 'silly'],
+  ['😋', 'yum'], ['😵‍💫', 'dizzy'], ['🤩', 'party'], ['😗', 'whistle'],
+];
+const btn = document.getElementById('btn'), em = btn.querySelector('.emoji');
+const BG = ['#fff3b0', '#ffd6e7', '#d6f0ff', '#dcffd6', '#eedcff', '#ffe2c6'];
+let prev = -1;
+
+const SOUND = {
+  boing: () => Sfx.boing(),
+  silly: () => { Sfx.tone(600, 0.15, 'square', 0.1, 0, 300); Sfx.tone(300, 0.15, 'square', 0.1, 0.15, 700); },
+  oh: () => Sfx.tone(300, 0.4, 'sine', 0.3, 0, 700),
+  love: () => [0, 4, 7].forEach((s, i) => Sfx.tone(660 * Math.pow(2, s / 12), 0.3, 'sine', 0.15, i * 0.1)),
+  sleep: () => { Sfx.noise(0.6, 0.3, 400); Sfx.noise(0.6, 0.2, 300, 0.8); },
+  cool: () => [0, 3, 7, 10].forEach((s, i) => Sfx.tone(220 * Math.pow(2, s / 12), 0.2, 'sawtooth', 0.06, i * 0.08)),
+  achoo: () => { Sfx.tone(400, 0.4, 'sine', 0.15, 0, 800); Sfx.noise(0.3, 0.8, 3000, 0.45); },
+  angry: () => Sfx.tone(120, 0.5, 'sawtooth', 0.12, 0, 90),
+  party: () => Sfx.yay(),
+  yum: () => { Sfx.pop(); Sfx.tone(700, 0.1, 'sine', 0.2, 0.15, 1000); },
+  dizzy: () => Sfx.tone(800, 0.8, 'sine', 0.12, 0, 200),
+  whistle: () => Sfx.tone(1200, 0.5, 'sine', 0.12, 0, 1800),
+};
+
+btn.addEventListener('pointerdown', () => {
+  let i; do { i = Math.floor(Math.random() * FACES.length); } while (i === prev); prev = i;
+  em.textContent = FACES[i][0];
+  SOUND[FACES[i][1]]();
+  document.body.style.background = pick(BG);
+  btn.classList.remove('boing'); void btn.offsetWidth; btn.classList.add('boing');
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>くるま</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: linear-gradient(#9ee0ff 0 55%, #7ccf5a 55% 62%, #666 62% 85%, #7ccf5a 85%); }
+  .road-line { position: fixed; top: 73%; left: 0; right: 0; height: 0; border-top: 8px dashed #fff; opacity: .8; }
+  .big-btn { --c1: #2e86ff; --c2: #1655b8; }
+  .bottom-center { bottom: auto; top: 12%; }
+  .car { position: fixed; z-index: 5; font-size: 110px; pointer-events: none; line-height: 1;
+         transform: scaleX(-1); animation: drive var(--dur) linear forwards; }
+  .car span { display: inline-block; animation: bump .25s ease-in-out infinite alternate; }
+  @keyframes drive { from { left: -160px; } to { left: calc(100vw + 40px); } }
+  @keyframes bump { from { transform: translateY(0); } to { transform: translateY(-6px); } }
+  .smoke { position: fixed; z-index: 4; font-size: 40px; pointer-events: none; animation: smoke 1s ease-out forwards; }
+  @keyframes smoke { to { transform: translate(-60px, -40px) scale(2); opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="road-line"></div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚗</span></button></div>
+<script src="common.js"></script>
+<script>
+const VEHICLES = [
+  { e: '🚗', horn: [440, 554], fast: 1 }, { e: '🚕', horn: [494, 587], fast: 1 },
+  { e: '🚌', horn: [262, 330], fast: 0.7 }, { e: '🚒', siren: true, fast: 1.2 },
+  { e: '🚓', siren: true, fast: 1.4 }, { e: '🚑', siren: true, fast: 1.2 },
+  { e: '🚜', horn: [196, 196], fast: 0.5 }, { e: '🏎️', horn: [660, 880], fast: 2.2 },
+  { e: '🚚', horn: [220, 277], fast: 0.8 }, { e: '🚂', horn: [392, 392], fast: 0.9 },
+];
+const btn = document.getElementById('btn');
+
+function honk(v) {
+  if (v.siren) {
+    for (let i = 0; i < 3; i++) { Sfx.tone(960, 0.3, 'square', 0.06, i * 0.6); Sfx.tone(770, 0.3, 'square', 0.06, i * 0.6 + 0.3); }
+  } else {
+    Sfx.tone(v.horn[0], 0.18, 'sawtooth', 0.1); Sfx.tone(v.horn[1], 0.18, 'sawtooth', 0.08);
+    Sfx.tone(v.horn[0], 0.3, 'sawtooth', 0.1, 0.25); Sfx.tone(v.horn[1], 0.3, 'sawtooth', 0.08, 0.25);
+  }
+  Sfx.noise(1.2, 0.25, 200, 0.1); // ぶろろろ
+}
+
+btn.addEventListener('pointerdown', () => {
+  const v = pick(VEHICLES);
+  btn.querySelector('.emoji').textContent = v.e;
+  const car = document.createElement('div');
+  car.className = 'car';
+  car.innerHTML = `<span>${v.e}</span>`;
+  const lane = Math.random() < 0.5 ? 0.6 : 0.72;
+  car.style.top = `calc(${lane * 100}vh - 60px)`;
+  car.style.setProperty('--dur', (3.5 / v.fast) + 's');
+  document.body.appendChild(car);
+  honk(v);
+  const puff = setInterval(() => {
+    const r = car.getBoundingClientRect();
+    const s = document.createElement('div');
+    s.className = 'smoke'; s.textContent = '💨';
+    s.style.left = r.left - 40 + 'px'; s.style.top = r.bottom - 50 + 'px';
+    document.body.appendChild(s); setTimeout(() => s.remove(), 1000);
+  }, 250);
+  car.addEventListener('animationend', (e) => { if (e.target === car) { clearInterval(puff); car.remove(); } });
+});
+</script>
+</body>
+</html>

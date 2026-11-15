@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>いろいろボタン</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  html, body { overflow: auto; }
+  body { background: linear-gradient(135deg, #ffe7f3, #e2f3ff, #e9ffe2); min-height: 100%; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(28vw, 140px), 1fr));
+          gap: min(5vw, 32px); padding: min(6vw, 40px); max-width: 1100px; margin: 0 auto; }
+  .grid a { aspect-ratio: 1; width: 100%; height: auto; font-size: min(9vw, 44px); text-decoration: none; margin-bottom: 12px; }
+  .grid a:nth-child(odd)  { animation: bob 2.4s ease-in-out infinite; }
+  .grid a:nth-child(even) { animation: bob 2.4s ease-in-out -1.2s infinite; }
+  .grid a:active { animation: none; }
+  @keyframes bob { 50% { translate: 0 -6px; } }
+</style>
+</head>
+<body data-no-back>
+<nav class="grid" id="grid"></nav>
+<script src="common.js"></script>
+<script>
+const PAGES = [
+  ['hanabi', '🎆', '#ff8a00', '#b85d00'], ['niji', '🌈', '#7b5cff', '#4b2fc4'],
+  ['purupuru', '💧', '#33cc88', '#1f8a5a'], ['uchuu', '🪐', '#2b3fbf', '#141f6b'],
+  ['bunshin', '👯', '#ff5fa2', '#c2306f'], ['barabara', '🧩', '#00b3a4', '#007a70'],
+  ['korokoro', '⚽', '#ff4040', '#b31d1d'], ['kamifubuki', '🎉', '#ff4f7b', '#c22a52'],
+  ['doubutsu', '🐾', '#ff9f1c', '#c47200'], ['shabondama', '🫧', '#29b6f6', '#0277bd'],
+  ['nigeru', '🐰', '#8e44ff', '#5a1fc2'], ['fuusen', '🎈', '#ff5a5a', '#c22f2f'],
+  ['ongaku', '🎵', '#ff7eb6', '#c94a85'], ['nagareboshi', '🌠', '#ffd23f', '#b8900a'],
+  ['kaminari', '⚡', '#ffe600', '#b3a000'], ['ohana', '🌷', '#ff7ab8', '#c94585'],
+  ['kao', '🙂', '#ffd23f', '#d19e00'], ['kuruma', '🚗', '#2e86ff', '#1655b8'],
+  ['onara', '💨', '#9ccc3d', '#678a1f'], ['taiko', '🥁', '#c0392b', '#7a1f14'],
+];
+const grid = document.getElementById('grid');
+for (const [file, emoji, c1, c2] of PAGES) {
+  const a = document.createElement('a');
+  a.href = file + '.html';
+  a.className = 'big-btn';
+  a.style.setProperty('--c1', c1); a.style.setProperty('--c2', c2);
+  a.innerHTML = `<span class="emoji">${emoji}</span>`;
+  a.addEventListener('pointerdown', () => Sfx.pop());
+  grid.appendChild(a);
+}
+</script>
+</body>
+</html>

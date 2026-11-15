@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>ながれぼし</title>
+<link rel="stylesheet" href="common.css">
+<style>
+  body { background: linear-gradient(#020414, #1a1650 70%, #2a1f5c); }
+  .big-btn { --c1: #ffd23f; --c2: #b8900a; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🌠</span></button></div>
+<script src="common.js"></script>
+<script>
+const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
+const btn = document.getElementById('btn');
+fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
+const bgStars = Array.from({ length: 160 }, () => ({ x: Math.random(), y: Math.random() * 0.8, r: rand(0.5, 1.8), p: rand(0, 6) }));
+let shooters = [], landed = [];
+const PENTA = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.5];
+
+function shoot() {
+  const n = Math.floor(rand(3, 7));
+  for (let i = 0; i < n; i++) {
+    setTimeout(() => {
+      const x = rand(innerWidth * 0.2, innerWidth * 1.1), y = rand(-50, innerHeight * 0.3);
+      const a = Math.PI * 0.75 + rand(-0.15, 0.15), sp = rand(500, 900);
+      shooters.push({ x, y, vx: Math.cos(a) * sp, vy: -Math.sin(a) * sp * -1, trail: [], hue: rand(30, 60) + (Math.random() < 0.3 ? 160 : 0), life: rand(0.8, 1.6) });
+      Sfx.tone(pick(PENTA), 0.9, 'sine', 0.12, 0, null);
+    }, i * 140);
+  }
+}
+btn.addEventListener('pointerdown', shoot);
+
+function drawStar(x, y, r, color) {
+  ctx.fillStyle = color; ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r * 0.45 : r;
+    ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  ctx.fill();
+}
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight;
+  ctx.clearRect(0, 0, W, H);
+  for (const s of bgStars) {
+    ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.4 * Math.sin(now / 500 + s.p)})`;
+    ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.r, 0, 7); ctx.fill();
+  }
+  for (const s of shooters) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+    s.trail.push({ x: s.x, y: s.y }); if (s.trail.length > 25) s.trail.shift();
+    ctx.lineCap = 'round';
+    for (let i = 1; i < s.trail.length; i++) {
+      const k = i / s.trail.length;
+      ctx.strokeStyle = `hsla(${s.hue}, 100%, ${60 + k * 30}%, ${k})`;
+      ctx.lineWidth = k * 6;
+      ctx.beginPath(); ctx.moveTo(s.trail[i - 1].x, s.trail[i - 1].y); ctx.lineTo(s.trail[i].x, s.trail[i].y); ctx.stroke();
+    }
+    drawStar(s.x, s.y, 10, `hsl(${s.hue}, 100%, 85%)`);
+    if (s.life <= 0 || s.y > H * 0.85) {
+      // じめんに おちて おほしさまに なる
+      if (landed.length > 40) landed.shift();
+      landed.push({ x: Math.min(W - 20, Math.max(20, s.x)), y: Math.min(H - 20, Math.max(H * 0.15, s.y)), hue: s.hue, t: 0 });
+      Sfx.tone(pick(PENTA) * 2, 0.4, 'triangle', 0.06);
+    }
+  }
+  shooters = shooters.filter(s => !(s.life <= 0 || s.y > H * 0.85));
+  for (const l of landed) {
+    l.t += dt;
+    const sc = Math.min(1, l.t * 4) * (1 + 0.15 * Math.sin(now / 300 + l.x));
+    ctx.shadowColor = `hsl(${l.hue}, 100%, 70%)`; ctx.shadowBlur = 20;
+    drawStar(l.x, l.y, 14 * sc, `hsl(${l.hue}, 100%, 75%)`);
+    ctx.shadowBlur = 0;
+  }
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>
