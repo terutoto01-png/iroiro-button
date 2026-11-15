@@ -28,9 +28,12 @@ function shoot() {
   const n = Math.floor(rand(3, 7));
   for (let i = 0; i < n; i++) {
     setTimeout(() => {
-      const x = rand(innerWidth * 0.2, innerWidth * 1.1), y = rand(-50, innerHeight * 0.3);
-      const a = Math.PI * 0.75 + rand(-0.15, 0.15), sp = rand(500, 900);
-      shooters.push({ x, y, vx: Math.cos(a) * sp, vy: -Math.sin(a) * sp * -1, trail: [], hue: rand(30, 60) + (Math.random() < 0.3 ? 160 : 0), life: rand(0.8, 1.6) });
+      // おちる ばしょを さきに きめて、みぎうえ から そこへ ながれる（たてながの がめんでも まんべんなく）
+      const W = innerWidth, H = innerHeight, life = rand(0.8, 1.4);
+      const tx = rand(W * 0.08, W * 0.92), ty = rand(H * 0.18, H * 0.7);
+      const a = Math.PI * 0.75 + rand(-0.2, 0.2), d = Math.min(W, H) * rand(0.6, 1.0);
+      const x = tx - Math.cos(a) * d, y = ty - Math.sin(a) * d;
+      shooters.push({ x, y, vx: (tx - x) / life, vy: (ty - y) / life, trail: [], hue: rand(30, 60) + (Math.random() < 0.3 ? 160 : 0), life });
       Sfx.tone(pick(PENTA), 0.9, 'sine', 0.12, 0, null);
     }, i * 140);
   }
@@ -66,14 +69,14 @@ let last = performance.now();
       ctx.beginPath(); ctx.moveTo(s.trail[i - 1].x, s.trail[i - 1].y); ctx.lineTo(s.trail[i].x, s.trail[i].y); ctx.stroke();
     }
     drawStar(s.x, s.y, 10, `hsl(${s.hue}, 100%, 85%)`);
-    if (s.life <= 0 || s.y > H * 0.85) {
+    if (s.life <= 0) {
       // じめんに おちて おほしさまに なる
       if (landed.length > 40) landed.shift();
       landed.push({ x: Math.min(W - 20, Math.max(20, s.x)), y: Math.min(H - 20, Math.max(H * 0.15, s.y)), hue: s.hue, t: 0 });
       Sfx.tone(pick(PENTA) * 2, 0.4, 'triangle', 0.06);
     }
   }
-  shooters = shooters.filter(s => !(s.life <= 0 || s.y > H * 0.85));
+  shooters = shooters.filter(s => s.life > 0);
   for (const l of landed) {
     l.t += dt;
     const sc = Math.min(1, l.t * 4) * (1 + 0.15 * Math.sin(now / 300 + l.x));

@@ -12,9 +12,10 @@
   .road-line { position: fixed; top: 73%; left: 0; right: 0; height: 0; border-top: 8px dashed #fff; opacity: .8; }
   .big-btn { --c1: #2e86ff; --c2: #1655b8; }
   .bottom-center { bottom: auto; top: 12%; }
-  .car { position: fixed; z-index: 5; font-size: 110px; pointer-events: none; line-height: 1;
+  /* .car は でんしゃ用の きょうつう スタイル（あおい まど）と ぶつかるので べつの なまえ */
+  .vehicle { position: fixed; z-index: 5; font-size: 110px; pointer-events: none; line-height: 1;
          transform: scaleX(-1); animation: drive var(--dur) linear forwards; }
-  .car span { display: inline-block; animation: bump .25s ease-in-out infinite alternate; }
+  .vehicle span { display: inline-block; animation: bump .25s ease-in-out infinite alternate; }
   @keyframes drive { from { left: -160px; } to { left: calc(100vw + 40px); } }
   @keyframes bump { from { transform: translateY(0); } to { transform: translateY(-6px); } }
   /* けむり（えもじを つかわず まるで かく。iPad で しかくく みえないように） */
@@ -52,7 +53,7 @@ btn.addEventListener('pointerdown', () => {
   const v = pick(VEHICLES);
   btn.querySelector('.emoji').textContent = v.e;
   const car = document.createElement('div');
-  car.className = 'car';
+  car.className = 'vehicle';
   car.innerHTML = `<span>${v.e}</span>`;
   const lane = Math.random() < 0.5 ? 0.6 : 0.72;
   car.style.top = `calc(${lane * 100}vh - 60px)`;

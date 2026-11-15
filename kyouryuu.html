@@ -8,31 +8,33 @@
 <title>きょうりゅう</title>
 <link rel="stylesheet" href="common.css?v=11">
 <style>
-  body { background: linear-gradient(#ffd59e, #ffb36b 55%, #8c6a3f 55%); }
+  body { background: #ffc98a; }
   .big-btn { --c1: #4caf50; --c2: #2e7031; }
   .bottom-center { bottom: auto; top: max(18px, env(safe-area-inset-top) + 8px); }
   .bottom-center .big-btn { width: min(28vw, 140px); height: min(28vw, 140px); }
-  #world { position: fixed; inset: 0; pointer-events: none; }
-  #dino { position: fixed; bottom: 30%; font-size: min(45vw, 260px); line-height: 1; transition: left .35s ease-out; }
-  #dino span { display: inline-block; }
-  .foot { position: fixed; font-size: 40px; opacity: .5; pointer-events: none; transition: opacity 3s; }
-  #volcano { position: fixed; right: 5%; bottom: 44%; font-size: min(30vw, 160px); opacity: .9; }
 </style>
 </head>
 <body>
-<div id="world"><div id="volcano">🌋</div><div id="dino"><span>🦖</span></div></div>
+<canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🦶</span></button></div>
 <script src="common.js?v=12"></script>
 <script>
-const btn = document.getElementById('btn'), dino = document.getElementById('dino'), world = document.getElementById('world');
-const face = dino.querySelector('span');
-if (Math.random() < 0.4) face.textContent = '🦕';
-let x = 0.1, dir = 1, steps = 0;
+// きょうりゅう: ボタンで 1ぽ すすむ。けしきが ながれて、もりの きを どんどん なぎたおす。
+const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(canvas, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(canvas, ctx); });
 
-function place() {
-  dino.style.left = `calc(${x * 100}vw - ${dino.offsetWidth / 2}px)`;
-  face.style.transform = dir > 0 ? 'scaleX(-1)' : 'scaleX(1)'; // えもじは ひだりむき
-}
+const DINO = Math.random() < 0.4 ? '🦕' : '🦖';
+const TREES = ['🌲', '🌳', '🌴', '🌲', '🌳'];
+let cam = 0, target = 0, steps = 0, hop = 0, shake = 0, roarT = 0;
+let trees = [], leaves = [], feet = [], dust = [], nextTree = innerWidth * 0.62;
+
+const L = () => {
+  const W = innerWidth, H = innerHeight, gy = H * 0.74;
+  const ds = Math.min(W * 0.48, H * 0.3, 280);
+  return { W, H, gy, ds, dx: W * 0.28 };
+};
+
 function roar() {
   const c = Sfx.ac(), t = c.currentTime;
   const o = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(), f = c.createBiquadFilter();
@@ -46,34 +48,135 @@ function roar() {
   Sfx.noise(1.3, 0.3, 700);
 }
 
+// まえに もりを つくっておく
+function grow(upto, ds) {
+  while (nextTree < upto) {
+    const big = rand(0.75, 1.15);
+    trees.push({ x: nextTree, e: pick(TREES), s: ds * big, ang: 0, va: 0, down: false, fly: 0, vy: 0, y: 0 });
+    nextTree += rand(0.25, 0.6) * ds;
+  }
+}
+
+function knock(t, ds) {
+  t.down = true;
+  t.va = rand(5, 9);                    // まえに たおれる
+  if (Math.random() < 0.25) { t.fly = 1; t.vy = -rand(500, 800); t.vx = rand(250, 450); } // たまに ふっとぶ
+  const { gy } = L();
+  const sx = t.x - cam;
+  for (let i = 0; i < 14; i++) leaves.push({ x: sx + rand(-20, 20), y: gy - t.s * rand(0.4, 0.9), vx: rand(80, 420), vy: -rand(150, 550), rot: rand(0, 6), vr: rand(-8, 8), life: rand(0.9, 1.6), e: Math.random() < 0.5 ? '🍃' : '🍂' });
+  Sfx.noise(0.35, 0.7, 1800);                       // ばきっ
+  Sfx.tone(rand(160, 220), 0.25, 'square', 0.08, 0, 60);
+  setTimeout(() => { Sfx.noise(0.3, 0.6, 300); }, 220); // どさっ
+}
+
 btn.addEventListener('pointerdown', () => {
+  const { ds } = L();
   steps++;
-  x += dir * 0.12;
-  if (x > 0.88) { x = 0.88; dir = -1; }
-  if (x < 0.12) { x = 0.12; dir = 1; }
-  place();
-  // ずしん
-  face.animate([{ translate: '0 0' }, { translate: '0 -40px' }, { translate: '0 0' }], { duration: 350, easing: 'ease-in' });
-  setTimeout(() => {
-    world.animate([{ translate: '0 0' }, { translate: '0 12px' }, { translate: '0 -6px' }, { translate: '0 0' }], { duration: 250 });
+  target += ds * 0.75;
+  hop = 1;
+  setTimeout(() => { // ずしん
+    shake = 1;
     Sfx.tone(70, 0.4, 'sine', 0.7, 0, 35);
     Sfx.noise(0.25, 0.6, 250);
-    const f = document.createElement('div');
-    f.className = 'foot'; f.textContent = '🐾';
-    const r = dino.getBoundingClientRect();
-    f.style.left = (r.left + r.width / 2 - 20) + 'px'; f.style.top = (r.bottom - 10) + 'px';
-    document.body.appendChild(f);
-    requestAnimationFrame(() => { f.style.opacity = 0; });
-    setTimeout(() => f.remove(), 3100);
+    const { dx } = L();
+    feet.push({ x: cam + dx, a: 0.55 });
+    for (let i = 0; i < 10; i++) dust.push({ x: dx + rand(-ds * 0.3, ds * 0.3), y: 0, vx: rand(-160, 160), vy: -rand(40, 160), life: rand(0.4, 0.8) });
   }, 300);
-  if (steps % 5 === 0 || Math.random() < 0.15) setTimeout(() => {
-    roar();
-    face.animate([{ scale: 1 }, { scale: 1.25 }, { scale: 1 }], { duration: 1200, easing: 'ease-out' });
-    popText('がおー！', innerWidth / 2, innerHeight * 0.3, '#fff', 80);
+  if (steps % 6 === 0 || Math.random() < 0.12) setTimeout(() => {
+    roar(); roarT = 1.2;
+    popText('がおー！', innerWidth / 2, innerHeight * 0.32, '#fff', 80);
   }, 450);
 });
-addEventListener('resize', place);
-place();
+
+const hills = Array.from({ length: 8 }, (_, i) => ({ x: i * 0.33, h: rand(0.12, 0.24), c: i % 2 }));
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const { W, H, gy, ds, dx } = L();
+  grow(cam + W * 2, ds);
+
+  const prev = cam;
+  cam += (target - cam) * Math.min(1, dt * 7);
+  hop = Math.max(0, hop - dt * 3);
+  shake = Math.max(0, shake - dt * 4);
+  roarT = Math.max(0, roarT - dt);
+
+  // きょうりゅうの まえに きたら たおす
+  for (const t of trees) {
+    if (!t.down && t.x - cam < dx + ds * 0.3) knock(t, ds);
+    if (t.down) {
+      if (t.fly) { t.vy += 1800 * dt; t.y += t.vy * dt; t.x += t.vx * dt; t.ang += t.va * dt; if (t.y > 0) { t.y = 0; t.fly = 0; t.vy = 0; } }
+      else if (t.ang < Math.PI / 2) { t.ang = Math.min(Math.PI / 2, t.ang + t.va * dt); t.va += 10 * dt; }
+    }
+  }
+  trees = trees.filter(t => t.x - cam > -ds * 2);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sy = Math.sin(shake * 40) * shake * 10;
+  ctx.translate(0, sy);
+  // そら
+  const sky = ctx.createLinearGradient(0, 0, 0, gy);
+  sky.addColorStop(0, '#ff9f5a'); sky.addColorStop(1, '#ffe0a6');
+  ctx.fillStyle = sky; ctx.fillRect(0, -20, W, gy + 20);
+  // とおくの かざん（ゆっくり ながれる）
+  const vx = ((W * 0.75 - cam * 0.06) % (W * 1.6) + W * 1.6) % (W * 1.6) - W * 0.3;
+  drawEmoji(ctx, '🌋', vx, gy - H * 0.2, Math.min(W * 0.4, 200));
+  // おか（すこし はやく ながれる）
+  for (const h of hills) {
+    const span = W * 2.64;
+    const x = ((h.x * W - cam * 0.3) % span + span) % span - W * 0.3;
+    ctx.fillStyle = h.c ? '#7aa24a' : '#8fb85a';
+    ctx.beginPath(); ctx.ellipse(x, gy, W * 0.28, H * h.h, 0, Math.PI, 0); ctx.fill();
+  }
+  // じめん
+  ctx.fillStyle = '#8c6a3f'; ctx.fillRect(0, gy, W, H - gy + 20);
+  ctx.fillStyle = '#6f9e3a'; ctx.fillRect(0, gy - 4, W, 14);
+  // あしあと
+  for (const f of feet) {
+    f.a -= dt * 0.12;
+    ctx.globalAlpha = Math.max(0, f.a);
+    drawEmoji(ctx, '🐾', f.x - cam, gy + 40, 44);
+  }
+  ctx.globalAlpha = 1;
+  feet = feet.filter(f => f.a > 0 && f.x - cam > -60);
+  // き（たったまま → たおれる）
+  for (const t of trees) {
+    const x = t.x - cam;
+    if (x > W + t.s) continue;
+    ctx.save();
+    ctx.translate(x, gy + 6 + t.y);
+    ctx.rotate(t.ang);
+    drawEmoji(ctx, t.e, 0, -t.s / 2, t.s);
+    ctx.restore();
+  }
+  // きょうりゅう
+  const moving = Math.abs(target - cam) > 2;
+  const jump = Math.sin(hop * Math.PI) * ds * 0.18;
+  const tilt = moving ? 0.08 : 0;
+  const roarS = roarT > 0 ? 1 + Math.sin(Math.min(1, (1.2 - roarT) / 0.3) * Math.PI / 2) * 0.15 * Math.min(1, roarT / 0.4) : 1;
+  ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(dx, gy + 8, ds * 0.4 * (1 - jump / ds), 12, 0, 0, 7); ctx.fill();
+  ctx.save();
+  ctx.translate(dx, gy - ds / 2 + 10 - jump);
+  ctx.rotate(tilt); ctx.scale(-roarS, roarS); // えもじは ひだりむきなので はんてん
+  drawEmoji(ctx, DINO, 0, 0, ds);
+  ctx.restore();
+  // つちけむり
+  for (const d of dust) {
+    d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 300 * dt; d.life -= dt;
+    ctx.fillStyle = `rgba(230,200,150,${Math.max(0, d.life)})`;
+    ctx.beginPath(); ctx.arc(d.x, gy + d.y, 10 + (1 - d.life) * 14, 0, 7); ctx.fill();
+  }
+  dust = dust.filter(d => d.life > 0);
+  // はっぱ
+  for (const l of leaves) {
+    l.x += l.vx * dt - (cam - prev); l.y += l.vy * dt; l.vy += 700 * dt; l.vx *= 0.99; l.rot += l.vr * dt; l.life -= dt;
+    ctx.save(); ctx.globalAlpha = Math.min(1, l.life * 2); ctx.translate(l.x, l.y); ctx.rotate(l.rot);
+    drawEmoji(ctx, l.e, 0, 0, 34); ctx.restore();
+  }
+  leaves = leaves.filter(l => l.life > 0);
+  if (leaves.length > 300) leaves.splice(0, leaves.length - 300);
+  requestAnimationFrame(loop);
+})(last);
 </script>
 </body>
 </html>

@@ -10,6 +10,8 @@
 <style>
   body { background: hsl(var(--h, 200), 80%, 85%); transition: background .3s; }
   .big-btn { --c1: #ff7eb6; --c2: #c94a85; }
+  #song { --c1: #ffd34d; --c2: #c99a1a; }
+  .corner .big-btn { width: min(20vw, 100px); height: min(20vw, 100px); font-size: min(6vw, 28px); }
   .note { position: fixed; z-index: 5; pointer-events: none; font-size: 64px; font-weight: bold;
           animation: fly 2s ease-out forwards; text-shadow: 0 3px 0 rgba(0,0,0,.15); }
   @keyframes fly {
@@ -21,30 +23,47 @@
 </head>
 <body>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎵</span></button></div>
+<div class="corner"><button id="song" class="big-btn"><span class="emoji">⭐</span></button></div>
 <script src="common.js?v=12"></script>
 <script>
-// きらきらぼし（日本の童謡・パブリックドメイン）を 1おしで 1おと
+// どれも むかしからの こどもの うた（パブリックドメインの メロディ）。1おしで 1おと。
 const C = 261.63, D = 293.66, E = 329.63, F = 349.23, G = 392.0, A = 440.0;
-const SONG = [C,C,G,G,A,A,G, F,F,E,E,D,D,C, G,G,F,F,E,E,D, G,G,F,F,E,E,D, C,C,G,G,A,A,G, F,F,E,E,D,D,C];
+const SONGS = [
+  { e: '⭐', notes: [C,C,G,G,A,A,G, F,F,E,E,D,D,C, G,G,F,F,E,E,D, G,G,F,F,E,E,D, C,C,G,G,A,A,G, F,F,E,E,D,D,C] }, // きらきらぼし
+  { e: '🐸', notes: [C,D,E,F,E,D,C, E,F,G,A,G,F,E, C,C,C,C, C,C,D,D,E,E,F,F,E,D,C] }, // かえるのうた
+  { e: '🦋', notes: [G,E,E, F,D,D, C,D,E,F,G,G,G, G,E,E,E, F,D,D,D, C,E,G,G,E,E,E, D,D,D,D,D,E,F, E,E,E,E,E,F,G, G,E,E,E, F,D,D,D, C,E,G,G,C] }, // ちょうちょう
+  { e: '🐑', notes: [E,D,C,D,E,E,E, D,D,D, E,G,G, E,D,C,D,E,E,E, E,D,D,E,D,C] }, // メリーさんのひつじ
+];
 const HUE = { [C]: 0, [D]: 30, [E]: 55, [F]: 120, [G]: 190, [A]: 270 };
-const btn = document.getElementById('btn');
-let idx = 0;
+const btn = document.getElementById('btn'), songBtn = document.getElementById('song');
+let song = 0, idx = 0;
+const SONG = () => SONGS[song].notes;
+function setSong(n) {
+  song = n % SONGS.length; idx = 0;
+  songBtn.querySelector('.emoji').textContent = SONGS[song].e;
+}
+songBtn.addEventListener('pointerdown', () => {
+  setSong(song + 1);
+  // あたらしい うたの さいしょの 3おと を ちらっと
+  SONG().slice(0, 3).forEach((f, i) => setTimeout(() => play(f, 0.5), i * 160));
+  flashPress(songBtn);
+});
 
-function play(f) {
+function play(f, vol = 1) {
   const c = Sfx.ac(), t = c.currentTime;
   [1, 2, 3].forEach((h, i) => {
     const o = c.createOscillator(), g = c.createGain();
     o.type = i ? 'sine' : 'triangle'; o.frequency.value = f * h;
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.25 / (h * h), t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.25 * vol / (h * h), t + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
     o.connect(g).connect(Sfx.out()); o.start(t); o.stop(t + 1.05);
   });
 }
 
 btn.addEventListener('pointerdown', () => {
-  const f = SONG[idx];
-  idx = (idx + 1) % SONG.length;
+  const f = SONG()[idx];
+  idx = (idx + 1) % SONG().length;
   play(f);
   const h = HUE[f];
   document.body.style.setProperty('--h', h);
@@ -61,7 +80,7 @@ btn.addEventListener('pointerdown', () => {
   setTimeout(() => n.remove(), 2100);
   btn.style.setProperty('--c1', `hsl(${h}, 85%, 62%)`);
   btn.style.setProperty('--c2', `hsl(${h}, 70%, 40%)`);
-  if (idx === 0) setTimeout(() => Sfx.chime(), 400); // さいごまで ひけた！
+  if (idx === 0) { setTimeout(() => Sfx.chime(), 400); setTimeout(() => setSong(song + 1), 600); } // さいごまで ひけたら つぎの うた
 });
 </script>
 </body>

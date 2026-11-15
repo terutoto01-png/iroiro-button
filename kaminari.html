@@ -13,8 +13,9 @@
   #cloud { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); font-size: min(40vw, 220px); z-index: 5; pointer-events: none; }
   #cloud.shake { animation: shake .08s linear 6; }
   @keyframes shake { 0%,100% { transform: translateX(-52%); } 50% { transform: translateX(-48%); } }
-  body.flash { animation: flash .5s; }
-  @keyframes flash { 0%, 30% { background: #fff; } 15%, 45% { background: #b8c4ff; } 100% { background: #2c3350; } }
+  /* ひかりは まっしろに せず、1かいだけ ふわっと（ちかちか しない） */
+  body.flash { animation: flash .7s ease-out; }
+  @keyframes flash { 0% { background: #5d6aa0; } 100% { background: #2c3350; } }
 </style>
 </head>
 <body>
@@ -26,7 +27,8 @@
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
 const btn = document.getElementById('btn'), cloud = document.getElementById('cloud');
 fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
-let bolts = [], rain = [];
+let bolts = [], rain = [], lastFlash = -1e9;
+const now = () => performance.now();
 for (let i = 0; i < 150; i++) rain.push({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, v: rand(500, 900) });
 
 function makeBolt(x1, y1, x2, y2, depth) {
@@ -45,7 +47,8 @@ btn.addEventListener('pointerdown', () => {
   const x1 = r.left + r.width / 2, y1 = r.top + r.height * 0.6;
   const n = Math.random() < 0.4 ? 2 : 1;
   for (let i = 0; i < n; i++) bolts.push({ segs: makeBolt(x1 + rand(-40, 40), y1, rand(40, innerWidth - 40), innerHeight * rand(0.6, 0.9), 7), life: 0.5 });
-  document.body.classList.remove('flash'); void document.body.offsetWidth; document.body.classList.add('flash');
+  // れんだ しても ひかるのは 0.8びょうに 1かい まで
+  if (now() - lastFlash > 800) { lastFlash = now(); document.body.classList.remove('flash'); void document.body.offsetWidth; document.body.classList.add('flash'); }
   cloud.classList.remove('shake'); void cloud.offsetWidth; cloud.classList.add('shake');
   Sfx.noise(0.15, 1.0, 5000, 0, 'highpass');       // ばりっ
   Sfx.noise(2.0, 1.0, 180, 0.1);                     // ごろごろ
@@ -66,9 +69,9 @@ let last = performance.now();
   ctx.stroke();
   for (const b of bolts) {
     b.life -= dt;
-    const a = Math.max(0, b.life / 0.5) * (0.6 + 0.4 * Math.random());
+    const a = Math.max(0, b.life / 0.5); // なめらかに きえる（ランダムな てんめつ なし）
     ctx.lineCap = 'round';
-    for (const [w, c] of [[14, `rgba(150,170,255,${a * 0.3})`], [6, `rgba(220,230,255,${a * 0.7})`], [2.5, `rgba(255,255,255,${a})`]]) {
+    for (const [w, c] of [[14, `rgba(150,170,255,${a * 0.3})`], [6, `rgba(220,230,255,${a * 0.7})`], [2.5, `rgba(255,250,215,${a * 0.9})`]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
       for (const s of b.segs) { ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); }
       ctx.stroke();

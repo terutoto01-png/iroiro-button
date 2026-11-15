@@ -84,23 +84,25 @@ function settle(f, p) {
   if (avg > p.h + 40) overflow(p); // やま ぜんたいが ふちより たかく なったら
 }
 
-// あふれる！ ふちより うえの ぶんが そとへ こぼれる
+// あふれる！ なべの なかみが ぜんぶ どばーっと そとへ。さらに ふんすいみたいに ふきだす
+let jump = 0;
 function overflow(p) {
-  const level = p.h * 0.55; // のこるのは なべの はんぶん くらい
-  const cut = p.bottom - level;
-  const keep = [];
   for (const k of inPot) {
-    if (k.y < cut) {
-      const side = k.x < p.x ? -1 : 1;
-      flying.push({ x: k.x, y: k.y, vx: side * rand(120, 380), vy: -rand(80, 320), rot: k.rot, vr: rand(-12, 12), s: k.s, spill: true });
-    } else keep.push(k);
+    const side = k.x < p.x ? -1 : 1;
+    flying.push({ x: k.x, y: k.y, vx: side * rand(150, 650), vy: -rand(300, 900), rot: k.rot, vr: rand(-14, 14), s: k.s, spill: true });
   }
-  inPot = keep;
-  heap = heap.map(h => Math.min(h, level));
-  shake = 2;
-  Sfx.noise(1.2, 0.5, 2500, 0, 'bandpass'); // ざざーっ
+  inPot = [];
+  heap = heap.map(() => 0);
+  // ふきだし（0.9びょう かけて どんどん でる）
+  for (let i = 0; i < 90; i++) setTimeout(() => {
+    const q = pot();
+    flying.push({ x: q.x + rand(-q.w * 0.4, q.w * 0.4), y: q.y, vx: rand(-700, 700), vy: -rand(700, 1300), rot: rand(0, 6), vr: rand(-14, 14), s: rand(34, 46), spill: true });
+    if (i % 6 === 0) Sfx.tone(rand(700, 1400), 0.05, 'square', 0.06, 0, rand(300, 500));
+  }, i * 10);
+  shake = 3; jump = 1;
+  Sfx.noise(1.5, 0.6, 2500, 0, 'bandpass'); // ざざーっ
   Sfx.yay();
-  popText('あふれた〜！', p.x, p.y - 160, '#ff3b3b', 64);
+  popText('あふれた〜！', p.x, p.y - 160, '#ff3b3b', 72);
 }
 
 let lastT = performance.now();
@@ -108,6 +110,8 @@ let lastT = performance.now();
   const dt = Math.min(0.033, (now - lastT) / 1000); lastT = now;
   const W = innerWidth, H = innerHeight, p = pot();
   shake *= Math.pow(0.01, dt);
+  jump = Math.max(0, jump - dt * 2.5);
+  const jy = -Math.sin(jump * Math.PI) * 50;
   const sx = Math.sin(now / 25) * shake * 6;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -115,21 +119,21 @@ let lastT = performance.now();
   // ゆかに おちた つぶ（しばらくして きえる）
   for (const k of floor) {
     k.t += dt;
-    ctx.globalAlpha = Math.max(0, Math.min(1, (5 - k.t)));
+    ctx.globalAlpha = Math.max(0, Math.min(1, (8 - k.t)));
     drawK(k.x, k.y, k.s, k.rot);
   }
   ctx.globalAlpha = 1;
-  floor = floor.filter(k => k.t < 5);
-  if (floor.length > 200) floor.splice(0, floor.length - 200);
+  floor = floor.filter(k => k.t < 8);
+  if (floor.length > 350) floor.splice(0, floor.length - 350);
 
   // ガラスの なべ（なかが みえる）
-  ctx.save(); ctx.translate(p.x + sx, p.y);
+  ctx.save(); ctx.translate(p.x + sx, p.y + jy);
   ctx.fillStyle = '#444'; ctx.fillRect(-p.w / 2 - 34, 24, 34, 18); ctx.fillRect(p.w / 2, 24, 34, 18);
   ctx.fillStyle = 'rgba(255,248,225,0.85)'; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 34, 34]); ctx.fill();
   ctx.restore();
   // なかの ポップコーン
-  for (const k of inPot) drawK(k.x + sx, k.y, k.s, k.rot);
-  ctx.save(); ctx.translate(p.x + sx, p.y);
+  for (const k of inPot) drawK(k.x + sx, k.y + jy, k.s, k.rot);
+  ctx.save(); ctx.translate(p.x + sx, p.y + jy);
   ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 8; ctx.beginPath(); ctx.roundRect(-p.w / 2, 0, p.w, p.h, [0, 0, 34, 34]); ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-p.w / 2 + 18, 18, 14, p.h - 44); // ガラスの ひかり
   ctx.fillStyle = '#c0392b'; ctx.fillRect(-p.w / 2 - 8, -6, p.w + 16, 12); // ふち
@@ -154,7 +158,7 @@ let lastT = performance.now();
     drawK(f.x, f.y, f.s, f.rot);
   }
   flying = flying.filter(f => !f.done);
-  if (flying.length > 400) flying.splice(0, flying.length - 400);
+  if (flying.length > 500) flying.splice(0, flying.length - 500);
   requestAnimationFrame(loop);
 })(lastT);
 </script>

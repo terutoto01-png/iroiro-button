@@ -26,7 +26,8 @@ addEventListener('resize', () => { dpr = fitCanvas(canvas, ctx); });
 
 const ball = { x: innerWidth / 2, y: 100, vx: 120, vy: 0, rot: 0, squash: 0 };
 const trail = [];
-let last = performance.now();
+let last = performance.now(), sprite = null;
+addEventListener('resize', () => { sprite = null; });
 const GROUND = () => innerHeight - 70;
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -55,9 +56,10 @@ function frame() {
   ball.rot += ball.vx / r * dt;
   ball.squash *= Math.pow(0.002, dt);
 
-  trail.push({ x: ball.x, y: ball.y, rot: ball.rot });
-  if (trail.length > 8) trail.shift();
+  // ざんぞうは 2フレームに 1こ、4こまで（スマホで かるく）
+  if ((trail.tick = (trail.tick || 0) + 1) % 2 === 0) { trail.push({ x: ball.x, y: ball.y, rot: ball.rot }); if (trail.length > 4) trail.shift(); }
 
+  if (!sprite) sprite = HIC.capture(ctx, canvas, btn, dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   // そら と くさ
   ctx.fillStyle = '#bfe9ff'; ctx.fillRect(0, 0, W, H);
@@ -69,13 +71,12 @@ function frame() {
   ctx.beginPath(); ctx.ellipse(ball.x, g + 4, r * Math.max(0.4, 1 - hgt / 800), 10, 0, 0, Math.PI * 2); ctx.fill();
 
   const w = btn.offsetWidth, h = btn.offsetHeight;
-  // ざんぞう
-  trail.forEach((t, i) => {
-    if (i === trail.length - 1) return;
+  // ざんぞうは 写しの画像で描く（ほんものを なんかいも 描くと おもい）
+  if (sprite) trail.forEach((t, i) => {
     ctx.save();
-    ctx.globalAlpha = (i + 1) / trail.length * 0.25;
+    ctx.globalAlpha = (i + 1) / (trail.length + 1) * 0.25;
     ctx.translate(t.x, t.y); ctx.rotate(t.rot);
-    HIC.draw(ctx, btn, -w / 2, -h / 2);
+    ctx.drawImage(sprite.base, -w / 2, -h / 2, w, h);
     ctx.restore();
   });
   // ほんもの
