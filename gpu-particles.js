@@ -8,7 +8,7 @@
 //   sys.attractors = [{ x, y, s: 3000, swirl: 0 }];  // ひきよせ（s がマイナスで はじく）
 //   sys.emit([{ x, y, vx, vy, r, g, b, life, size, shape }]);
 //   sys.start((dt, t) => { ... まいフレーム ... });
-// shape: 0 ひかりの たま / 1 てんめつ（ほたる）/ 2 はなびら / 3 きらきら（ほし）
+// shape: 0 ひかりの たま / 1 てんめつ（ほたる）/ 2 はなびら / 3 きらきら（ほし）/ 4 すじ（うごく むきに のびる ひかりの せん）
 
 const GPUParticles = (() => {
   const MAXA = 8;
@@ -70,8 +70,15 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
     let e = vec2f(c.x * flip, c.y);
     q = vec2f(e.x * cos(a) - e.y * sin(a), e.x * sin(a) + e.y * cos(a));
   }
-  if (p.misc.w > 2.5) { // ほし: ちかちか
+  if (p.misc.w > 2.5 && p.misc.w < 3.5) { // ほし: ちかちか
     bright = 0.6 + 0.4 * sin(u.time * 12.0 + s * 50.0);
+  }
+  if (p.misc.w > 3.5) { // すじ: はやさの むきに ながく のびる
+    let sp = length(p.vel);
+    var dir = vec2f(1.0, 0.0);
+    if (sp > 1.0) { dir = p.vel / sp; }
+    let len = 1.0 + sp * 0.035;
+    q = dir * c.x * len + vec2f(-dir.y, dir.x) * c.y * 0.35;
   }
   let px = p.pos + q * p.misc.x;
   o.pos = vec4f(px.x / u.res.x * 2.0 - 1.0, 1.0 - px.y / u.res.y * 2.0, 0.0, 1.0);
@@ -82,7 +89,9 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VO {
 fn fs(i: VO) -> @location(0) vec4f {
   let d = dot(i.uv, i.uv);
   var g = 0.0;
-  if (i.shape > 1.5 && i.shape < 2.5) {        // はなびら（だえん）
+  if (i.shape > 3.5) {                          // すじ
+    g = exp(-i.uv.x * i.uv.x * 1.5) * exp(-i.uv.y * i.uv.y * 6.0);
+  } else if (i.shape > 1.5 && i.shape < 2.5) { // はなびら（だえん）
     let e = length(i.uv * vec2f(1.0, 1.7));
     g = smoothstep(1.0, 0.55, e) * 0.9;
   } else if (i.shape > 2.5) {                   // ほし（じゅうじの ひかり）
