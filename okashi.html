@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>おかし</title>
-<link rel="stylesheet" href="common.css?v=3">
+<link rel="stylesheet" href="common.css?v=4">
 <style>
   body { background: repeating-linear-gradient(45deg, #ffe3ef 0 30px, #fff0f6 30px 60px); }
   .big-btn { --c1: #ff6fae; --c2: #c23c7a; }
@@ -15,7 +15,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🍬</span></button></div>
-<script src="common.js?v=3"></script>
+<script src="common.js?v=4"></script>
 <script>
 // おかしが ふってきて つもる。さわると たべちゃう
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
@@ -29,7 +29,7 @@ btn.addEventListener('pointerdown', () => {
     items.push({ e: pick(SWEETS), x: rand(40, innerWidth - 40), y: rand(-300, -40), vx: rand(-60, 60), vy: rand(0, 100),
                  r: rand(24, 36), rot: rand(0, 6), vr: rand(-4, 4) });
   }
-  if (items.length > 120) items.splice(0, items.length - 120);
+  if (items.length > 90) items.splice(0, items.length - 90);
   [0, 4, 7].forEach((s, i) => Sfx.tone(784 * Math.pow(2, s / 12), 0.15, 'sine', 0.12, i * 0.05));
 });
 
@@ -58,10 +58,14 @@ let last = performance.now();
     if (it.x < it.r) { it.x = it.r; it.vx = Math.abs(it.vx); }
     if (it.x > W - it.r) { it.x = W - it.r; it.vx = -Math.abs(it.vx); }
   }
-  // つみかさなる
-  for (let n = 0; n < 2; n++) for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+  // つみかさなる（とおいものどうしは すぐ とばす）
+  for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
     const a = items[i], b = items[j];
-    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = (a.r + b.r) * 0.9;
+    const min = (a.r + b.r) * 0.9, dx = b.x - a.x;
+    if (dx > min || dx < -min) continue;
+    const dy = b.y - a.y;
+    if (dy > min || dy < -min) continue;
+    const d = Math.hypot(dx, dy);
     if (d > 0 && d < min) {
       const nx = dx / d, ny = dy / d, over = (min - d) / 2;
       a.x -= nx * over; a.y -= ny * over; b.x += nx * over; b.y += ny * over;
@@ -71,11 +75,10 @@ let last = performance.now();
     }
   }
   ctx.clearRect(0, 0, W, H);
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#000'; ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1;
   for (const it of items) {
     ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot);
-    ctx.font = `${it.r * 2}px serif`; ctx.fillText(it.e, 0, 0);
+    drawEmoji(ctx, it.e, 0, 0, it.r * 2);
     ctx.restore();
   }
   for (const c of crumbs) {

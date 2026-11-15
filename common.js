@@ -242,3 +242,28 @@ function makeTrain(kind) {
   };
   for (const t of ['pointerup', 'touchend', 'click']) addEventListener(t, unlock, true);
 })();
+
+// ---- えもじを いちど だけ 画像にして つかいまわす（キャンバスで たくさん描くと かるい） ----
+const EmojiSprite = (() => {
+  const cache = new Map();
+  const BASE = 128; // この大きさで 1かい 描いておき、あとは のびちぢみ
+  return function (e) {
+    let c = cache.get(e);
+    if (!c) {
+      c = document.createElement('canvas');
+      c.width = c.height = BASE;
+      const x = c.getContext('2d');
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.font = `${BASE * 0.8}px serif`;
+      x.fillStyle = '#000';
+      x.fillText(e, BASE / 2, BASE / 2 + BASE * 0.04);
+      cache.set(e, c);
+    }
+    return c;
+  };
+})();
+// (cx, cy) を まんなかに、はば size で えもじを かく
+function drawEmoji(ctx, e, cx, cy, size) {
+  const s = size * 1.25;
+  ctx.drawImage(EmojiSprite(e), cx - s / 2, cy - s / 2, s, s);
+}
