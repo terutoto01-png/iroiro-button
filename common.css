@@ -12,6 +12,9 @@ html, body {
   -webkit-touch-callout: none; /* iPad の ながおしメニューを ださない */
   touch-action: manipulation;
 }
+/* Android: えもじは Google の フォントで。すうじ・にほんごは さきの ふつうの フォントで でる ように、えもじフォントは いちばん うしろ
+   （きしゅの ふるい えもじは この リストの あとで つかわれるので、それより さきに Google の えもじが つかわれる） */
+html.emoji-font, html.emoji-font body { font-family: system-ui, sans-serif, "Noto Color Emoji"; }
 canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
 
 .back {

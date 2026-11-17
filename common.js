@@ -1,5 +1,15 @@
 // いろいろボタン 共通ヘルパー（file:// でも動くようにクラシックスクリプト）
 
+// ---- Android: きしゅの ふるい えもじ（ドコモ ふう など）に ならない ように、Google の えもじフォントを つかう ----
+const EMOJI_FONT = /Android/i.test(navigator.userAgent) ? 'Noto Color Emoji' : '';
+if (EMOJI_FONT) {
+  document.documentElement.classList.add('emoji-font');
+  const l = document.createElement('link');
+  l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap';
+  l.onload = () => window.clearEmojiCache && clearEmojiCache(); // フォントの ていぎが とどいたら キャンバスの えもじを つくりなおす
+  document.head.appendChild(l);
+}
+
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
@@ -277,6 +287,8 @@ function makeTrain(kind) {
 const EmojiSprite = (() => {
   const cache = new Map();
   const BASE = 128; // この大きさで 1かい 描いておき、あとは のびちぢみ
+  window.clearEmojiCache = () => cache.clear();
+  if (EMOJI_FONT && document.fonts) document.fonts.addEventListener('loadingdone', () => cache.clear());
   return function (e) {
     let c = cache.get(e);
     if (!c) {
@@ -284,7 +296,12 @@ const EmojiSprite = (() => {
       c.width = c.height = BASE;
       const x = c.getContext('2d');
       x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.font = `${BASE * 0.8}px serif`;
+      const font = EMOJI_FONT ? `${BASE * 0.8}px "${EMOJI_FONT}"` : `${BASE * 0.8}px serif`;
+      x.font = font;
+      // まだ フォントが とどいていない えもじは、とどいてから もういちど つくる
+      if (EMOJI_FONT && document.fonts && !document.fonts.check(font, e)) {
+        document.fonts.load(font, e).then(() => cache.delete(e)).catch(() => {});
+      }
       x.fillStyle = '#000';
       x.fillText(e, BASE / 2, BASE / 2 + BASE * 0.04);
       cache.set(e, c);
