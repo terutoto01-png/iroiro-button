@@ -22,7 +22,7 @@
 <script>
 // がったい: うえの クレーンから どうぶつを おとす。おなじ どうぶつが くっつくと ひとつ おおきい どうぶつに かわる。
 // ボタンで いまの ばしょに おとす / いれものの なかを タッチすると そこに おとす。
-// あふれても おしまいに しない（ぜんぶ はじけて また はじめから）。🐳 どうしが くっつくと キラキラ になって きえる。
+// あふれても おしまいに しない（いちばん おおきい どうぶつ だけ のこして ほかは はじける）。🐳 どうしが くっつくと キラキラ になって きえる。
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
 let dpr = fitCanvas(cv, ctx);
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
@@ -31,7 +31,7 @@ const LV = [ // えもじ, おおきさ（いれものの はばに たいする
   ['🐭', 0.05, 210], ['🐤', 0.062, 50], ['🐰', 0.076, 330], ['🐱', 0.092, 30], ['🐶', 0.11, 20],
   ['🐷', 0.13, 345], ['🐼', 0.155, 160], ['🐻', 0.18, 25], ['🐘', 0.205, 220], ['🐳', 0.235, 200],
 ];
-let bodies = [], sparks = [], hand = null, next = 0, crane = 0.5, craneDir = 1, cool = 0, overT = 0, wipe = 0;
+let bodies = [], sparks = [], hand = null, next = 0, crane = 0.5, craneDir = 1, cool = 0, overT = 0, wipe = 0, wipeT = 0, keep = null;
 
 const box = () => {
   const W = innerWidth, H = innerHeight, bottom = btn.getBoundingClientRect().top - 14;
@@ -73,7 +73,7 @@ function step(dt) {
         const q = bodies[j]; if (q.dead) continue;
         const dx = q.x - p.x, dy = q.y - p.y, rr = p.r + q.r, d2 = dx * dx + dy * dy;
         // おなじ どうぶつは ふれたら（すこし はなれていても）がったい
-        if (p.lv === q.lv && d2 < (rr + 3) * (rr + 3)) { merge(p, q); continue; }
+        if (p.lv === q.lv && wipe <= 0 && d2 < (rr + 3) * (rr + 3)) { merge(p, q); continue; }
         if (d2 >= rr * rr || d2 === 0) continue;
         const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, ov = rr - d;
         const mp = p.r * p.r, mq = q.r * q.r, k = ov / (mp + mq);
@@ -122,12 +122,24 @@ let last = performance.now();
   const over = bodies.some(o => now - o.born > 1500 && o.y - o.r < b.T - 4 && Math.abs(o.vy) < 120);
   overT = over ? overT + dt : 0;
   if (overT > 1.2 && wipe <= 0) {
-    wipe = 1.4;
+    wipe = 1; wipeT = 0;
+    // いちばん おおきい どうぶつ（そだてた ごほうび）は 1ぴき のこす
+    keep = bodies.reduce((a, c) => (!a || c.lv > a.lv ? c : a), null);
     popText('あふれた〜！', W / 2, b.T + 60, '#ff4d8d', 56);
     Sfx.noise(0.8, 0.5, 2500, 0, 'bandpass'); Sfx.yay();
-    bodies.forEach((o, i) => setTimeout(() => { if (!o.dead) { o.dead = true; burst(o.x, o.y, 20, LV[o.lv][2]); Sfx.pop(); } }, i * 50));
   }
-  if (wipe > 0) { wipe -= dt; bodies = bodies.filter(o => !o.dead); }
+  // あふれた あいだは がったい しないで、うえから じゅんに はじける（いちばん おおきい 1ぴき だけ のこる）
+  if (wipe > 0) {
+    wipeT += dt;
+    let rest = bodies.filter(o => o !== keep);
+    while (wipeT > 0.04 && rest.length) {
+      wipeT -= 0.04;
+      const o = rest.reduce((a, c) => (c.y < a.y ? c : a));
+      o.dead = true; burst(o.x, o.y, 20, LV[o.lv][2]); if (bodies.length % 2) Sfx.pop();
+      bodies = bodies.filter(x => !x.dead); rest = bodies.filter(x => x !== keep);
+    }
+    if (!rest.length) { wipe = 0; overT = 0; cool = 0.4; if (keep) { keep.pop = 1; Sfx.chime(); } keep = null; }
+  }
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
