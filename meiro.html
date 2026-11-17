@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>めいろ</title>
+<link rel="stylesheet" href="common.css?v=12">
+<style>
+  body { background: linear-gradient(#d9f5c9, #b9e6a6); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #66bb44; --c2: #3f8a26; }
+  .corner .big-btn { width: min(18vw, 84px); height: min(18vw, 84px); font-size: min(5vw, 24px); }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔄</span></button></div>
+<script src="common.js?v=12"></script>
+<script>
+// めいろ: ゆびで ネズミを うごかして チーズまで つれていく。ゴールすると つぎは すこし おおきな めいろ。
+// ゆびの ほうへ 1マスずつ すすむ（かべは とおれない）。🔄 で あたらしい めいろ。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+const HEROES = [['🐭', '🧀'], ['🐰', '🥕'], ['🐶', '🦴'], ['🐻', '🍯'], ['🐸', '🪷'], ['🐝', '🌻']];
+let level = 0, N = 4, M = 5, walls, pos, goal, hero, trail = [], anim = null, cleared = 0, sparks = [], hint = 1;
+
+function makeMaze() {
+  N = Math.min(9, 4 + level);            // よこ
+  const aspect = (btn.getBoundingClientRect().top - 92) / (innerWidth - 40);
+  M = Math.max(N, Math.min(13, Math.round(N * aspect))); // たて
+  // walls[y][x] = { r: みぎに かべ, d: したに かべ }
+  walls = Array.from({ length: M }, () => Array.from({ length: N }, () => ({ r: true, d: true })));
+  const seen = Array.from({ length: M }, () => Array(N).fill(false));
+  const stack = [[0, 0]]; seen[0][0] = true;
+  while (stack.length) { // あなほり（ふかさ ゆうせん）
+    const [x, y] = stack[stack.length - 1];
+    const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [x + dx, y + dy, dx, dy]).filter(([nx, ny]) => nx >= 0 && ny >= 0 && nx < N && ny < M && !seen[ny][nx]);
+    if (!nb.length) { stack.pop(); continue; }
+    const [nx, ny, dx, dy] = pick(nb);
+    if (dx === 1) walls[y][x].r = false; if (dx === -1) walls[ny][nx].r = false;
+    if (dy === 1) walls[y][x].d = false; if (dy === -1) walls[ny][nx].d = false;
+    seen[ny][nx] = true; stack.push([nx, ny]);
+  }
+  pos = { x: 0, y: 0 }; goal = { x: N - 1, y: M - 1 }; hero = pick(HEROES); trail = [{ x: 0, y: 0 }]; anim = null; cleared = 0;
+}
+function geo() {
+  const W = innerWidth, H = innerHeight, top = 80, bottom = btn.getBoundingClientRect().top - 12; // ボタンに かからない
+  const cs = Math.min((W - 40) / N, (bottom - top) / M);
+  return { cs, ox: (W - cs * N) / 2, oy: top + (bottom - top - cs * M) / 2 };
+}
+const open = (x, y, dx, dy) => {
+  if (dx === 1) return x < N - 1 && !walls[y][x].r;
+  if (dx === -1) return x > 0 && !walls[y][x - 1].r;
+  if (dy === 1) return y < M - 1 && !walls[y][x].d;
+  if (dy === -1) return y > 0 && !walls[y - 1][x].d;
+};
+makeMaze();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+btn.addEventListener('pointerdown', () => { makeMaze(); Sfx.tone(700, 0.15, 'sine', 0.1, 0, 1000); });
+
+// ゆびの ほうへ 1マスずつ
+let finger = null;
+cv.addEventListener('pointerdown', (e) => { try { cv.setPointerCapture(e.pointerId); } catch (err) {} finger = { x: e.clientX, y: e.clientY }; hint = 0; });
+cv.addEventListener('pointermove', (e) => { if (finger) finger = { x: e.clientX, y: e.clientY }; });
+const lift = () => { finger = null; };
+cv.addEventListener('pointerup', lift); cv.addEventListener('pointercancel', lift);
+let bump = 0;
+function tryStep() {
+  if (!finger || anim || cleared) return;
+  const { cs, ox, oy } = geo();
+  const cx = ox + (pos.x + 0.5) * cs, cy = oy + (pos.y + 0.5) * cs;
+  const dx = finger.x - cx, dy = finger.y - cy;
+  if (Math.hypot(dx, dy) < cs * 0.45) return;
+  // ゆびに ちかい むきから じゅんに ためす（まがりかどで ひっかからない ように）
+  const dirs = Math.abs(dx) > Math.abs(dy) ? [[Math.sign(dx), 0], [0, Math.sign(dy)]] : [[0, Math.sign(dy)], [Math.sign(dx), 0]];
+  for (const [sx, sy] of dirs) {
+    if ((sx || sy) && open(pos.x, pos.y, sx, sy)) {
+      anim = { fx: pos.x, fy: pos.y, t: 0 };
+      pos = { x: pos.x + sx, y: pos.y + sy };
+      const back = trail.length > 1 && trail[trail.length - 2].x === pos.x && trail[trail.length - 2].y === pos.y;
+      if (back) trail.pop(); else trail.push({ ...pos });
+      Sfx.tone(500 + trail.length * 12, 0.05, 'sine', 0.07);
+      return;
+    }
+  }
+  if (bump <= 0) { bump = 0.35; Sfx.tone(160, 0.06, 'sine', 0.06); }
+}
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight, t = now / 1000, { cs, ox, oy } = geo();
+  bump -= dt;
+  if (anim) { anim.t += dt / 0.11; if (anim.t >= 1) { anim = null; if (pos.x === goal.x && pos.y === goal.y) win(); } }
+  tryStep();
+  if (cleared) { cleared += dt; if (cleared > 2.2) { level++; makeMaze(); } }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // ゆか
+  ctx.fillStyle = '#fffbea'; ctx.beginPath(); ctx.roundRect(ox - 6, oy - 6, cs * N + 12, cs * M + 12, 14); ctx.fill();
+  // あしあと
+  ctx.strokeStyle = 'rgba(255,170,60,.45)'; ctx.lineWidth = cs * 0.28; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); trail.forEach((p, i) => { const x = ox + (p.x + 0.5) * cs, y = oy + (p.y + 0.5) * cs; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+  // かべ
+  ctx.strokeStyle = '#5b8f3a'; ctx.lineWidth = Math.max(5, cs * 0.12);
+  ctx.beginPath();
+  ctx.moveTo(ox, oy); ctx.lineTo(ox + cs * N, oy); ctx.moveTo(ox, oy); ctx.lineTo(ox, oy + cs * M);
+  for (let y = 0; y < M; y++) for (let x = 0; x < N; x++) {
+    const w = walls[y][x], X = ox + x * cs, Y = oy + y * cs;
+    if (w.r) { ctx.moveTo(X + cs, Y); ctx.lineTo(X + cs, Y + cs); }
+    if (w.d) { ctx.moveTo(X, Y + cs); ctx.lineTo(X + cs, Y + cs); }
+  }
+  ctx.stroke();
+  // ゴール
+  const gs = 1 + Math.sin(t * 4) * 0.08;
+  drawEmoji(ctx, hero[1], ox + (goal.x + 0.5) * cs, oy + (goal.y + 0.5) * cs, cs * 0.7 * gs);
+  // しゅじんこう
+  let hx = pos.x, hy = pos.y, hop = 0;
+  if (anim) { const k = anim.t; hx = anim.fx + (pos.x - anim.fx) * k; hy = anim.fy + (pos.y - anim.fy) * k; hop = Math.sin(k * Math.PI) * cs * 0.15; }
+  const px = ox + (hx + 0.5) * cs, py = oy + (hy + 0.5) * cs - hop;
+  ctx.save(); ctx.translate(px, py); if (cleared) ctx.rotate(Math.sin(t * 12) * 0.3);
+  drawEmoji(ctx, hero[0], 0, 0, cs * 0.72); ctx.restore();
+  // はじめの ヒント: ゆびで ひっぱる
+  if (hint) { ctx.globalAlpha = 0.5 + 0.4 * Math.sin(t * 4); const k = (t * 0.7) % 1; drawEmoji(ctx, '👆', px + cs * 0.3 + k * cs * 1.2, py + cs * 0.5, 54); ctx.globalAlpha = 1; }
+  // きらきら
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 300 * dt; s.life -= dt; ctx.fillStyle = `hsla(${s.hue}, 100%, 60%, ${Math.max(0, s.life)})`; ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, 7); ctx.fill(); }
+  sparks = sparks.filter(s => s.life > 0);
+  requestAnimationFrame(loop);
+})(last);
+
+function win() {
+  cleared = 0.001; finger = null;
+  const { cs, ox, oy } = geo(), x = ox + (goal.x + 0.5) * cs, y = oy + (goal.y + 0.5) * cs;
+  for (let i = 0; i < 80; i++) { const a = rand(0, 7), v = rand(100, 450); sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, life: rand(0.6, 1.2), hue: rand(0, 360) }); }
+  Sfx.yay(); setTimeout(() => Sfx.chime(), 300);
+  popText(pick(['ついた！', 'やったー！', 'ゴール！']), innerWidth / 2, oy + 40, '#ff7b00', 56);
+}
+</script>
+</body>
+</html>

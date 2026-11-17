@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>おいしゃさんごっこ</title>
+<link rel="stylesheet" href="common.css?v=12">
+<style>
+  body { background: linear-gradient(#e8f7ff, #d2efff 65%, #bfe3f5 65%); }
+  #tools { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom) + 8px); z-index: 30;
+           display: flex; gap: min(2.4vw, 16px); padding: 12px min(3vw, 18px); background: rgba(255,255,255,.7); border-radius: 28px; box-shadow: 0 6px 0 rgba(0,0,0,.08); }
+  #tools .big-btn { width: min(13vw, 84px); height: min(13vw, 84px); font-size: min(4vw, 24px); --c1: #fff; --c2: #c9d6e3; transition: opacity .3s, transform .06s, box-shadow .06s; }
+  #tools .big-btn.off { opacity: .35; }
+  #tools #steth { --c1: #ffd34d; --c2: #c99a1a; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div id="tools">
+  <button id="steth" class="big-btn"><span class="emoji">🩺</span></button>
+  <button class="big-btn tool" data-k="hana"><span class="emoji">🧻</span></button>
+  <button class="big-btn tool" data-k="kega"><span class="emoji">🩹</span></button>
+  <button class="big-btn tool" data-k="netsu"><span class="emoji">🧊</span></button>
+  <button class="big-btn tool" data-k="ha"><span class="emoji">🪥</span></button>
+  <button class="big-btn tool" data-k="seki"><span class="emoji">💊</span></button>
+</div>
+<script src="common.js?v=12"></script>
+<script>
+// おいしゃさんごっこ: どうぶつの かんじゃさんが くる。🩺 で しんさつ すると どこが わるいか ふきだしで わかる。
+// あう どうぐで なおすと にっこり。ちがう どうぐ でも くびを ふるだけ（へらない）。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+const ANIMALS = ['🐶', '🐱', '🐰', '🐻', '🐼', '🐷', '🐸', '🐨', '🐯', '🦁'];
+const ILL = { hana: '🤧', kega: '🩹', netsu: '🌡️', ha: '🦷', seki: '💨' };
+const steth = document.getElementById('steth'), tools = [...document.querySelectorAll('.tool')];
+let p = null, state = 'enter', st = 0, fly = null, stickers = [], sparks = [], lastIll = '';
+
+function newPatient() {
+  let ill; do { ill = pick(Object.keys(ILL)); } while (ill === lastIll); lastIll = ill;
+  p = { e: pick(ANIMALS), ill, x: innerWidth + 200, shake: 0, happy: 0, bubble: 0, cure: 0 };
+  state = 'enter'; st = 0; updateTools();
+  Sfx.tone(660, 0.1, 'sine', 0.08); Sfx.tone(550, 0.15, 'sine', 0.08, 0.12); // ピンポーン
+}
+function updateTools() {
+  steth.classList.toggle('off', state !== 'wait');
+  for (const b of tools) b.classList.toggle('off', state !== 'known');
+}
+const L = () => { const W = innerWidth, H = innerHeight, top = document.getElementById('tools').getBoundingClientRect().top; const s = Math.min(W * 0.5, (top - 140) * 0.7, 300); return { W, H, cx: W / 2, cy: Math.max(130 + s / 2, (top + 60) / 2), s }; };
+
+steth.addEventListener('pointerdown', () => {
+  if (state !== 'wait') return;
+  state = 'exam'; st = 0; updateTools();
+});
+for (const b of tools) b.addEventListener('pointerdown', () => {
+  if (state !== 'known') return;
+  const r = b.getBoundingClientRect(), { cx, cy } = L();
+  fly = { e: b.textContent.trim(), k: b.dataset.k, x0: r.left + r.width / 2, y0: r.top + r.height / 2, t: 0 };
+  state = 'fly'; updateTools();
+});
+
+function sparkle(x, y, n) { for (let i = 0; i < n; i++) { const a = rand(0, 7), v = rand(80, 380); sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: rand(0.5, 1.1), hue: rand(0, 360) }); } }
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const t = now / 1000, { W, H, cx, cy, s } = L();
+  st += dt;
+  if (!p) newPatient();
+  // うごき
+  if (state === 'enter') { p.x += (cx - p.x) * Math.min(1, dt * 5); if (Math.abs(p.x - cx) < 2) { p.x = cx; state = 'wait'; st = 0; updateTools(); } }
+  else if (state === 'exam') { // ドクン ドクン
+    if (Math.floor(st * 2.5) !== Math.floor((st - dt) * 2.5)) { Sfx.tone(90, 0.12, 'sine', 0.35); Sfx.tone(80, 0.1, 'sine', 0.25, 0.14); }
+    if (st > 1.3) { state = 'known'; st = 0; p.bubble = 0.001; updateTools(); Sfx.tone(880, 0.12, 'sine', 0.1, 0, 1200); }
+  } else if (state === 'fly') {
+    fly.t += dt / 0.45;
+    if (fly.t >= 1) {
+      if (fly.k === p.ill) { state = 'cure'; st = 0; cureSound(p.ill); }
+      else { state = 'nope'; st = 0; p.shake = 1; Sfx.tone(330, 0.12, 'triangle', 0.1); Sfx.tone(262, 0.18, 'triangle', 0.1, 0.13); popText('ちがうよ〜', cx, cy - s * 0.7, '#7a8fa6', 40); }
+    }
+  } else if (state === 'nope') { if (st > 0.7) { state = 'known'; st = 0; fly = null; updateTools(); } }
+  else if (state === 'cure') {
+    p.cure = Math.min(1, st / 1.1);
+    if (st > 1.1 && !p.happy) {
+      p.happy = 0.001; fly = null; sparkle(cx, cy, 70); Sfx.yay();
+      popText(pick(['ありがとう！', 'げんきに なった！', 'なおった！']), cx, cy - s * 0.75, '#ff6fa8', 48);
+      stickers.push(pick(['⭐', '💖', '🌟', '🍭', '🎈', '🌈'])); if (stickers.length > 10) stickers.shift();
+    }
+    if (st > 2.6) { state = 'leave'; st = 0; }
+  } else if (state === 'leave') { p.x -= dt * 900; if (p.x < -s) { p = null; } }
+  if (p) { p.shake = Math.max(0, p.shake - dt * 2.5); if (p.happy) p.happy += dt; if (p.bubble) p.bubble = Math.min(1, p.bubble + dt * 4); }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // ごほうびシール
+  stickers.forEach((e, i) => drawEmoji(ctx, e, W / 2 + (i - (stickers.length - 1) / 2) * 34, 92, 28));
+  // ベッド
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(cx - s * 0.9, cy + s * 0.35, s * 1.8, s * 0.25, 16); ctx.fill();
+  ctx.fillStyle = '#9fd3f2'; ctx.fillRect(cx - s * 0.9, cy + s * 0.55, s * 1.8, s * 0.06);
+  if (p) drawPatient(p, t, s, cy);
+  // しんさつ ちゅう: 🩺 が むねに
+  if (state === 'exam' && p) { const k = Math.min(1, st * 3); drawEmoji(ctx, '🩺', p.x + s * 0.15, cy + s * 0.45 - (1 - k) * 60 + Math.sin(st * 16) * 3, s * 0.4); }
+  // どうぐが とんでいく / なおす うごき
+  if (fly && p) {
+    const k = Math.min(1, fly.t), e = 1 - Math.pow(1 - k, 3);
+    const target = toolTarget(fly.k, p, s, cy);
+    let x = fly.x0 + (target.x - fly.x0) * e, y = fly.y0 + (target.y - fly.y0) * e - Math.sin(k * Math.PI) * 80;
+    if (state === 'nope') { const b = Math.min(1, st / 0.6); x = target.x + (fly.x0 - target.x) * b; y = target.y + (fly.y0 - target.y) * b; }
+    if (state === 'cure') { // なおしている うごき
+      if (fly.k === 'hana') x += Math.sin(st * 20) * 10;
+      if (fly.k === 'ha') x += Math.sin(st * 30) * 14;
+      if (fly.k === 'netsu') y += Math.sin(st * 6) * 4;
+      if (fly.k === 'seki') { y -= st * 20; }
+    }
+    ctx.save(); ctx.translate(x, y); if (state === 'cure' && fly.k === 'hana') ctx.rotate(Math.sin(st * 20) * 0.2);
+    drawEmoji(ctx, fly.e, 0, 0, s * (fly.k === 'kega' ? 0.32 : 0.38)); ctx.restore();
+  }
+  // ヒント: 🩺 を おしてね
+  if (state === 'wait') { const r = steth.getBoundingClientRect(); ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5); drawEmoji(ctx, '👇', r.left + r.width / 2, r.top - 34 - Math.abs(Math.sin(t * 3)) * 12, 44); ctx.globalAlpha = 1; }
+  for (const sp of sparks) { sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.vy += 300 * dt; sp.life -= dt; ctx.fillStyle = `hsla(${sp.hue}, 100%, 65%, ${Math.max(0, sp.life)})`; ctx.beginPath(); ctx.arc(sp.x, sp.y, 5, 0, 7); ctx.fill(); }
+  sparks = sparks.filter(sp => sp.life > 0);
+  requestAnimationFrame(loop);
+})(last);
+
+function toolTarget(k, p, s, cy) {
+  if (k === 'hana') return { x: p.x, y: cy + s * 0.05 };
+  if (k === 'kega') return { x: p.x + s * 0.28, y: cy + s * 0.12 };
+  if (k === 'netsu') return { x: p.x, y: cy - s * 0.38 };
+  if (k === 'ha') return { x: p.x + s * 0.12, y: cy + s * 0.2 };
+  return { x: p.x, y: cy + s * 0.22 }; // くすり → くち
+}
+function cureSound(k) {
+  if (k === 'hana') { Sfx.noise(0.3, 0.4, 1500); setTimeout(() => Sfx.noise(0.3, 0.4, 1500), 350); }
+  if (k === 'kega') Sfx.tone(600, 0.1, 'square', 0.08, 0, 900);
+  if (k === 'netsu') Sfx.noise(0.8, 0.25, 6000, 0, 'highpass');
+  if (k === 'ha') for (let i = 0; i < 6; i++) Sfx.noise(0.08, 0.3, 4000, i * 0.12, 'bandpass');
+  if (k === 'seki') { Sfx.tone(500, 0.1, 'sine', 0.1); Sfx.tone(300, 0.2, 'sine', 0.1, 0.15, 200); }
+  Sfx.chime();
+}
+function drawPatient(p, t, s, cy) {
+  const ill = p.ill, sick = !p.happy, cureK = p.cure || 0;
+  let x = p.x + Math.sin(t * 30) * p.shake * 14, y = cy;
+  if (state === 'enter' || state === 'leave') y -= Math.abs(Math.sin(t * 10)) * 14;
+  if (sick && ill === 'seki' && Math.sin(t * 3) > 0.92) y -= 6; // ごほっ
+  ctx.save(); ctx.translate(x, y);
+  if (p.happy) ctx.rotate(Math.sin(p.happy * 10) * 0.08);
+  else ctx.rotate(Math.sin(t * 1.5) * 0.03);
+  drawEmoji(ctx, p.e, 0, 0, s);
+  // びょうきの しるし（なおると きえる）
+  ctx.globalAlpha = sick ? 1 - cureK : 0;
+  if (ill === 'hana') { ctx.fillStyle = '#7cc8ff'; const d = 8 + Math.sin(t * 2) * 4; ctx.beginPath(); ctx.ellipse(s * 0.04, s * 0.12 + d, s * 0.035, s * 0.06, 0, 0, 7); ctx.fill(); }
+  if (ill === 'kega') { ctx.strokeStyle = '#e53935'; ctx.lineWidth = 3; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(s * 0.2, s * (0.06 + i * 0.05)); ctx.lineTo(s * 0.36, s * (0.02 + i * 0.05)); ctx.stroke(); } }
+  if (ill === 'netsu') { ctx.fillStyle = 'rgba(255,60,60,.28)'; ctx.beginPath(); ctx.arc(0, -s * 0.05, s * 0.42, 0, 7); ctx.fill(); ctx.strokeStyle = 'rgba(255,120,120,.8)'; ctx.lineWidth = 3; for (let i = -1; i <= 1; i++) { ctx.beginPath(); const yy = -s * 0.55 - ((t * 30) % 20); ctx.moveTo(i * s * 0.15, yy); ctx.quadraticCurveTo(i * s * 0.15 + 8, yy - 10, i * s * 0.15, yy - 20); ctx.stroke(); } }
+  if (ill === 'ha') { ctx.fillStyle = 'rgba(255,150,150,.5)'; ctx.beginPath(); ctx.ellipse(s * 0.3, s * 0.15, s * 0.14, s * 0.12, 0, 0, 7); ctx.fill(); }
+  if (ill === 'seki' && Math.sin(t * 3) > 0.85) drawEmoji(ctx, '💨', s * 0.35, s * 0.15, s * 0.22);
+  ctx.globalAlpha = 1;
+  // なおった あと: ばんそうこうは のこる、にっこり ハート
+  if (p.happy) { if (ill === 'kega') drawEmoji(ctx, '🩹', s * 0.28, s * 0.08, s * 0.25); drawEmoji(ctx, '💖', -s * 0.45, -s * 0.4 - p.happy * 20, s * 0.22); }
+  else drawEmoji(ctx, '💧', -s * 0.32, -s * 0.05 + ((t * 0.8) % 1) * 10, s * 0.1); // かなしい なみだ
+  ctx.restore();
+  // ふきだし: どこが わるいか
+  if (p.bubble && sick && state !== 'cure') {
+    const bx = x + s * 0.55, by = y - s * 0.6, r = s * 0.24 * p.bubble;
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(bx, by, r, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx - r * 0.9, by + r * 0.9, r * 0.18, 0, 7); ctx.arc(bx - r * 1.3, by + r * 1.3, r * 0.1, 0, 7); ctx.fill();
+    drawEmoji(ctx, ILL[p.ill], bx, by, r * 1.2);
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ピンボール</title>
+<link rel="stylesheet" href="common.css?v=12">
+<style>
+  body { background: radial-gradient(circle at 50% 30%, #3b2a7a, #120b2e); }
+  #cv { touch-action: none; }
+  /* フリッパーの ボタン: まんなかに よせて ならべる（フリッパーの ちかく） */
+  .fls { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(14px, env(safe-area-inset-bottom) + 6px); z-index: 30;
+         display: flex; gap: min(12vw, 70px); }
+  .fls .big-btn { width: min(26vw, 130px); height: min(26vw, 130px); font-size: min(7vw, 34px); --c1: #ff5e7e; --c2: #b8304d; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="fls"><button id="bl" class="big-btn"><span class="emoji">⬅️</span></button><button id="br" class="big-btn"><span class="emoji">➡️</span></button></div>
+<script src="common.js?v=12"></script>
+<script src="game.js?v=2"></script>
+<script>
+// ピンボール: ひだり・みぎの ボタン（がめんの ひだり はんぶん・みぎ はんぶん でも）で フリッパーを うごかす。
+// バンパーに あてると ひかって てんすう。ボールを 3かい おとすと おしまい。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const bl = document.getElementById('bl'), br = document.getElementById('br');
+let dpr = fitCanvas(cv, ctx);
+let T, walls = [], bumpers = [], stars = [], ball = null, flip = { l: 0, r: 0 }, hold = { l: false, r: false }, sparks = [], waitBall = 0;
+
+// だいの ざひょう（よこ 400 × たて 640 の せかいを がめんに あわせる）
+const SW = 400, SH = 640;
+function layout() {
+  dpr = fitCanvas(cv, ctx);
+  const top = 70, bottom = Math.min(innerHeight - 10, Math.min(bl.getBoundingClientRect().top, innerHeight) + 40);
+  const S = Math.min(innerWidth / SW, (bottom - top) / SH);
+  T = { S, ox: (innerWidth - SW * S) / 2, oy: top };
+}
+const seg = (x1, y1, x2, y2) => ({ x1, y1, x2, y2 });
+function build() {
+  walls = [
+    seg(20, 640, 20, 120), seg(20, 120, 80, 40), seg(80, 40, 320, 40), seg(320, 40, 380, 120), seg(380, 120, 380, 640),
+    seg(20, 470, 110, 545), seg(380, 470, 290, 545), // フリッパーへの さか
+    seg(70, 330, 70, 420), seg(330, 330, 330, 420),   // よこの かべ
+  ];
+  bumpers = [
+    { x: 130, y: 170, r: 30, hue: 330, lit: 0 }, { x: 270, y: 170, r: 30, hue: 190, lit: 0 },
+    { x: 200, y: 260, r: 34, hue: 50, lit: 0 }, { x: 115, y: 330, r: 22, hue: 120, lit: 0 }, { x: 285, y: 330, r: 22, hue: 270, lit: 0 },
+  ];
+  stars = [{ x: 200, y: 100, got: 0 }, { x: 60, y: 250, got: 0 }, { x: 340, y: 250, got: 0 }, { x: 200, y: 400, got: 0 }];
+}
+// フリッパー: じく と ながさ。flip 0〜1（したむき → うえむき）
+const FL = { l: { x: 110, y: 545, len: 72, a0: 0.5, a1: -0.45, s: 1 }, r: { x: 290, y: 545, len: 72, a0: 0.5, a1: -0.45, s: -1 } };
+function flipSeg(k) {
+  const f = FL[k], a = f.a0 + (f.a1 - f.a0) * flip[k];
+  return { x1: f.x, y1: f.y, x2: f.x + Math.cos(a) * f.len * f.s, y2: f.y + Math.sin(a) * f.len };
+}
+layout(); build();
+addEventListener('resize', layout);
+
+const game = Game.create('pinball', {
+  onStart() { build(); newBall(); },
+  onOver() { ball = null; },
+});
+function newBall() { ball = { x: 200, y: 90, vx: rand(-60, 60), vy: 0, r: 11 }; Sfx.tone(600, 0.2, 'sine', 0.1, 0, 1200); }
+
+function press(k, on) {
+  if (on && game.state !== 'play') { game.press(); return; }
+  hold[k] = on;
+  if (on) Sfx.tone(180, 0.08, 'square', 0.08, 0, 120);
+}
+for (const [el, k] of [[bl, 'l'], [br, 'r']]) {
+  el.addEventListener('pointerdown', () => press(k, true));
+  el.addEventListener('pointerup', () => press(k, false)); el.addEventListener('pointercancel', () => press(k, false)); el.addEventListener('pointerleave', () => press(k, false));
+}
+// がめんの ひだり・みぎ はんぶん でも うごかせる
+const touches = new Map();
+cv.addEventListener('pointerdown', (e) => { const k = e.clientX < innerWidth / 2 ? 'l' : 'r'; touches.set(e.pointerId, k); press(k, true); });
+const up = (e) => { const k = touches.get(e.pointerId); if (k) { touches.delete(e.pointerId); if (![...touches.values()].includes(k)) press(k, false); } };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+// ボールと せんぶんの しょうとつ。v: せんぶんの はやさ（フリッパー）
+function hitSeg(s, bounce = 0.5, kick = null) {
+  const dx = s.x2 - s.x1, dy = s.y2 - s.y1, L2 = dx * dx + dy * dy;
+  let t = ((ball.x - s.x1) * dx + (ball.y - s.y1) * dy) / L2; t = Math.max(0, Math.min(1, t));
+  const px = s.x1 + dx * t, py = s.y1 + dy * t, ex = ball.x - px, ey = ball.y - py, d = Math.hypot(ex, ey);
+  if (d >= ball.r || d === 0) return false;
+  const nx = ex / d, ny = ey / d;
+  ball.x = px + nx * ball.r; ball.y = py + ny * ball.r;
+  let vx = ball.vx, vy = ball.vy;
+  if (kick) { vx -= kick.vx(px, py); vy -= kick.vy(px, py); }
+  const vn = vx * nx + vy * ny;
+  if (vn < 0) { vx -= (1 + bounce) * vn * nx; vy -= (1 + bounce) * vn * ny; }
+  if (kick) { vx += kick.vx(px, py); vy += kick.vy(px, py); }
+  ball.vx = vx; ball.vy = vy;
+  return true;
+}
+function burst(x, y, n, hue) { for (let i = 0; i < n; i++) { const a = rand(0, 7), v = rand(60, 260); sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.3, 0.7), hue }); } }
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const t = now / 1000, W = innerWidth, H = innerHeight;
+  // フリッパー
+  const prev = { l: flip.l, r: flip.r };
+  for (const k of ['l', 'r']) flip[k] = hold[k] ? Math.min(1, flip[k] + dt * 14) : Math.max(0, flip[k] - dt * 7);
+  if (ball && game.state === 'play') {
+    const N = 8, h = dt / N;
+    for (let i = 0; i < N; i++) {
+      ball.vy += 340 * h; ball.x += ball.vx * h; ball.y += ball.vy * h; // じゅうりょくは ちいさめ（ゆっくり）
+      for (const s of walls) hitSeg(s, 0.4);
+      for (const k of ['l', 'r']) {
+        const f = FL[k], w = dt > 0 ? (flip[k] - prev[k]) / dt * (f.a1 - f.a0) * f.s : 0; // かくそくど（みぎは はんてん）
+        const kick = { vx: (px, py) => -w * (py - f.y), vy: (px, py) => w * (px - f.x) };
+        if (hitSeg(flipSeg(k), 0.3, kick)) {}
+      }
+      for (const b of bumpers) {
+        const dx = ball.x - b.x, dy = ball.y - b.y, d = Math.hypot(dx, dy);
+        if (d < b.r + ball.r) {
+          const nx = dx / d, ny = dy / d;
+          ball.x = b.x + nx * (b.r + ball.r); ball.y = b.y + ny * (b.r + ball.r);
+          const vn = ball.vx * nx + ball.vy * ny;
+          ball.vx -= 2 * vn * nx; ball.vy -= 2 * vn * ny;
+          ball.vx += nx * 140; ball.vy += ny * 140;
+          if (b.lit < 0.5) { game.add(1); Sfx.tone(500 + b.hue, 0.12, 'square', 0.1); burst(b.x + nx * b.r, b.y + ny * b.r, 14, b.hue); }
+          b.lit = 1;
+        }
+      }
+    }
+    // ひっかかって とまったら かるく はじく
+    if (Math.hypot(ball.vx, ball.vy) < 30) { ball.still = (ball.still || 0) + dt; if (ball.still > 2) { ball.vx = rand(-250, 250); ball.vy = -rand(250, 400); ball.still = 0; Sfx.boing(); } } else ball.still = 0;
+    const sp = Math.hypot(ball.vx, ball.vy); if (sp > 760) { ball.vx *= 760 / sp; ball.vy *= 760 / sp; } // さいこう そくど
+    for (const s of stars) if (!s.got && Math.hypot(ball.x - s.x, ball.y - s.y) < 26) { s.got = 1; game.add(2); burst(s.x, s.y, 24, 50); Sfx.chime(); }
+    if (stars.every(s => s.got)) { stars.forEach(s => s.got = 0); popText('✨', W / 2, H * 0.3, '#fff', 80); Sfx.yay(); }
+    if (ball.y > SH + 30) { // おちた
+      ball = null;
+      if (!game.hit()) { waitBall = 1.2; }
+    }
+  }
+  if (!ball && game.state === 'play' && waitBall > 0) { waitBall -= dt; if (waitBall <= 0) newBall(); }
+  for (const b of bumpers) b.lit = Math.max(0, b.lit - dt * 3);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.setTransform(dpr * T.S, 0, 0, dpr * T.S, dpr * T.ox, dpr * T.oy);
+  // だい
+  ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.beginPath(); ctx.moveTo(20, 640); ctx.lineTo(20, 120); ctx.lineTo(80, 40); ctx.lineTo(320, 40); ctx.lineTo(380, 120); ctx.lineTo(380, 640); ctx.fill();
+  ctx.lineCap = 'round'; ctx.strokeStyle = '#8fd3ff'; ctx.lineWidth = 8; ctx.shadowColor = '#8fd3ff'; ctx.shadowBlur = 12;
+  for (const s of walls) { ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke(); }
+  ctx.shadowBlur = 0;
+  // ほし
+  for (const s of stars) { ctx.globalAlpha = s.got ? 0.25 : 0.7 + 0.3 * Math.sin(t * 5 + s.x); drawEmoji(ctx, '⭐', s.x, s.y, 30); }
+  ctx.globalAlpha = 1;
+  // バンパー
+  for (const b of bumpers) {
+    ctx.shadowColor = `hsl(${b.hue}, 100%, 60%)`; ctx.shadowBlur = 10 + b.lit * 30;
+    ctx.fillStyle = `hsl(${b.hue}, 90%, ${50 + b.lit * 30}%)`; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * (1 + b.lit * 0.15), 0, 7); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r * 0.45, 0, 7); ctx.fill();
+  }
+  // フリッパー
+  for (const k of ['l', 'r']) {
+    const s = flipSeg(k);
+    ctx.strokeStyle = '#ffcc33'; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s.x1, s.y1, 6, 0, 7); ctx.fill();
+  }
+  // ボール
+  if (ball) {
+    const g = ctx.createRadialGradient(ball.x - 4, ball.y - 4, 1, ball.x, ball.y, ball.r);
+    g.addColorStop(0, '#fff'); g.addColorStop(1, '#9aa7b8');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, 7); ctx.fill();
+  }
+  for (const p of sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; ctx.fillStyle = `hsla(${p.hue}, 100%, 65%, ${Math.max(0, p.life * 2)})`; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 7); ctx.fill(); }
+  sparks = sparks.filter(p => p.life > 0);
+  // はじまるまえ
+  if (game.state !== 'play') { ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5); drawEmoji(ctx, '👇', 200, 590 - Math.abs(Math.sin(t * 3)) * 16, 60); ctx.globalAlpha = 1; }
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

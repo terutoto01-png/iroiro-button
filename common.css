@@ -120,6 +120,11 @@ html.can-scroll, html.can-scroll body { touch-action: pan-y; }
        text-shadow: 0 3px 0 rgba(0,0,0,.35); white-space: nowrap; }
 .hud .score, .hud .best { display: inline-flex; align-items: center; gap: 4px; }
 .hud .best { font-size: 22px; opacity: .85; }
+/* せまい がめん（スマホ）では 🏠 と 🔊 の あいだに おさまる ように ちいさく */
+@media (max-width: 600px) {
+  .hud { gap: 8px; font-size: 21px; top: max(16px, env(safe-area-inset-top) + 4px); max-width: calc(100vw - 150px); }
+  .hud .best { font-size: 15px; }
+}
 
 /* PWA 更新通知トースト */
 .update-toast {

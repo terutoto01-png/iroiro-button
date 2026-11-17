@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>けんけんぱ</title>
+<link rel="stylesheet" href="common.css?v=12">
+<style>
+  body { background: #8a9099; }
+  #cv { touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<script src="common.js?v=12"></script>
+<script>
+// けんけんぱ: ひかっている まるを タッチ。まるが 1つ（けん）は ゆび 1ぽん、2つ ならんでいたら（ぱ）ゆび 2ほんで いっしょに。
+// うさぎが ぴょんと すすむ。🏁 まで いったら つぎの コース（すこし ながく）。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+const HEROES = ['🐰', '🐸', '🐱', '🐶', '🐥'];
+let course = [], cur = 0, scroll = 0, hero = pick(HEROES), hop = null, shake = 0, goalT = 0, len = 8, sparks = [];
+const PATTERNS = [['k', 'k', 'p'], ['k', 'p'], ['k', 'k', 'p'], ['p', 'k', 'p'], ['k', 'k', 'k', 'p']];
+
+function newCourse() {
+  course = [];
+  while (course.length < len) course.push(...pick(PATTERNS));
+  course.length = len; course[len - 1] = 'p';
+  cur = 0; scroll = 0; hero = pick(HEROES); goalT = 0; hop = null;
+}
+newCourse();
+
+const G = () => {
+  const W = innerWidth, H = innerHeight, r = Math.min(W * 0.17, H * 0.075, 78), gap = Math.max(r * 2.4, H * 0.16);
+  return { W, H, r, gap, baseY: H * 0.74 };
+};
+// i ばんめの だんの まるの いち
+function circles(i) {
+  const { W, r, gap, baseY } = G(), y = baseY - (i - scroll) * gap;
+  return course[i] === 'p' ? [{ x: W / 2 - r * 1.25, y }, { x: W / 2 + r * 1.25, y }] : [{ x: W / 2, y }];
+}
+
+// いま さわっている ゆび
+const touching = new Map(); // pointerId -> { x, y, t }
+function check() {
+  if (hop || goalT || cur >= course.length) return;
+  const cs = circles(cur), { r } = G(), now = performance.now();
+  const inC = (c) => [...touching.values()].some(p => Math.hypot(p.x - c.x, p.y - c.y) < r * 1.15 && now - p.t < 450);
+  if (cs.length === 1 ? inC(cs[0]) : (inC(cs[0]) && inC(cs[1]))) {
+    const kind = course[cur];
+    hop = { from: cur - 1, to: cur, t: 0 };
+    cur++;
+    if (kind === 'p') { Sfx.tone(523, 0.15, 'square', 0.08); Sfx.tone(784, 0.2, 'square', 0.08, 0.05); popText('ぱ！', innerWidth / 2, cs[0].y - r - 20, '#fff', 56); }
+    else { Sfx.tone(440, 0.12, 'square', 0.08, 0, 660); popText('けん！', cs[0].x, cs[0].y - r - 20, '#fff', 44); }
+    for (const c of cs) for (let k = 0; k < 14; k++) { const a = rand(0, 7), v = rand(80, 260); sparks.push({ x: c.x, y: c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5, hue: kind === 'p' ? 50 : 190 }); }
+    for (const p of touching.values()) p.t = 0; // つかった ゆびは もう つかわない
+  }
+}
+cv.addEventListener('pointerdown', (e) => {
+  touching.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
+  const before = cur;
+  check();
+  if (cur === before && !hop && !goalT) { // ちがう ところ / ぱ なのに 1ぽん
+    const cs = circles(cur), { r } = G();
+    const onOne = cs.some(c => Math.hypot(e.clientX - c.x, e.clientY - c.y) < r * 1.15);
+    if (!onOne) { shake = 1; Sfx.tone(200, 0.1, 'sine', 0.08); }
+    else Sfx.tone(660, 0.05, 'sine', 0.05); // ぱ の かたほう（もう 1ぽん まち）
+  }
+});
+const lift = (e) => touching.delete(e.pointerId);
+cv.addEventListener('pointerup', lift); cv.addEventListener('pointercancel', lift);
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const t = now / 1000, { W, H, r, gap, baseY } = G();
+  shake = Math.max(0, shake - dt * 4);
+  if (hop) { hop.t += dt / 0.32; if (hop.t >= 1) { hop = null; if (cur >= course.length) finish(); } }
+  scroll += (Math.max(0, cur - 1) - scroll) * Math.min(1, dt * 6);
+  if (goalT) { goalT += dt; if (goalT > 2.5) { len = Math.min(24, len + 4); newCourse(); } }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // じめん（アスファルト）
+  ctx.fillStyle = '#8a9099'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,.05)'; for (let i = 0; i < 80; i++) { ctx.beginPath(); ctx.arc((i * 137) % W, (i * 89 + scroll * gap * 0.3) % H, 2, 0, 7); ctx.fill(); }
+  // ゴール
+  const gy = baseY - (course.length - scroll) * gap + gap * 0.3;
+  if (gy > -60) drawEmoji(ctx, '🏁', W / 2, gy, r * 1.6);
+  // まる（チョークの え）
+  for (let i = course.length - 1; i >= 0; i--) {
+    const cs = circles(i);
+    if (cs[0].y < -r * 2 || cs[0].y > H + r * 2) continue;
+    const active = i === cur && !goalT, doneRow = i < cur;
+    for (const c of cs) {
+      const sx = active ? Math.sin(t * 50) * shake * 8 : 0, pul = active ? 1 + Math.sin(t * 6) * 0.05 : 1;
+      if (active) { ctx.fillStyle = 'rgba(255,240,120,.35)'; ctx.beginPath(); ctx.arc(c.x + sx, c.y, r * pul * 1.12, 0, 7); ctx.fill(); }
+      ctx.strokeStyle = doneRow ? 'rgba(255,255,255,.4)' : (active ? '#fff7a8' : 'rgba(255,255,255,.85)');
+      ctx.lineWidth = active ? 9 : 6;
+      ctx.beginPath(); ctx.arc(c.x + sx, c.y, r * pul, 0, 7); ctx.stroke();
+      if (active) { ctx.globalAlpha = 0.55; drawEmoji(ctx, '👆', c.x + sx, c.y, r * 0.9); ctx.globalAlpha = 1; }
+    }
+  }
+  // うさぎ
+  let hx, hy, lift = 0;
+  const posOf = (i) => { if (i < 0) return { x: W / 2, y: baseY + (0.8 + scroll) * gap }; const cs = circles(i); return { x: (cs[0].x + cs[cs.length - 1].x) / 2, y: cs[0].y }; };
+  if (hop) {
+    const a = posOf(hop.from), b = posOf(hop.to), k = hop.t;
+    hx = a.x + (b.x - a.x) * k; hy = a.y + (b.y - a.y) * k; lift = Math.sin(k * Math.PI) * r * 0.9;
+  } else if (cur > 0) { const p = posOf(cur - 1); hx = p.x; hy = p.y; }
+  else { const p = posOf(-1); hx = p.x; hy = p.y; }
+  ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(hx, hy + r * 0.45, r * 0.5 * (1 - lift / r * 0.3), r * 0.15, 0, 0, 7); ctx.fill();
+  const sq = hop ? 1 + Math.sin(hop.t * Math.PI) * 0.1 : 1 + Math.sin(t * 4) * 0.03;
+  ctx.save(); ctx.translate(hx, hy - lift); if (goalT) ctx.rotate(Math.sin(t * 12) * 0.3); ctx.scale(1 / sq, sq); drawEmoji(ctx, hero, 0, 0, r * 1.15); ctx.restore();
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt; ctx.fillStyle = `hsla(${s.hue}, 100%, 70%, ${Math.max(0, s.life * 2)})`; ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, 7); ctx.fill(); }
+  sparks = sparks.filter(s => s.life > 0);
+  requestAnimationFrame(loop);
+})(last);
+
+function finish() {
+  goalT = 0.001;
+  Sfx.yay(); setTimeout(() => Sfx.chime(), 300);
+  popText('ゴール！', innerWidth / 2, innerHeight * 0.3, '#ffe066', 64);
+  for (let i = 0; i < 100; i++) { const a = rand(0, 7), v = rand(100, 500); sparks.push({ x: innerWidth / 2, y: innerHeight * 0.4, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.6, 1.2), hue: rand(0, 360) }); }
+}
+</script>
+</body>
+</html>
