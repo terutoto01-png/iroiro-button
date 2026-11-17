@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>がったい</title>
+<link rel="stylesheet" href="common.css?v=11">
+<style>
+  body { background: linear-gradient(#ffe9f3, #e3f3ff); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff7ab8; --c2: #c94585; }
+  .bottom-center { bottom: max(16px, env(safe-area-inset-bottom) + 8px); }
+  .bottom-center .big-btn { width: min(24vw, 120px); height: min(24vw, 120px); font-size: min(7vw, 34px); }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">⬇️</span></button></div>
+<script src="common.js?v=12"></script>
+<script>
+// がったい: うえの クレーンから どうぶつを おとす。おなじ どうぶつが くっつくと ひとつ おおきい どうぶつに かわる。
+// ボタンで いまの ばしょに おとす / いれものの なかを タッチすると そこに おとす。
+// あふれても おしまいに しない（ぜんぶ はじけて また はじめから）。🐳 どうしが くっつくと キラキラ になって きえる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+
+const LV = [ // えもじ, おおきさ（いれものの はばに たいする はんけい）, いろ
+  ['🐭', 0.05, 210], ['🐤', 0.062, 50], ['🐰', 0.076, 330], ['🐱', 0.092, 30], ['🐶', 0.11, 20],
+  ['🐷', 0.13, 345], ['🐼', 0.155, 160], ['🐻', 0.18, 25], ['🐘', 0.205, 220], ['🐳', 0.235, 200],
+];
+let bodies = [], sparks = [], hand = null, next = 0, crane = 0.5, craneDir = 1, cool = 0, overT = 0, wipe = 0;
+
+const box = () => {
+  const W = innerWidth, H = innerHeight, bottom = btn.getBoundingClientRect().top - 14;
+  const top = 150, w = Math.min(W * 0.92, (bottom - top) * 0.85, 560);
+  return { L: (W - w) / 2, R: (W + w) / 2, T: top, B: bottom, w };
+};
+const pickLv = () => pick([0, 0, 0, 1, 1, 1, 2, 2, 3]);
+function newHand() { hand = { lv: next, t: 0 }; next = pickLv(); }
+next = pickLv(); newHand();
+
+function drop(x) {
+  if (!hand || cool > 0 || wipe > 0) return;
+  const b = box(), r = LV[hand.lv][1] * b.w;
+  const cx = Math.max(b.L + r + 2, Math.min(b.R - r - 2, x));
+  bodies.push({ x: cx, y: b.T - r - 6, vx: 0, vy: 60, r, lv: hand.lv, rot: 0, pop: 0, born: performance.now() });
+  hand = null; cool = 0.45;
+  Sfx.tone(500, 0.12, 'sine', 0.15, 0, 260); // ぽとん
+}
+btn.addEventListener('pointerdown', () => { const b = box(); drop(b.L + crane * b.w); });
+cv.addEventListener('pointerdown', (e) => {
+  const b = box();
+  if (e.clientX > b.L && e.clientX < b.R && e.clientY < b.B) { crane = (e.clientX - b.L) / b.w; drop(e.clientX); }
+});
+
+function burst(x, y, n, hue, sp = 1) {
+  for (let i = 0; i < n; i++) { const a = rand(0, 7), v = rand(80, 360) * sp; sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.4, 0.9), hue: hue + rand(-20, 20), star: Math.random() < 0.3 }); }
+}
+
+function step(dt) {
+  const b = box(), G = 1600;
+  for (const o of bodies) {
+    o.vy += G * dt; o.x += o.vx * dt; o.y += o.vy * dt;
+    o.vx *= Math.pow(0.6, dt);
+  }
+  for (let it = 0; it < 4; it++) {
+    for (let i = 0; i < bodies.length; i++) {
+      const p = bodies[i]; if (p.dead) continue;
+      for (let j = i + 1; j < bodies.length; j++) {
+        const q = bodies[j]; if (q.dead) continue;
+        const dx = q.x - p.x, dy = q.y - p.y, rr = p.r + q.r, d2 = dx * dx + dy * dy;
+        // おなじ どうぶつは ふれたら（すこし はなれていても）がったい
+        if (p.lv === q.lv && d2 < (rr + 3) * (rr + 3)) { merge(p, q); continue; }
+        if (d2 >= rr * rr || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, ov = rr - d;
+        const mp = p.r * p.r, mq = q.r * q.r, k = ov / (mp + mq);
+        p.x -= nx * k * mq; p.y -= ny * k * mq; q.x += nx * k * mp; q.y += ny * k * mp;
+        const rv = (q.vx - p.vx) * nx + (q.vy - p.vy) * ny;
+        if (rv < 0) { const imp = -rv * 1.1 / (mp + mq); p.vx -= nx * imp * mq; p.vy -= ny * imp * mq; q.vx += nx * imp * mp; q.vy += ny * imp * mp; }
+      }
+    }
+    for (const o of bodies) {
+      if (o.x - o.r < b.L) { o.x = b.L + o.r; o.vx = Math.abs(o.vx) * 0.3; }
+      if (o.x + o.r > b.R) { o.x = b.R - o.r; o.vx = -Math.abs(o.vx) * 0.3; }
+      if (o.y + o.r > b.B) { o.y = b.B - o.r; if (o.vy > 0) o.vy *= -0.15; o.vx *= 0.97; }
+    }
+  }
+  for (const o of bodies) o.rot += o.vx / o.r * dt;
+  bodies = bodies.filter(o => !o.dead);
+}
+
+function merge(p, q) {
+  p.dead = q.dead = true;
+  const x = (p.x + q.x) / 2, y = (p.y + q.y) / 2, lv = p.lv + 1, b = box();
+  if (lv >= LV.length) { // 🐳 + 🐳 → キラキラ
+    burst(x, y, 120, 200, 1.8);
+    Sfx.yay(); setTimeout(() => Sfx.chime(), 300);
+    popText('🎉', x, y - 40, '#fff', 90);
+    return;
+  }
+  const r = LV[lv][1] * b.w;
+  bodies.push({ x, y, vx: (p.vx + q.vx) / 2, vy: Math.min(p.vy, q.vy) - 120, r, lv, rot: 0, pop: 1, born: performance.now() });
+  burst(x, y, 18 + lv * 6, LV[lv][2], 0.7 + lv * 0.08);
+  const base = 392 * Math.pow(2, lv / 7);
+  Sfx.tone(base, 0.2, 'triangle', 0.15); Sfx.tone(base * 1.5, 0.25, 'sine', 0.08, 0.06);
+  if (lv >= 6) setTimeout(() => Sfx.chime(), 120);
+}
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight, t = now / 1000, b = box();
+  cool -= dt;
+  if (!hand && cool <= 0 && wipe <= 0) newHand();
+  crane += craneDir * dt * 0.28; if (crane > 0.92) craneDir = -1; if (crane < 0.08) craneDir = 1;
+  step(dt / 2); step(dt / 2);
+
+  // あふれ チェック: おちついた どうぶつが ふちより うえに しばらく いる
+  const over = bodies.some(o => now - o.born > 1500 && o.y - o.r < b.T - 4 && Math.abs(o.vy) < 120);
+  overT = over ? overT + dt : 0;
+  if (overT > 1.2 && wipe <= 0) {
+    wipe = 1.4;
+    popText('あふれた〜！', W / 2, b.T + 60, '#ff4d8d', 56);
+    Sfx.noise(0.8, 0.5, 2500, 0, 'bandpass'); Sfx.yay();
+    bodies.forEach((o, i) => setTimeout(() => { if (!o.dead) { o.dead = true; burst(o.x, o.y, 20, LV[o.lv][2]); Sfx.pop(); } }, i * 50));
+  }
+  if (wipe > 0) { wipe -= dt; bodies = bodies.filter(o => !o.dead); }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // いれもの
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.roundRect(b.L, b.T, b.w, b.B - b.T, [0, 0, 24, 24]); ctx.fill();
+  ctx.strokeStyle = '#ff9cc8'; ctx.lineWidth = 8; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(b.L - 4, b.T - 10); ctx.lineTo(b.L - 4, b.B - 20); ctx.quadraticCurveTo(b.L - 4, b.B + 4, b.L + 20, b.B + 4); ctx.lineTo(b.R - 20, b.B + 4); ctx.quadraticCurveTo(b.R + 4, b.B + 4, b.R + 4, b.B - 20); ctx.lineTo(b.R + 4, b.T - 10); ctx.stroke();
+  // ふちの せん（ここを こえると あふれる）
+  ctx.strokeStyle = overT > 0 ? `rgba(255,60,90,${0.4 + 0.4 * Math.sin(t * 20)})` : 'rgba(255,120,170,.35)';
+  ctx.setLineDash([10, 10]); ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(b.L, b.T); ctx.lineTo(b.R, b.T); ctx.stroke(); ctx.setLineDash([]);
+
+  // クレーン と もっている どうぶつ
+  const cx = b.L + crane * b.w;
+  ctx.strokeStyle = '#b0b8c4'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(b.L - 10, 70); ctx.lineTo(b.R + 10, 70); ctx.stroke();
+  ctx.fillStyle = '#ffb300'; ctx.beginPath(); ctx.roundRect(cx - 22, 58, 44, 24, 8); ctx.fill();
+  if (hand) {
+    hand.t = Math.min(1, hand.t + dt * 5);
+    const r = LV[hand.lv][1] * b.w * (0.5 + 0.5 * hand.t), hy = Math.max(110, b.T - r - 8);
+    ctx.strokeStyle = '#8a929e'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, 82); ctx.lineTo(cx, hy - r); ctx.stroke();
+    // おちる ところの めじるし
+    ctx.strokeStyle = 'rgba(255,120,170,.3)'; ctx.setLineDash([6, 10]); ctx.beginPath(); ctx.moveTo(cx, hy + r); ctx.lineTo(cx, b.B); ctx.stroke(); ctx.setLineDash([]);
+    animal(cx, hy, r, hand.lv, Math.sin(t * 3) * 0.1, 0);
+  }
+  // つぎの どうぶつ（ちいさく）
+  ctx.globalAlpha = 0.75; animal(b.R - 18, 110, 16, next, 0, 0); ctx.globalAlpha = 1;
+
+  // どうぶつ
+  for (const o of bodies) { o.pop = Math.max(0, o.pop - dt * 3); animal(o.x, o.y, o.r * (1 + Math.sin(o.pop * Math.PI) * 0.2), o.lv, o.rot, o.pop); }
+  // キラキラ
+  for (const s of sparks) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 300 * dt; s.life -= dt;
+    ctx.globalAlpha = Math.max(0, s.life * 1.5);
+    if (s.star) drawEmoji(ctx, '✨', s.x, s.y, 18);
+    else { ctx.fillStyle = `hsl(${s.hue}, 90%, 65%)`; ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, 7); ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+  sparks = sparks.filter(s => s.life > 0);
+  if (sparks.length > 800) sparks.splice(0, sparks.length - 800);
+  requestAnimationFrame(loop);
+})(last);
+
+function animal(x, y, r, lv, rot, pop) {
+  const [e, , hue] = LV[lv];
+  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+  g.addColorStop(0, `hsl(${hue}, 90%, 92%)`); g.addColorStop(1, `hsl(${hue}, 75%, ${72 - pop * 10}%)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  ctx.strokeStyle = `hsla(${hue}, 60%, 45%, .5)`; ctx.lineWidth = 2; ctx.stroke();
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); drawEmoji(ctx, e, 0, 0, r * 1.25); ctx.restore();
+}
+</script>
+</body>
+</html>

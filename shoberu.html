@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ショベルカー</title>
+<link rel="stylesheet" href="common.css?v=11">
+<style>
+  body { background: linear-gradient(#8fd3ff, #d8f1ff 60%); }
+  .big-btn { --c1: #ffb300; --c2: #b87d00; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚜</span></button></div>
+<script src="common.js?v=12"></script>
+<script>
+// ショベルカー: ボタンで つちを すくって トラックに いれる。5かい で いっぱい → トラックが はしっていって、つぎの トラックが バックで くる。
+// れんだすると つぎつぎ はたらく（すこし はやく なる）。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+
+// ステージ（この ざひょうで かいて、がめんに あわせて のびちぢみ）
+const SW = 1000, SH = 520, GY = 440, OX = 500, OY = 400;
+const P0 = { x: 60, y: -70 }, LB = 210, LS = 170, LK = 64;
+const RAISE = [-0.85, 0.35, 0.6], DIG = [-0.4, 1.1, 1.9], SCOOP = [-0.45, 0.9, 0.2], DUMP = [-0.8, 0.6, -1.1];
+const KEYS = [[0, RAISE, -1], [0.18, DIG, -1], [0.32, SCOOP, -1], [0.45, RAISE, -1], [0.6, RAISE, 1], [0.72, DUMP, 1], [0.86, RAISE, 1], [1, RAISE, -1]];
+const FULL = 5, TRUCK_COLORS = ['#e8394a', '#2e86ff', '#2bb24c', '#ff7b00', '#9b5cff'];
+
+function fk(th, f) { // うでの さき（ステージざひょう）
+  const j1 = { x: P0.x + LB * Math.cos(th[0]), y: P0.y + LB * Math.sin(th[0]) };
+  const j2 = { x: j1.x + LS * Math.cos(th[1]), y: j1.y + LS * Math.sin(th[1]) };
+  const tip = { x: j2.x + LK * Math.cos(th[2]), y: j2.y + LK * Math.sin(th[2]) };
+  const w = (p) => ({ x: OX + p.x * f, y: OY + p.y });
+  return { j1: w(j1), j2: w(j2), tip: w(tip) };
+}
+const PILE_X = fk(DIG, -1).tip.x, BED_X = fk(DUMP, 1).j2.x;
+
+let phase = -1, queue = 0, speed = 1, loaded = false, dumped = false, scooped = false;
+let pile = 1, fill = 0, truck = { x: BED_X, state: 'here', color: pick(TRUCK_COLORS), t: 0 }, dirt = [], dust = [];
+
+btn.addEventListener('pointerdown', () => {
+  if (queue < 3) queue++;
+  if (phase >= 0) speed = Math.min(1.8, speed + 0.15);
+  Sfx.tone(70, 0.4, 'sawtooth', 0.08, 0, 90); // ぶるるん
+  Sfx.noise(0.3, 0.2, 300);
+});
+
+const sm = (k) => k * k * (3 - 2 * k);
+function pose() {
+  if (phase < 0) { const w = Math.sin(performance.now() / 600) * 0.04; return { th: [RAISE[0] + w, RAISE[1], RAISE[2]], f: -1 }; }
+  let i = 0; while (i < KEYS.length - 2 && phase > KEYS[i + 1][0]) i++;
+  const [a0, A, fa] = KEYS[i], [a1, B, fb] = KEYS[i + 1];
+  const k = sm(Math.min(1, Math.max(0, (phase - a0) / (a1 - a0))));
+  return { th: A.map((v, j) => v + (B[j] - v) * k), f: fa + (fb - fa) * k };
+}
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight, bottom = btn.getBoundingClientRect().top - 16;
+  // みる はんいは x=110〜1010（やまの ひだりはしは すこし きれても よい）
+  const S = Math.min(W / 900, bottom / SH), ox = (W - 900 * S) / 2 - 110 * S, oy = bottom - GY * S - 20 * S;
+  const t = now / 1000;
+
+  // しごとの すすみ
+  if (phase < 0 && queue > 0 && truck.state === 'here' && fill < FULL) { queue--; phase = 0; loaded = dumped = scooped = false; }
+  if (phase >= 0) {
+    phase += dt * speed / 2.6;
+    if (phase > 0.22 && !scooped) { scooped = true; loaded = true; pile = Math.max(0.35, pile - 0.1); Sfx.noise(0.4, 0.5, 700); for (let i = 0; i < 14; i++) dust.push({ x: PILE_X + rand(-40, 40), y: GY - 60 * pile, vx: rand(-80, 80), vy: -rand(40, 140), life: rand(0.4, 0.9) }); }
+    if (phase > 0.67 && !dumped) {
+      dumped = true; loaded = false;
+      const p = fk(DUMP, 1).j2;
+      for (let i = 0; i < 26; i++) dirt.push({ x: p.x + rand(-25, 25), y: p.y + rand(0, 20), vx: rand(-40, 40), vy: rand(0, 120), r: rand(5, 11), c: pick(['#8b5a2b', '#7a4a22', '#9c6a38']) });
+      Sfx.noise(0.9, 0.6, 500, 0.05); // ざざーっ
+      setTimeout(() => { fill++; if (fill >= FULL) leave(); }, 400);
+    }
+    if (phase >= 1) { phase = -1; speed = Math.max(1, speed - 0.1); }
+  }
+  pile = Math.min(1, pile + dt * 0.01);
+  // トラック
+  truck.t += dt;
+  if (truck.state === 'leave') { truck.x += (200 + truck.t * 500) * dt; if (truck.x > SW + 400) arrive(); }
+  else if (truck.state === 'arrive') {
+    truck.x = Math.max(BED_X, truck.x - 260 * dt);
+    if (Math.floor(truck.t * 2.5) !== truck.beep) { truck.beep = Math.floor(truck.t * 2.5); Sfx.tone(1000, 0.18, 'square', 0.05); } // ピー ピー
+    if (truck.x <= BED_X) { truck.state = 'here'; }
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // くも
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  for (let i = 0; i < 4; i++) { const x = ((i * 0.3 + t * 0.01) % 1.3 - 0.15) * W, y = H * (0.08 + i * 0.05); ctx.beginPath(); ctx.arc(x, y, 30, 0, 7); ctx.arc(x + 34, y - 10, 38, 0, 7); ctx.arc(x + 70, y, 28, 0, 7); ctx.fill(); }
+  // じめん
+  ctx.fillStyle = '#c9a26b'; ctx.fillRect(0, oy + GY * S, W, H);
+  ctx.fillStyle = '#7fbf4d'; ctx.fillRect(0, oy + GY * S - 6 * S, W, 10 * S);
+
+  ctx.save(); ctx.translate(ox, oy); ctx.scale(S, S);
+  // つちの やま
+  ctx.fillStyle = '#8b5a2b';
+  ctx.beginPath(); ctx.moveTo(PILE_X - 170, GY); ctx.quadraticCurveTo(PILE_X, GY - 190 * pile, PILE_X + 170, GY); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,.12)'; for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.arc(PILE_X - 90 + i * 22, GY - 30 - (i % 3) * 18 * pile, 6, 0, 7); ctx.fill(); }
+
+  drawTruck();
+  drawExcavator(pose(), t);
+
+  // おちる つち
+  for (const d of dirt) {
+    d.vy += 1400 * dt; d.x += d.vx * dt; d.y += d.vy * dt;
+    const bedTop = 322 - fillH();
+    if (Math.abs(d.x - truck.x) < 75 && d.y > bedTop && truck.state !== 'leave') d.dead = true;
+    if (d.y > GY) d.dead = true;
+    ctx.fillStyle = d.c; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill();
+  }
+  dirt = dirt.filter(d => !d.dead);
+  for (const d of dust) { d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 200 * dt; d.life -= dt; ctx.fillStyle = `rgba(200,160,110,${Math.max(0, d.life)})`; ctx.beginPath(); ctx.arc(d.x, d.y, 14 + (1 - d.life) * 16, 0, 7); ctx.fill(); }
+  dust = dust.filter(d => d.life > 0);
+  ctx.restore();
+  requestAnimationFrame(loop);
+})(last);
+
+function fillH() { return Math.min(FULL, fill) / FULL * 70; }
+function leave() {
+  truck.state = 'leave'; truck.t = 0;
+  [0, 0.3].forEach(w => { Sfx.tone(330, 0.25, 'sawtooth', 0.1, w); Sfx.tone(415, 0.25, 'sawtooth', 0.08, w); }); // プップー
+  Sfx.chime();
+  popText('いってらっしゃーい！', innerWidth / 2, innerHeight * 0.18, '#fff', Math.min(48, innerWidth * 0.08));
+}
+function arrive() { truck = { x: SW + 380, state: 'arrive', color: pick(TRUCK_COLORS.filter(c => c !== truck.color)), t: 0, beep: -1 }; fill = 0; }
+
+function drawTruck() {
+  const x = truck.x, c = truck.color, bob = truck.state !== 'here' ? Math.sin(truck.t * 30) * 2 : 0;
+  ctx.save(); ctx.translate(x, bob);
+  // にだい
+  ctx.fillStyle = c; ctx.beginPath(); ctx.roundRect(-82, 318, 164, 70, 6); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,.15)'; ctx.fillRect(-82, 370, 164, 18);
+  // つみに
+  if (fill > 0) { ctx.fillStyle = '#8b5a2b'; ctx.beginPath(); ctx.moveTo(-78, 322); ctx.quadraticCurveTo(0, 322 - fillH() * 2, 78, 322); ctx.fill(); }
+  // うんてんせき
+  ctx.fillStyle = c; ctx.beginPath(); ctx.roundRect(88, 300, 72, 88, [8, 26, 6, 6]); ctx.fill();
+  ctx.fillStyle = '#bfe8ff'; ctx.beginPath(); ctx.roundRect(112, 310, 40, 32, [4, 16, 4, 4]); ctx.fill();
+  ctx.fillStyle = '#444'; ctx.fillRect(-82, 386, 242, 12);
+  // タイヤ
+  for (const wx of [-50, 40, 128]) { ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.arc(wx, 412, 26, 0, 7); ctx.fill(); ctx.fillStyle = '#bbb'; ctx.beginPath(); ctx.arc(wx, 412, 10, 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+
+function drawExcavator(p, t) {
+  const { th, f } = p, k = fk(th, 1);
+  const rum = Math.sin(t * 40) * 1.2;
+  // キャタピラ（まわらない）
+  ctx.fillStyle = '#3a3a3a'; ctx.beginPath(); ctx.roundRect(OX - 130, OY + 2, 260, 40, 20); ctx.fill();
+  ctx.fillStyle = '#666'; for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(OX - 100 + i * 40, OY + 22, 11, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#555'; ctx.fillRect(OX - 30, OY - 8, 60, 12);
+  // うえの ぶぶん（まわる: よこに ちぢめて むきを かえる）
+  ctx.save(); ctx.translate(OX, OY + rum * 0.5); ctx.scale(f, 1);
+  ctx.fillStyle = '#e0a200'; ctx.beginPath(); ctx.roundRect(-120, -78, 60, 72, 14); ctx.fill(); // おもり
+  ctx.fillStyle = '#ffb300'; ctx.beginPath(); ctx.roundRect(-100, -92, 180, 86, 12); ctx.fill();
+  ctx.fillStyle = '#555'; ctx.fillRect(-80, -122, 12, 32); // えんとつ
+  ctx.fillStyle = '#ffb300'; ctx.beginPath(); ctx.roundRect(4, -168, 76, 80, [10, 18, 0, 0]); ctx.fill(); // うんてんせき
+  ctx.fillStyle = '#bfe8ff'; ctx.beginPath(); ctx.roundRect(14, -158, 56, 46, 8); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillRect(20, -154, 10, 38);
+  // うで
+  const j1 = { x: (k.j1.x - OX), y: k.j1.y - OY }, j2 = { x: k.j2.x - OX, y: k.j2.y - OY };
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#d99400'; ctx.lineWidth = 34; ctx.beginPath(); ctx.moveTo(P0.x, P0.y); ctx.lineTo(j1.x, j1.y); ctx.stroke();
+  ctx.strokeStyle = '#ffb300'; ctx.lineWidth = 26; ctx.beginPath(); ctx.moveTo(P0.x, P0.y); ctx.lineTo(j1.x, j1.y); ctx.stroke();
+  ctx.strokeStyle = '#d99400'; ctx.lineWidth = 26; ctx.beginPath(); ctx.moveTo(j1.x, j1.y); ctx.lineTo(j2.x, j2.y); ctx.stroke();
+  ctx.strokeStyle = '#ffc533'; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(j1.x, j1.y); ctx.lineTo(j2.x, j2.y); ctx.stroke();
+  // シリンダー
+  ctx.strokeStyle = '#9aa3ab'; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(40, -20); ctx.lineTo(P0.x + (j1.x - P0.x) * 0.5, P0.y + (j1.y - P0.y) * 0.5 + 12); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(P0.x + (j1.x - P0.x) * 0.75, P0.y + (j1.y - P0.y) * 0.75 - 14); ctx.lineTo(j1.x + (j2.x - j1.x) * 0.5, j1.y + (j2.y - j1.y) * 0.5); ctx.stroke();
+  // バケット
+  ctx.save(); ctx.translate(j2.x, j2.y); ctx.rotate(th[2]);
+  if (loaded) { ctx.fillStyle = '#8b5a2b'; ctx.beginPath(); ctx.arc(LK * 0.45, -6, 26, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#5a5a5a'; ctx.beginPath(); ctx.moveTo(0, -16); ctx.quadraticCurveTo(LK * 0.9, -40, LK, 0); ctx.lineTo(LK * 0.6, 26); ctx.quadraticCurveTo(LK * 0.2, 30, 0, 16); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ddd'; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(LK - 2 - i * 6, 2 + i * 9); ctx.lineTo(LK + 10 - i * 6, 6 + i * 9); ctx.lineTo(LK - 6 - i * 6, 10 + i * 9); ctx.fill(); }
+  ctx.restore();
+  ctx.fillStyle = '#444'; for (const j of [P0, j1, j2]) { ctx.beginPath(); ctx.arc(j.x, j.y, 8, 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+</script>
+</body>
+</html>

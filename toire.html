@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>トイレ</title>
+<link rel="stylesheet" href="common.css?v=11">
+<style>
+  body { background: repeating-linear-gradient(45deg, #e9f6ff 0 30px, #dceffb 30px 60px); }
+  .big-btn { --c1: #29b6f6; --c2: #0277bd; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚽</span></button></div>
+<script src="common.js?v=12"></script>
+<script>
+// トイレ: ボタンで「じゃー」。うかんでいる ものが ぐるぐる うずに すいこまれる。れんだで うずが つよくなる。
+// ながれたら また うえから ぽちゃん と おちてくる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+const ITEMS = ['🧻', '🍃', '🌸', '🍂', '🦆', '⭐', '🍀', '🌼'];
+let swirl = 0, spin = 0, lever = 0, water = 1, items = [], rings = [], bubbles = [], refill = 0;
+
+const L = () => {
+  const W = innerWidth, H = innerHeight, bottom = btn.getBoundingClientRect().top - 20;
+  const r = Math.min(W * 0.4, (bottom - 120) * 0.38, 240);
+  return { W, H, cx: W / 2, cy: 100 + r * 0.55 + r * 1.05, r, tankY: 100 };
+};
+function drop(n) {
+  for (let i = 0; i < n; i++) setTimeout(() => {
+    const { cx, cy, r } = L();
+    const a = rand(0, 7), d = rand(0.15, 0.6) * r;
+    items.push({ e: pick(ITEMS), a, d, z: 1, rot: rand(0, 6), state: 'fall', t: 0, x: cx + Math.cos(a) * d, y: cy + Math.sin(a) * d * 0.75 });
+  }, i * 180);
+}
+drop(5);
+
+btn.addEventListener('pointerdown', () => {
+  lever = 1;
+  swirl = Math.min(3, swirl + 1);
+  water = Math.max(0.35, water - 0.12);
+  refill = 2.2;
+  for (const it of items) if (it.state === 'float') it.state = 'swirl';
+  Sfx.noise(1.8, 0.45, 600);                         // じゃー
+  Sfx.noise(1.2, 0.2, 2200, 0.1, 'bandpass');
+  for (let i = 0; i < 5; i++) Sfx.tone(rand(120, 260), 0.15, 'sine', 0.12, 0.2 + i * 0.18, rand(60, 100)); // ごぼごぼ
+});
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const { W, H, cx, cy, r, tankY } = L(), t = now / 1000;
+  lever = Math.max(0, lever - dt * 3);
+  swirl = Math.max(0, swirl - dt * 0.45);
+  spin += (1.5 + swirl * 6) * dt;
+  refill -= dt;
+  if (refill < 0) {
+    water = Math.min(1, water + dt * 0.5);
+    if (items.length === 0 && water > 0.9) { drop(Math.floor(rand(3, 7))); refill = 1e9; }
+  }
+  if (refill > 1e8 && items.length > 0 && items.every(i => i.state === 'float')) refill = 0;
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // タンク
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.roundRect(cx - r * 0.8, tankY, r * 1.6, r * 0.6, 22); ctx.fill();
+  ctx.fillStyle = '#e3edf5'; ctx.fillRect(cx - r * 0.8, tankY + r * 0.48, r * 1.6, r * 0.12);
+  // レバー
+  ctx.save(); ctx.translate(cx + r * 0.55, tankY + r * 0.18); ctx.rotate(-lever * 0.7);
+  ctx.fillStyle = '#b8c4cf'; ctx.beginPath(); ctx.roundRect(0, -8, r * 0.32, 16, 8); ctx.fill(); ctx.restore();
+  // べんざ
+  ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(cx, cy, r * 1.08, r * 0.86, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#dbe5ee'; ctx.lineWidth = 6; ctx.stroke();
+  ctx.fillStyle = '#f0f5fa'; ctx.beginPath(); ctx.ellipse(cx, cy + 6, r * 0.92, r * 0.72, 0, 0, 7); ctx.fill();
+  // みず
+  const wr = r * 0.82, wy = r * 0.62;
+  const wg = ctx.createRadialGradient(cx, cy, 4, cx, cy, wr);
+  wg.addColorStop(0, `rgba(30,110,190,${0.9})`); wg.addColorStop(0.5, '#5cc0f0'); wg.addColorStop(1, '#a9e2fb');
+  ctx.save(); ctx.beginPath(); ctx.ellipse(cx, cy + 8, wr * (0.6 + 0.4 * water), wy * (0.6 + 0.4 * water), 0, 0, 7); ctx.clip();
+  ctx.fillStyle = wg; ctx.fillRect(cx - wr, cy - wy, wr * 2, wy * 2 + 16);
+  // うずの せん
+  ctx.strokeStyle = `rgba(255,255,255,${0.25 + Math.min(0.5, swirl * 0.2)})`; ctx.lineCap = 'round';
+  for (let i = 0; i < 6; i++) {
+    ctx.lineWidth = 4 + swirl * 2; ctx.beginPath();
+    for (let k = 0; k <= 30; k++) {
+      const s = k / 30, a = spin * (1 + i * 0.1) + i * (Math.PI / 3) + s * 2.6, d = (0.15 + s * 0.8) * wr;
+      const x = cx + Math.cos(a) * d, y = cy + 8 + Math.sin(a) * d * 0.75;
+      k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // ぽちゃんの わ
+  for (const g of rings) { g.t += dt; ctx.strokeStyle = `rgba(255,255,255,${Math.max(0, 1 - g.t)})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(g.x, g.y, g.t * 60, g.t * 40, 0, 0, 7); ctx.stroke(); }
+  rings = rings.filter(g => g.t < 1);
+
+  // うかんでいる もの
+  const isz = r * 0.32;
+  for (const it of items) {
+    it.t += dt;
+    if (it.state === 'fall') { // うえから ぽちゃん
+      const k = Math.min(1, it.t / 0.6), tx = cx + Math.cos(it.a) * it.d, ty = cy + 8 + Math.sin(it.a) * it.d * 0.75;
+      it.x = tx; it.y = -60 + (ty + 60) * k * k; it.z = 1 + (1 - k) * 0.6;
+      if (k >= 1) { it.state = 'float'; rings.push({ x: tx, y: ty, t: 0 }); Sfx.tone(rand(500, 800), 0.12, 'sine', 0.15, 0, 200); }
+    } else if (it.state === 'float') {
+      it.a += dt * 0.25; it.rot += dt * 0.3;
+      it.x = cx + Math.cos(it.a) * it.d; it.y = cy + 8 + Math.sin(it.a) * it.d * 0.75 + Math.sin(t * 2 + it.d) * 3;
+    } else if (it.state === 'swirl') { // ぐるぐる すいこまれる
+      it.a += dt * (3 + swirl * 4) * (1 + (1 - it.d / r) * 2);
+      it.d = Math.max(0, it.d - dt * r * (0.25 + swirl * 0.18));
+      it.rot += dt * 8; it.z = 0.3 + 0.7 * (it.d / (r * 0.6));
+      it.x = cx + Math.cos(it.a) * it.d; it.y = cy + 8 + Math.sin(it.a) * it.d * 0.75;
+      if (it.d <= 2) { it.gone = true; Sfx.tone(300, 0.15, 'sine', 0.15, 0, 90); }
+      if (Math.random() < dt * 8) bubbles.push({ x: it.x, y: it.y, r: rand(3, 8), life: 0.6 });
+    }
+    ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot); drawEmoji(ctx, it.e, 0, 0, isz * Math.max(0.05, it.z)); ctx.restore();
+  }
+  items = items.filter(i => !i.gone);
+  // あわ
+  ctx.fillStyle = 'rgba(255,255,255,.8)';
+  for (const b of bubbles) { b.life -= dt; b.y -= 20 * dt; ctx.globalAlpha = Math.max(0, b.life / 0.6); ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  bubbles = bubbles.filter(b => b.life > 0);
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

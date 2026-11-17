@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ドミノ</title>
+<link rel="stylesheet" href="common.css?v=11">
+<style>
+  body { background: #e9d3ae; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #7c5cff; --c2: #4b2fc4; }
+  .corner .big-btn { width: min(26vw, 140px); height: min(26vw, 140px); }
+  .corner-left { position: fixed; left: max(20px, env(safe-area-inset-left)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 30; }
+  #clear { --c1: #4fc3f7; --c2: #1e88c7; width: min(18vw, 90px); height: min(18vw, 90px); font-size: min(5vw, 24px); }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">👉</span></button></div>
+<div class="corner-left"><button id="clear" class="big-btn"><span class="emoji">🧽</span></button></div>
+<script src="common.js?v=12"></script>
+<script>
+// ドミノ: ゆびで なぞった ところに ドミノが ならぶ（なぞった むきに そって）。みぎしたの ボタンで ころころ たおれる。
+// せんを なんぼん かいても、ボタンで ぜんぶの せんが いっせいに たおれる。たおれている あいだに おすと はやくなる。
+// ぜんぶ たおれたら すこしして じどうで たちなおる。ひだりしたの 🧽 で ぜんぶ けす。ぜんぶ たおれたら: ボタンで たちなおる / なぞると あたらしく ならべる。
+// ななめ うえから みた はこの え。たおれると つぎの ドミノに かさなるまで ふかく たおれる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+
+const MAX = 260;
+let group = 0, doms = [], state = 'draw', speed = 1, drawing = false, lastPt = null, confetti = [], standIdx = 0, standT = 0, endT = 0, hue0 = rand(0, 360);
+const size = () => { const h = Math.max(48, Math.min(88, Math.min(innerWidth, innerHeight) * 0.1)); return { h, t: h * 0.22, wd: h * 0.5, sp: h * 0.5 }; };
+// おとが かさなりすぎない ように、みじかい あいだに なんども ならさない
+const lastSnd = {};
+function tick(key, gap, f) { const n = performance.now(); if (n - (lastSnd[key] || 0) < gap) return; lastSnd[key] = n; f(); }
+const K = 0.55; // たかさの みえかた（ななめ うえから みる）
+
+// ---- ならべる ----
+function inButton(x, y) { const r = btn.getBoundingClientRect(), c = clearBtn.getBoundingClientRect(); return (x > r.left - 20 && y > r.top - 20) || (x < c.right + 20 && y > c.top - 20); }
+function place(x, y, a) {
+  if (doms.length >= MAX) return;
+  doms.push({ x, y, a, g: group, ang: 0, vel: 0, falling: false, hue: (hue0 + doms.length * 7) % 360, born: 0 });
+  tick('put', 70, () => Sfx.tone(600 + (doms.length % 12) * 50, 0.05, 'sine', 0.07));
+}
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  if (state === 'done') { standUp(); return; }
+  if (state === 'fall' || state === 'stand') return;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  drawing = true;
+  const { sp } = size();
+  // まえの ならびの おわりに ちかければ つづける。とおければ そこから あたらしく おく
+  const tail = doms[doms.length - 1];
+  if (tail && Math.hypot(tail.x - x, tail.y - y) < sp * 2.5) lastPt = { x: tail.x, y: tail.y, d: tail };
+  else { if (doms.length) group++; place(x, y, 0); lastPt = { x, y, d: doms[doms.length - 1], fresh: true }; } // べつの せん
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!drawing || !lastPt) return;
+  const { sp } = size();
+  const pts = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+  for (const p of (pts.length ? pts : [e])) {
+    const x = p.clientX, y = p.clientY;
+    while (Math.hypot(x - lastPt.x, y - lastPt.y) >= sp) {
+      // なぞった むきに そって おく。ゆびの ぶれは すこしずつ ならす
+      const raw = Math.atan2(y - lastPt.y, x - lastPt.x);
+      let q = raw;
+      if (!lastPt.fresh && lastPt.d) { let df = raw - lastPt.d.a; df = Math.atan2(Math.sin(df), Math.cos(df)); q = lastPt.d.a + df * 0.55; }
+      const nx = lastPt.x + Math.cos(q) * sp, ny = lastPt.y + Math.sin(q) * sp;
+      if (inButton(nx, ny) || nx < 10 || ny < 10 || nx > innerWidth - 10 || ny > innerHeight - 10) return;
+      if (lastPt.fresh) lastPt.d.a = q; // さいしょの 1まいの むきを あわせる
+      place(nx, ny, q);
+      lastPt = { x: nx, y: ny, d: doms[doms.length - 1] };
+    }
+  }
+});
+const endDraw = () => { drawing = false; };
+cv.addEventListener('pointerup', endDraw); cv.addEventListener('pointercancel', endDraw);
+
+// ---- たおす ----
+btn.addEventListener('pointerdown', () => {
+  if (state === 'draw' && doms.length) {
+    state = 'fall'; speed = 1;
+    doms.forEach((d, i) => { if (i === 0 || doms[i - 1].g !== d.g) { d.falling = true; d.vel = 2; } }); // せん ごとに いっせいに
+    Sfx.tone(500, 0.08, 'square', 0.08);
+  } else if (state === 'fall') { speed = Math.min(3, speed + 0.3); Sfx.tone(900, 0.05, 'sine', 0.06); }
+  else if (state === 'done') standUp();
+  else if (state === 'draw') { Sfx.boing(); }
+});
+
+function standUp() { if (state === 'done') { state = 'stand'; standIdx = doms.length - 1; standT = 0; } }
+const clearBtn = document.getElementById('clear');
+clearBtn.addEventListener('pointerdown', () => {
+  if (state === 'fall' || !doms.length) return;
+  for (const d of doms) for (let i = 0; i < 2; i++) { const a = rand(0, 7), v = rand(80, 300); confetti.push({ x: d.x, y: d.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, rot: 0, vr: rand(-8, 8), hue: d.hue, life: 0.8 }); }
+  doms = []; group = 0; hue0 = rand(0, 360); state = 'draw';
+  Sfx.noise(0.4, 0.4, 3000, 0, 'bandpass'); Sfx.tone(900, 0.25, 'sine', 0.08, 0, 1800); // きゅっきゅっ
+});
+
+// つぎの ドミノに かさなる まで たおれる かくど（さいごと、とどかない ときは ぺたん）
+function limitOf(i) {
+  const d = doms[i], n = doms[i + 1], { t, h } = size();
+  if (!n || n.g !== d.g) return Math.PI / 2; // せんの おわり
+  const dist = Math.hypot(n.x - d.x, n.y - d.y);
+  if (dist > h * 0.95) return Math.PI / 2;
+  return Math.acos(Math.min(1, t / Math.max(t, dist))) * 0.97;
+}
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight, tt = now / 1000, { h, t, wd } = size();
+  if (state === 'fall') {
+    let allDown = true;
+    doms.forEach((d, i) => {
+      if (!d.falling) { allDown = false; return; }
+      const lim = limitOf(i), n = doms[i + 1];
+      if (d.ang < lim) {
+        allDown = false;
+        d.vel += 16 * speed * dt; d.ang = Math.min(lim, d.ang + d.vel * speed * dt);
+        if (d.ang >= lim) tick('fall', 55, () => Sfx.tone(650 + (i % 16) * 45, 0.035, 'triangle', 0.08)); // カタッ
+      }
+      if (n && n.g === d.g && !n.falling && d.ang > Math.min(lim, 1.1) * 0.8) { n.falling = true; n.vel = Math.max(2, d.vel * 0.5); }
+    });
+    if (allDown) { state = 'done'; endT = 0; finish(); }
+  }
+  if (state === 'done') { endT += dt; if (endT > 2.5) standUp(); }
+  if (state === 'stand') {
+    standT += dt;
+    while (standT > 0.02 && standIdx >= 0) { standT -= 0.02; const d = doms[standIdx--]; d.falling = false; d.ang = 0; d.vel = 0; d.born = 0; tick('stand', 80, () => Sfx.tone(1100 + (standIdx % 20) * 20, 0.03, 'sine', 0.04)); }
+    if (standIdx < 0) { state = 'draw'; Sfx.chime(); }
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // つくえの もくめ
+  ctx.strokeStyle = 'rgba(150,100,50,.12)'; ctx.lineWidth = 2;
+  for (let y = 30; y < H; y += 46) { ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(W * 0.3, y + 10, W * 0.6, y - 10, W, y + 4); ctx.stroke(); }
+
+  // ドミノ（ななめ うえから みた はこ）。かげ → おくから じゅんに ほんたい
+  for (const d of doms) d.born = Math.min(1, d.born + dt * 6);
+  for (const d of doms) drawShadow(d, h, t, wd);
+  const order = doms.slice().sort((p, q) => p.y - q.y);
+  for (const d of order) drawBox(d, h, t, wd);
+
+  // ヒント
+  if (state === 'draw' && doms.length === 0) { // なぞってね: ゆびが ジグザグに うごく
+    const k = (tt * 0.35) % 1, px = W * (0.25 + 0.5 * k), py = H * 0.45 + Math.sin(k * Math.PI * 3) * H * 0.08;
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = 'rgba(124,92,255,.35)';
+    for (let i = 0; i < 24; i++) { const kk = (i / 24) * k; ctx.beginPath(); ctx.arc(W * (0.25 + 0.5 * kk), H * 0.45 + Math.sin(kk * Math.PI * 3) * H * 0.08, 6, 0, 7); ctx.fill(); }
+    drawEmoji(ctx, '👆', px + 10, py + 34, 64);
+    ctx.globalAlpha = 1;
+  } else if (state === 'draw' && !drawing) { // ボタンを おしてね
+    const r = btn.getBoundingClientRect();
+    ctx.globalAlpha = 0.5 + 0.4 * Math.sin(tt * 5);
+    drawEmoji(ctx, '👇', r.left + r.width / 2, r.top - 44 - Math.abs(Math.sin(tt * 3)) * 14, 50);
+    ctx.globalAlpha = 1;
+  }
+
+  // かみふぶき
+  for (const c of confetti) {
+    c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 500 * dt; c.vx *= 0.99; c.rot += c.vr * dt; c.life -= dt;
+    ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot); ctx.fillStyle = `hsl(${c.hue}, 90%, 60%)`; ctx.fillRect(-6, -3, 12, 6); ctx.restore();
+  }
+  confetti = confetti.filter(c => c.life > 0 && c.y < H + 20);
+  requestAnimationFrame(loop);
+})(last);
+
+// はこの 8この かど（u: すすむ むき、v: よこ、z: たかさ）を まえの したの かどを じくに a だけ たおして がめんへ
+function corners(d, h, t, wd) {
+  const ca = Math.cos(d.ang), sa = Math.sin(d.ang), cf = Math.cos(d.a), sf = Math.sin(d.a), pop = d.born < 1 ? 0.6 + 0.4 * d.born : 1;
+  const out = [];
+  for (const u of [-t / 2, t / 2]) for (const v of [-wd / 2, wd / 2]) for (const z of [0, h]) {
+    const uu = (t / 2 + (u - t / 2) * ca + z * sa) * pop, zz = (-(u - t / 2) * sa + z * ca) * pop, vv = v * pop;
+    out.push({ x: d.x + uu * cf - vv * sf, y: d.y + uu * sf + vv * cf - zz * K, gx: d.x + uu * cf - vv * sf, gy: d.y + uu * sf + vv * cf });
+  }
+  return out; // じゅんばん: u(-,+) × v(-,+) × z(0,h)
+}
+// めん: [かどの ばんごう 4つ, ほうせん（ローカル u,v,z）, いろの あかるさ, てんてん]
+const FACES = [
+  [[0, 2, 3, 1], [-1, 0, 0], 0, true],  // うしろ（たおれると うえを むく。てんてん つき）
+  [[4, 5, 7, 6], [1, 0, 0], 0, false],  // まえ
+  [[0, 1, 5, 4], [0, -1, 0], -14, false],
+  [[2, 6, 7, 3], [0, 1, 0], -14, false],
+  [[1, 3, 7, 5], [0, 0, 1], 14, false], // うえ
+];
+function drawBox(d, h, t, wd) {
+  const c = corners(d, h, t, wd), ca = Math.cos(d.ang), sa = Math.sin(d.ang), cf = Math.cos(d.a), sf = Math.sin(d.a);
+  for (const [idx, n, shade, pips] of FACES) {
+    // ほうせんを せかいへ（u,z を たおす → xy へ）
+    const nu = n[0] * ca + n[2] * sa, nz = -n[0] * sa + n[2] * ca, nv = n[1];
+    const ny = nu * sf + nv * cf;
+    if (ny * K + nz <= 0.001) continue; // みえない めん
+    const light = 52 + shade + 12 * Math.max(0, nz);
+    ctx.fillStyle = `hsl(${d.hue}, 78%, ${light}%)`;
+    ctx.beginPath(); idx.forEach((k, i) => i ? ctx.lineTo(c[k].x, c[k].y) : ctx.moveTo(c[k].x, c[k].y)); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = `hsla(${d.hue}, 70%, 30%, .35)`; ctx.lineWidth = 1; ctx.stroke();
+    if (pips && nz > 0.2) { // てんてん と まんなかの せん
+      const P = (fu, fv) => { const a = c[idx[0]], b = c[idx[1]], e = c[idx[3]]; return { x: a.x + (b.x - a.x) * fv + (e.x - a.x) * fu, y: a.y + (b.y - a.y) * fv + (e.y - a.y) * fu }; };
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(0.95, nz)})`;
+      for (const fu of [0.25, 0.75]) { const p = P(fu, 0.5); ctx.beginPath(); ctx.arc(p.x, p.y, wd * 0.09, 0, 7); ctx.fill(); }
+      const m1 = P(0.5, 0.15), m2 = P(0.5, 0.85);
+      ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.7, nz)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
+    }
+  }
+}
+// あしもとの ちいさな かげ（まうえから みた かたち を すこし ずらす）
+function drawShadow(d, h, t, wd) {
+  const ca = Math.cos(d.ang), sa = Math.sin(d.ang), off = 2 + ca * h * 0.08;
+  const u0 = t / 2 - t * ca, u1 = t / 2 + h * sa;
+  ctx.save(); ctx.translate(d.x + off, d.y + off); ctx.rotate(d.a);
+  ctx.fillStyle = 'rgba(90,60,30,.16)';
+  ctx.beginPath(); ctx.roundRect(Math.min(u0, -t / 2) - 2, -wd / 2 - 1, Math.max(u1, t / 2) - Math.min(u0, -t / 2) + 4, wd + 2, 4); ctx.fill();
+  ctx.restore();
+}
+function finish() {
+  [0, 0.25, 0.5].forEach((w) => { Sfx.tone(1318, 0.8, 'sine', 0.15, w); Sfx.tone(1975, 0.6, 'sine', 0.06, w); });
+  setTimeout(() => Sfx.yay(), 600);
+  const d = doms[doms.length - 1];
+  for (let i = 0; i < 140; i++) { const a = rand(-Math.PI, 0), v = rand(300, 900); confetti.push({ x: d.x, y: d.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, rot: rand(0, 6), vr: rand(-10, 10), hue: rand(0, 360), life: 3 }); }
+  popText('やったー！', innerWidth / 2, innerHeight * 0.2, '#7c5cff', 60);
+}
+</script>
+</body>
+</html>

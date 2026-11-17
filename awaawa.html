@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>あわあわ</title>
+<link rel="stylesheet" href="common.css?v=11">
+<style>
+  body { background: repeating-linear-gradient(0deg, #bfe6f5 0 58px, #d9f1fa 58px 60px), #d9f1fa; }
+  #bg, #foam { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #foam { touch-action: none; }
+  .big-btn { --c1: #4fc3f7; --c2: #1e88c7; }
+  .corner .big-btn { width: min(28vw, 150px); height: min(28vw, 150px); }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<canvas id="foam"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🧴</span></button></div>
+<script src="common.js?v=12"></script>
+<script>
+// あわあわ: ボタンで おふろの あわが もこもこ ふえる。ゆびで こすると あわが きえて アヒルが でてくる。
+const bg = document.getElementById('bg'), bx = bg.getContext('2d');
+const foam = document.getElementById('foam'), fx = foam.getContext('2d');
+const btn = document.getElementById('btn');
+let dpr = 1, level = 0, bubbles = [], lastScrub = 0;
+// あわは かるさ ゆうせんで 1ばい の かいぞうど
+function resize() {
+  dpr = fitCanvas(bg, bx);
+  foam.width = innerWidth; foam.height = innerHeight;
+  level = 0;
+}
+resize(); addEventListener('resize', resize);
+
+// あわ 1こ の え（いちど だけ つくる）
+const blob = document.createElement('canvas'); blob.width = blob.height = 128;
+(() => {
+  const k = blob.getContext('2d');
+  const g = k.createRadialGradient(50, 46, 6, 64, 64, 62);
+  g.addColorStop(0, '#ffffff'); g.addColorStop(0.75, '#f4fbff'); g.addColorStop(0.95, '#cfe6f4'); g.addColorStop(1, 'rgba(207,230,244,0)');
+  k.fillStyle = g; k.beginPath(); k.arc(64, 64, 62, 0, 7); k.fill();
+  k.fillStyle = 'rgba(255,255,255,.9)'; k.beginPath(); k.ellipse(44, 40, 12, 7, -0.6, 0, 7); k.fill();
+})();
+// けす ふで（ふちが やわらかい）
+const brush = document.createElement('canvas'); brush.width = brush.height = 128;
+(() => {
+  const k = brush.getContext('2d'), g = k.createRadialGradient(64, 64, 20, 64, 64, 64);
+  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  k.fillStyle = g; k.fillRect(0, 0, 128, 128);
+})();
+
+const tub = () => { const W = innerWidth, H = innerHeight; return { W, H, top: H * 0.62, water: H * 0.68 }; };
+
+function addFoam() {
+  const { W, H, water } = tub();
+  level = Math.min(1, level + 0.07);
+  const front = water - (water + 60) * level; // あわの うえの はし
+  for (let i = 0; i < 70; i++) {
+    const r = rand(18, 52);
+    const y = Math.random() < 0.65 ? rand(front - 20, front + 90) : rand(front, H);
+    const x = rand(-20, W + 20);
+    fx.drawImage(blob, x - r, y - r, r * 2, r * 2);
+  }
+  // ふわふわ とぶ シャボンだま
+  for (let i = 0; i < 4; i++) bubbles.push({ x: rand(40, W - 40), y: water, r: rand(10, 26), vy: -rand(40, 110), p: rand(0, 6), hue: rand(0, 360) });
+}
+
+btn.addEventListener('pointerdown', () => {
+  addFoam();
+  Sfx.noise(0.35, 0.35, 3500, 0, 'bandpass'); // しゅわわ
+  for (let i = 0; i < 3; i++) Sfx.tone(rand(900, 1700), 0.08, 'sine', 0.06, i * 0.05, rand(1800, 2600));
+});
+
+// ゆびで こする
+let down = false, px = 0, py = 0;
+function scrub(x, y) {
+  fx.globalCompositeOperation = 'destination-out';
+  const d = Math.hypot(x - px, y - py), n = Math.max(1, Math.floor(d / 14)), R = 70;
+  for (let i = 0; i <= n; i++) { const k = i / n; fx.drawImage(brush, px + (x - px) * k - R, py + (y - py) * k - R, R * 2, R * 2); }
+  fx.globalCompositeOperation = 'source-over';
+  px = x; py = y;
+  const now = performance.now();
+  if (now - lastScrub > 120 && d > 6) { lastScrub = now; Sfx.noise(0.12, 0.18, 2500, 0, 'bandpass'); }
+}
+foam.addEventListener('pointerdown', (e) => {
+  foam.setPointerCapture(e.pointerId); down = true; px = e.clientX; py = e.clientY;
+  // シャボンだまを タッチで わる
+  for (const b of bubbles) if (!b.pop && Math.hypot(b.x - px, b.y - py) < b.r + 30) { b.pop = 0.25; Sfx.pop(); }
+  // アヒルを タッチ
+  if (Math.hypot(duck.x - px, duck.y - py) < duck.s * 0.6) { duck.jump = 1; Sfx.tone(700, 0.12, 'square', 0.1, 0, 500); Sfx.tone(650, 0.15, 'square', 0.1, 0.13, 420); }
+  scrub(px, py);
+});
+foam.addEventListener('pointermove', (e) => { if (down) scrub(e.clientX, e.clientY); });
+foam.addEventListener('pointerup', () => { down = false; });
+foam.addEventListener('pointercancel', () => { down = false; });
+
+const duck = { x: innerWidth * 0.35, y: 0, s: 90, dir: 1, jump: 0 };
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const { W, H, top, water } = tub(), t = now / 1000;
+  bx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  bx.clearRect(0, 0, W, H);
+  // おふろ
+  bx.fillStyle = '#ffffff'; bx.beginPath(); bx.roundRect(-20, top, W + 40, H - top + 40, 40); bx.fill();
+  bx.fillStyle = '#e6eef5'; bx.fillRect(0, top + 14, W, 10);
+  const wg = bx.createLinearGradient(0, water, 0, H); wg.addColorStop(0, '#6fd0f5'); wg.addColorStop(1, '#2b9fd6');
+  bx.fillStyle = wg; bx.beginPath(); bx.moveTo(0, water);
+  for (let x = 0; x <= W; x += 20) bx.lineTo(x, water + Math.sin(x * 0.03 + t * 2) * 5);
+  bx.lineTo(W, H); bx.lineTo(0, H); bx.fill();
+  // アヒル
+  duck.s = Math.min(110, W * 0.2);
+  duck.x += duck.dir * 40 * dt; if (duck.x > W - 80) duck.dir = -1; if (duck.x < 80) duck.dir = 1;
+  duck.jump = Math.max(0, duck.jump - dt * 2.5);
+  duck.y = water - duck.s * 0.3 + Math.sin(t * 2.5) * 4 - Math.sin(duck.jump * Math.PI) * 60;
+  bx.save(); bx.translate(duck.x, duck.y); bx.rotate(Math.sin(t * 2.5) * 0.08); bx.scale(duck.dir > 0 ? -1 : 1, 1);
+  drawEmoji(bx, '🐤', 0, 0, duck.s); bx.restore();
+  // シャボンだま
+  for (const b of bubbles) {
+    b.p += dt; b.y += b.vy * dt; b.x += Math.sin(b.p * 2) * 20 * dt;
+    if (b.pop !== undefined && b.pop !== false) { b.pop -= dt; if (b.pop <= 0) b.dead = true; }
+    if (b.y < -40) b.dead = true;
+    const r = b.pop ? b.r * (1 + (0.25 - b.pop) * 6) : b.r;
+    bx.globalAlpha = b.pop ? b.pop * 4 : 0.85;
+    bx.strokeStyle = `hsla(${(b.hue + t * 60) % 360}, 90%, 65%, .8)`; bx.lineWidth = 2.5;
+    bx.beginPath(); bx.arc(b.x, b.y, r, 0, 7); bx.stroke();
+    bx.fillStyle = 'rgba(255,255,255,.25)'; bx.fill();
+    bx.fillStyle = 'rgba(255,255,255,.9)'; bx.beginPath(); bx.ellipse(b.x - r * 0.35, b.y - r * 0.4, r * 0.25, r * 0.14, -0.6, 0, 7); bx.fill();
+  }
+  bx.globalAlpha = 1;
+  bubbles = bubbles.filter(b => !b.dead);
+  if (bubbles.length > 60) bubbles.splice(0, bubbles.length - 60);
+  requestAnimationFrame(loop);
+})(last);
+</script>
+</body>
+</html>

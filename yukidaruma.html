@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ゆきだるま</title>
+<link rel="stylesheet" href="common.css?v=11">
+<style>
+  body { background: linear-gradient(#5d7fc4, #a9c4ef 70%); }
+  .big-btn { --c1: #5fb8ff; --c2: #2a7cc2; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">☃️</span></button></div>
+<script src="common.js?v=12"></script>
+<script>
+// ゆきだるま: おすたびに ゆきが ふって、ゆきだまが おおきく なる。からだ → あたま → かお。
+// できあがったら つぎの ひとおしで ころころ ころがって いく。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx);
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+
+const BODY_N = 12, HEAD_N = 9;
+let n = 0, done = false, rolling = null, wob = 0, snow = [], pile = [];
+const HATS = ['🎩', '👒', '🧢', '🎀', '👑'];
+let hat = pick(HATS);
+
+const L = () => {
+  const W = innerWidth, H = innerHeight;
+  const gy = Math.min(H * 0.7, btn.getBoundingClientRect().top - 30);
+  const R = Math.min(W * 0.2, H * 0.12, 130);
+  return { W, H, gy, R, cx: W / 2 };
+};
+for (let i = 0; i < 90; i++) snow.push({ x: Math.random(), y: Math.random(), r: rand(1.5, 4), v: rand(20, 60), p: rand(0, 6) });
+
+function ease(k) { return 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3); }
+
+btn.addEventListener('pointerdown', () => {
+  const { W, H } = L();
+  // ゆきが ふわっと ふる
+  for (let i = 0; i < 26; i++) snow.push({ x: Math.random(), y: rand(-0.15, 0), r: rand(3, 7), v: rand(90, 200), p: rand(0, 6), extra: true });
+  if (rolling) return;
+  if (done) { // ころころ〜
+    rolling = { t: 0 };
+    Sfx.tone(600, 0.6, 'triangle', 0.12, 0, 200);
+    popText('ころころ〜', W / 2, H * 0.3, '#fff', 56);
+    return;
+  }
+  n++; wob = 1;
+  Sfx.noise(0.18, 0.5, 900);                       // ざくっ
+  Sfx.tone(880 + n * 30, 0.12, 'sine', 0.07);       // しゃらん
+  if (n === BODY_N + HEAD_N) {
+    done = true;
+    setTimeout(() => { Sfx.chime(); Sfx.yay(); popText('できた！', W / 2, H * 0.22, '#fff', 64); }, 250);
+  }
+});
+
+let last = performance.now();
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const { W, H, gy, R, cx } = L();
+  wob = Math.max(0, wob - dt * 4);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  // とおくの やま と じめん
+  ctx.fillStyle = '#d6e4f7';
+  ctx.beginPath(); ctx.moveTo(0, gy); ctx.quadraticCurveTo(W * 0.2, gy - H * 0.12, W * 0.45, gy - 10); ctx.quadraticCurveTo(W * 0.75, gy - H * 0.16, W, gy - 20); ctx.lineTo(W, gy); ctx.fill();
+  const gg = ctx.createLinearGradient(0, gy, 0, H); gg.addColorStop(0, '#ffffff'); gg.addColorStop(1, '#dfe9f7');
+  ctx.fillStyle = gg; ctx.fillRect(0, gy - 6, W, H - gy + 6);
+
+  // ゆきだるま
+  const kb = ease(n / BODY_N), kh = ease((n - BODY_N) / HEAD_N);
+  const rb = R * (0.18 + 0.82 * kb), rh = R * 0.68 * kh;
+  let ox = 0, rot = 0, alpha = 1;
+  if (rolling) {
+    rolling.t += dt;
+    ox = rolling.t * rolling.t * 500; rot = ox / R;
+    if (cx + ox - R > W + 40) { // みえなく なったら つぎの ゆきだるま
+      rolling = null; done = false; n = 0; hat = pick(HATS);
+    }
+  }
+  if (n > 0 || rolling) {
+    const s = 1 + Math.sin(wob * 18) * wob * 0.06;
+    ctx.save();
+    ctx.translate(cx + ox, gy);
+    ctx.globalAlpha = alpha;
+    // かげ
+    ctx.fillStyle = 'rgba(80,110,160,.25)'; ctx.beginPath(); ctx.ellipse(0, 4, rb * 1.1, 10, 0, 0, 7); ctx.fill();
+    ctx.rotate(rolling ? Math.sin(rot) * 0.3 : 0);
+    ctx.scale(s, 1 / s);
+    ball(0, -rb, rb);
+    if (rh > 2) {
+      ball(0, -rb * 2 - rh * 0.85, rh);
+      if (done) face(0, -rb * 2 - rh * 0.85, rh, rb);
+    }
+    ctx.restore();
+  }
+
+  // ゆき
+  ctx.fillStyle = '#fff';
+  for (const f of snow) {
+    f.y += f.v * dt / H; f.p += dt;
+    const x = (f.x * W + Math.sin(f.p * 1.5) * 12);
+    if (f.y > 1) { if (f.extra) f.dead = true; else { f.y = -0.02; f.x = Math.random(); } }
+    if (f.extra && f.y * H > gy) { f.dead = true; if (pile.length < 160) pile.push({ x: x / W, r: f.r }); }
+    ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(x, f.y * H, f.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  snow = snow.filter(f => !f.dead);
+  // じめんに つもった ゆき
+  for (const p of pile) { ctx.beginPath(); ctx.arc(p.x * W, gy - 2, p.r * 2.2, Math.PI, 0); ctx.fill(); }
+  requestAnimationFrame(loop);
+})(last);
+
+function ball(x, y, r) {
+  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+  g.addColorStop(0, '#ffffff'); g.addColorStop(0.7, '#f1f6fd'); g.addColorStop(1, '#c9d9f0');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+}
+function face(x, y, r, rb) {
+  const t = performance.now() / 1000;
+  ctx.fillStyle = '#2b2b38';
+  const blink = Math.sin(t * 2.2) > 0.97 ? 0.2 : 1;
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.ellipse(x + s * r * 0.33, y - r * 0.15, r * 0.1, r * 0.12 * blink, 0, 0, 7); ctx.fill(); }
+  // にんじんの はな
+  ctx.fillStyle = '#ff8a1c'; ctx.beginPath(); ctx.moveTo(x - r * 0.06, y); ctx.lineTo(x + r * 0.55, y + r * 0.1); ctx.lineTo(x - r * 0.06, y + r * 0.18); ctx.fill();
+  // にっこり
+  ctx.strokeStyle = '#2b2b38'; ctx.lineWidth = Math.max(2, r * 0.06); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x, y + r * 0.2, r * 0.38, 0.25 * Math.PI, 0.75 * Math.PI); ctx.stroke();
+  // ほっぺ
+  ctx.fillStyle = 'rgba(255,120,150,.45)';
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + s * r * 0.55, y + r * 0.2, r * 0.12, 0, 7); ctx.fill(); }
+  // ぼうし
+  drawEmoji(ctx, hat, x, y - r * 1.05, r * 1.1);
+  // うで（えだ）
+  ctx.strokeStyle = '#7a4a2a'; ctx.lineWidth = Math.max(3, rb * 0.07);
+  const wave = Math.sin(t * 6) * 0.25;
+  for (const s of [-1, 1]) {
+    const ax = x + s * rb * 0.75, ay = y + r + rb * 0.45;
+    const ex = ax + s * rb * 0.9, ey = ay - rb * (0.45 + (s > 0 ? wave : 0));
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ex, ey);
+    ctx.moveTo(ax + s * rb * 0.6, ay - rb * 0.28 - (s > 0 ? wave : 0) * rb * 0.6); ctx.lineTo(ax + s * rb * 0.7, ay - rb * 0.6); ctx.stroke();
+  }
+  // ボタン
+  ctx.fillStyle = '#2b2b38';
+  for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x, y + r + rb * (0.35 + i * 0.4), rb * 0.07, 0, 7); ctx.fill(); }
+}
+</script>
+</body>
+</html>
