@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>トイレ</title>
-<link rel="stylesheet" href="common.css?v=16">
+<link rel="stylesheet" href="common.css?v=17">
 <style>
   body { background: repeating-linear-gradient(45deg, #e9f6ff 0 30px, #dceffb 30px 60px); }
   .big-btn { --c1: #29b6f6; --c2: #0277bd; }
@@ -30,6 +30,14 @@ const L = () => {
   const r = Math.min(W * 0.4, (bottom - 120) * 0.38, 240);
   return { W, H, cx: W / 2, cy: 100 + r * 0.55 + r * 1.05, r, tankY: 100 };
 };
+// ---- しかけ: ながした アヒルは しばらくすると あなから もどってくる。ながすと たまに 🐸 や 🐟 が とびだす ----
+let flushes = 0, duckAway = false;
+function popOut(e, quiet) {
+  const { r } = L();
+  items.push({ e, a: rand(0, 7), d: rand(0.3, 0.55) * r, z: 0.2, rot: 0, state: 'pop', t: 0, x: 0, y: 0, big: !quiet });
+  if (!quiet) { Sfx.tone(400, 0.25, 'sine', 0.15, 0, 1200); popText(e === '🐸' ? 'けろっ！' : 'ぴちっ！', innerWidth / 2, L().cy - r * 0.9, '#fff', 44); }
+  else Sfx.tone(900, 0.1, 'square', 0.08, 0, 700); // くわっ
+}
 function drop(n) {
   for (let i = 0; i < n; i++) setTimeout(() => {
     const { cx, cy, r } = L();
@@ -45,6 +53,7 @@ btn.addEventListener('pointerdown', () => {
   water = Math.max(0.35, water - 0.12);
   refill = 2.2;
   for (const it of items) if (it.state === 'float') it.state = 'swirl';
+  if (++flushes >= 3 && Math.random() < 0.3) { flushes = 0; setTimeout(() => popOut(pick(['🐸', '🐟', '🐠'])), 1600); }
   Sfx.noise(1.8, 0.45, 600);                         // じゃー
   Sfx.noise(1.2, 0.2, 2200, 0.1, 'bandpass');
   for (let i = 0; i < 5; i++) Sfx.tone(rand(120, 260), 0.15, 'sine', 0.12, 0.2 + i * 0.18, rand(60, 100)); // ごぼごぼ
@@ -106,6 +115,11 @@ let last = performance.now();
       const k = Math.min(1, it.t / 0.6), tx = cx + Math.cos(it.a) * it.d, ty = cy + 8 + Math.sin(it.a) * it.d * 0.75;
       it.x = tx; it.y = -60 + (ty + 60) * k * k; it.z = 1 + (1 - k) * 0.6;
       if (k >= 1) { it.state = 'float'; rings.push({ x: tx, y: ty, t: 0 }); Sfx.tone(rand(500, 800), 0.12, 'sine', 0.15, 0, 200); }
+    } else if (it.state === 'pop') { // あなから ぴょーんと でてくる
+      const k = Math.min(1, it.t / 0.9);
+      it.x = cx + Math.cos(it.a) * it.d * k; it.y = cy + 8 + Math.sin(it.a) * it.d * 0.75 * k - Math.sin(k * Math.PI) * r * (it.big ? 1.4 : 0.5);
+      it.z = 0.2 + 0.8 * k + Math.sin(k * Math.PI) * 0.5; it.rot = it.big ? (1 - k) * 6 : 0;
+      if (k >= 1) { it.state = 'float'; rings.push({ x: it.x, y: it.y, t: 0 }); Sfx.tone(rand(500, 800), 0.12, 'sine', 0.15, 0, 200); if (it.big) Sfx.tone(it.e === '🐸' ? 300 : 700, 0.2, 'square', 0.08, 0.1, it.e === '🐸' ? 220 : 900); }
     } else if (it.state === 'float') {
       it.a += dt * 0.25; it.rot += dt * 0.3;
       it.x = cx + Math.cos(it.a) * it.d; it.y = cy + 8 + Math.sin(it.a) * it.d * 0.75 + Math.sin(t * 2 + it.d) * 3;
@@ -114,7 +128,7 @@ let last = performance.now();
       it.d = Math.max(0, it.d - dt * r * (0.25 + swirl * 0.18));
       it.rot += dt * 8; it.z = 0.3 + 0.7 * (it.d / (r * 0.6));
       it.x = cx + Math.cos(it.a) * it.d; it.y = cy + 8 + Math.sin(it.a) * it.d * 0.75;
-      if (it.d <= 2) { it.gone = true; Sfx.tone(300, 0.15, 'sine', 0.15, 0, 90); }
+      if (it.d <= 2) { it.gone = true; Sfx.tone(300, 0.15, 'sine', 0.15, 0, 90); if (it.e === '🦆' && !duckAway && Math.random() < 0.5) { duckAway = true; setTimeout(() => { duckAway = false; popOut('🦆', true); }, 3600); } } // アヒルは ときどき およいで もどってくる（あたらしい ものが おちてきた あと）
       if (Math.random() < dt * 8) bubbles.push({ x: it.x, y: it.y, r: rand(3, 8), life: 0.6 });
     }
     ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.rot); drawEmoji(ctx, it.e, 0, 0, isz * Math.max(0.05, it.z)); ctx.restore();

@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>かお</title>
-<link rel="stylesheet" href="common.css?v=16">
+<link rel="stylesheet" href="common.css?v=17">
 <style>
   body { background: #fff3b0; display: flex; align-items: center; justify-content: center; }
   .big-btn { --c1: #ffd23f; --c2: #d19e00; width: min(70vw, 340px); height: min(70vw, 340px); }
@@ -43,13 +43,46 @@ const SOUND = {
   whistle: () => Sfx.tone(1200, 0.5, 'sine', 0.12, 0, 1800),
 };
 
-btn.addEventListener('pointerdown', () => {
-  let i; do { i = Math.floor(Math.random() * FACES.length); } while (i === prev); prev = i;
-  em.textContent = FACES[i][0];
-  SOUND[FACES[i][1]]();
+// ---- しかけ: かおの どこを さわるかで かわる（め → ウインク、くち → あーん、あたま → なでなで）。
+// しばらく さわらないと ねむって 💤、さわると びっくりして おきる ----
+let idle = 0, sleeping = false;
+function show(face, sound) {
+  em.textContent = face; sound();
   document.body.style.background = pick(BG);
   btn.classList.remove('boing'); void btn.offsetWidth; btn.classList.add('boing');
+}
+function floatUp(e, x, y) { popText(e, x + rand(-30, 30), y, '#fff', 48); }
+btn.addEventListener('pointerdown', (ev) => {
+  idle = 0;
+  if (sleeping) { // おきた！
+    sleeping = false; clearInterval(zzz);
+    show('😲', () => { Sfx.tone(300, 0.15, 'square', 0.1, 0, 900); Sfx.tone(900, 0.2, 'sine', 0.1, 0.12); });
+    setTimeout(() => { if (!sleeping) em.textContent = '😆'; }, 700);
+    return;
+  }
+  const r = btn.getBoundingClientRect(), u = (ev.clientX - (r.left + r.width / 2)) / (r.width / 2), v = (ev.clientY - (r.top + r.height / 2)) / (r.height / 2);
+  if (v < -0.4 && Math.abs(u) < 0.55) { // あたま なでなで
+    show('🥰', SOUND.love); floatUp('💕', ev.clientX, r.top); return;
+  }
+  if (v > -0.4 && v < -0.02 && Math.abs(u) > 0.08 && Math.abs(u) < 0.42) { // め → ウインク
+    show('😉', () => Sfx.tone(1400, 0.08, 'sine', 0.15)); floatUp('✨', ev.clientX, ev.clientY - 40); return;
+  }
+  if (v > 0.08 && v < 0.45 && Math.abs(u) < 0.3) { // くち → あーん もぐもぐ
+    show('😮', () => Sfx.tone(500, 0.3, 'sine', 0.15, 0, 300));
+    setTimeout(() => { em.textContent = '😋'; SOUND.yum(); floatUp(pick(['🍓', '🍪', '🍙', '🍌']), ev.clientX, ev.clientY - 30); }, 450);
+    return;
+  }
+  let i; do { i = Math.floor(Math.random() * FACES.length); } while (i === prev); prev = i;
+  show(FACES[i][0], SOUND[FACES[i][1]]);
 });
+let zzz = 0;
+setInterval(() => {
+  idle += 0.5;
+  if (!sleeping && idle >= 10) { // ねむい…
+    sleeping = true; em.textContent = '😴'; Sfx.noise(0.8, 0.2, 400);
+    zzz = setInterval(() => { const r = btn.getBoundingClientRect(); popText('💤', r.right - r.width * 0.15, r.top + r.height * 0.1, '#7a8fd6', 40); Sfx.noise(0.6, 0.12, 300); }, 1600);
+  }
+}, 500);
 </script>
 </body>
 </html>

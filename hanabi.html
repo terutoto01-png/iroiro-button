@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>はなび</title>
-<link rel="stylesheet" href="common.css?v=16">
+<link rel="stylesheet" href="common.css?v=17">
 <style>
   body { background: #070b24; }
   .big-btn { --c1: #ff8a00; --c2: #b85d00; }
@@ -98,10 +98,63 @@ function fire(x, y) {
   }, 350);
 }
 
+// ---- しかけ: やすまず 10かい れんだ すると とくだいの しかけはなび ----
+let streak = 0, lastPress = 0, finaleUntil = 0;
 btn.addEventListener('pointerdown', () => {
+  const now = performance.now();
+  streak = now - lastPress < 700 ? streak + 1 : 1; lastPress = now;
+  if (streak >= 10 && now > finaleUntil) { streak = 0; finaleUntil = now + 6000; finale(); return; }
   fire();
   if (Math.random() < 0.35) setTimeout(() => fire(), 200);
 });
+// かたちの はなび（てんの ならびを そのまま ひろげる）
+function shapeBurst(x, y, pts, col, scale, life = 2.6) {
+  const arr = new Float32Array(pts.length * STRIDE);
+  pts.forEach(([px, py], i) => {
+    const o = i * STRIDE, c = typeof col === 'function' ? col(i) : col;
+    arr[o] = x; arr[o+1] = y; arr[o+2] = px * scale * rand(0.97, 1.03); arr[o+3] = py * scale * rand(0.97, 1.03);
+    arr[o+4] = c[0]; arr[o+5] = c[1]; arr[o+6] = c[2]; arr[o+7] = life * rand(0.9, 1.1);
+  });
+  writeParticles(arr, pts.length);
+}
+function smileyPts() { // にこにこ がお
+  const p = [];
+  for (let i = 0; i < 900; i++) { const t = i / 900 * Math.PI * 2; p.push([Math.cos(t), Math.sin(t)]); }
+  for (const ex of [-0.35, 0.35]) for (let i = 0; i < 160; i++) { const t = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 0.12; p.push([ex + Math.cos(t) * r, -0.25 + Math.sin(t) * r]); }
+  for (let i = 0; i < 360; i++) { const t = 0.15 * Math.PI + (i / 360) * 0.7 * Math.PI; p.push([Math.cos(t) * 0.55, 0.05 + Math.sin(t) * 0.5]); }
+  return p;
+}
+function heartPts() {
+  const p = [];
+  for (let i = 0; i < 1200; i++) { const t = i / 1200 * Math.PI * 2; p.push([16 * Math.pow(Math.sin(t), 3) / 16, -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 16]); }
+  return p;
+}
+function niagara(ms) { // ナイアガラ: うえから きんいろの ひかりが たきの ように
+  const end = performance.now() + ms;
+  const iv = setInterval(() => {
+    if (performance.now() > end) { clearInterval(iv); return; }
+    const n = 120, arr = new Float32Array(n * STRIDE), y = innerHeight * 0.12;
+    for (let i = 0; i < n; i++) {
+      const o = i * STRIDE; arr[o] = rand(0, innerWidth); arr[o+1] = y + rand(-6, 6); arr[o+2] = rand(-8, 8); arr[o+3] = rand(40, 120);
+      arr[o+4] = 1; arr[o+5] = rand(0.7, 0.9); arr[o+6] = rand(0.3, 0.5); arr[o+7] = rand(1.6, 2.6);
+    }
+    writeParticles(arr, n);
+  }, 60);
+  Sfx.noise(1.9, 0.35, 5000, 0, 'highpass'); setTimeout(() => Sfx.noise(1.9, 0.3, 5000, 0, 'highpass'), 1800);
+}
+function finale() {
+  const W = innerWidth, H = innerHeight, sc = Math.min(W, H) * 0.42;
+  Sfx.tone(260, 1.0, 'sine', 0.15, 0, 1400); // ひゅるるる〜
+  rocketTrail(W / 2, H, W / 2, H * 0.38);
+  setTimeout(() => {
+    shapeBurst(W / 2, H * 0.38, smileyPts(), [1, .85, .3], sc, 3);
+    Sfx.noise(1.6, 1.0, 400); Sfx.tone(70, 1.2, 'sine', 0.5, 0, 30);
+    document.body.animate([{ transform: 'translate(6px,0)' }, { transform: 'translate(-6px,3px)' }, { transform: 'translate(0,0)' }], { duration: 110, iterations: 4 });
+  }, 700);
+  setTimeout(() => { shapeBurst(W * 0.25, H * 0.3, heartPts(), [1, .35, .55], sc * 0.6); shapeBurst(W * 0.75, H * 0.3, heartPts(), [1, .5, .8], sc * 0.6); Sfx.noise(1.2, 0.8, 500); }, 1900);
+  setTimeout(() => { niagara(3200); for (let i = 0; i < 6; i++) setTimeout(() => fire(), i * 380); }, 2800);
+  setTimeout(() => { Sfx.yay(); setTimeout(() => Sfx.chime(), 300); }, 3000);
+}
 canvas.addEventListener('pointerdown', (e) => fire(e.clientX, e.clientY));
 
 // ---------- WebGPU ----------

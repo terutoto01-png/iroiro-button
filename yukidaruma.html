@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>ゆきだるま</title>
-<link rel="stylesheet" href="common.css?v=16">
+<link rel="stylesheet" href="common.css?v=17">
 <style>
   body { background: linear-gradient(#5d7fc4, #a9c4ef 70%); }
   .big-btn { --c1: #5fb8ff; --c2: #2a7cc2; }
@@ -25,6 +25,9 @@ addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
 
 const BODY_N = 12, HEAD_N = 9;
 let n = 0, done = false, rolling = null, wob = 0, snow = [], pile = [];
+// ---- しかけ: できた ゆきだるまを さわると ぴょん（ぼうしが かわる）。ころがって いった ゆきだるまは おくの おかに ならぶ（かぞく） ----
+let family = [], hop = 0;
+try { family = JSON.parse(sessionStorage.getItem('iroiro-yuki-family')) || []; } catch (e) {}
 const HATS = ['🎩', '👒', '🧢', '🎀', '👑'];
 let hat = pick(HATS);
 
@@ -38,6 +41,15 @@ for (let i = 0; i < 90; i++) snow.push({ x: Math.random(), y: Math.random(), r: 
 
 function ease(k) { return 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3); }
 
+cv.addEventListener('pointerdown', (e) => { // できた ゆきだるまを さわる
+  if (!done || rolling) return;
+  const { gy, R, cx } = L();
+  if (Math.abs(e.clientX - cx) < R * 1.2 && e.clientY < gy && e.clientY > gy - R * 3.6) {
+    hop = 1; hat = pick(HATS.filter(h => h !== hat));
+    Sfx.tone(500, 0.15, 'sine', 0.15, 0, 900); Sfx.tone(800, 0.2, 'triangle', 0.08, 0.1, 1200);
+    popText(pick(['うふふ', 'えへへ', '♪']), e.clientX, e.clientY - 50, '#5d7fc4', 40);
+  }
+});
 btn.addEventListener('pointerdown', () => {
   const { W, H } = L();
   // ゆきが ふわっと ふる
@@ -71,6 +83,15 @@ let last = performance.now();
   ctx.beginPath(); ctx.moveTo(0, gy); ctx.quadraticCurveTo(W * 0.2, gy - H * 0.12, W * 0.45, gy - 10); ctx.quadraticCurveTo(W * 0.75, gy - H * 0.16, W, gy - 20); ctx.lineTo(W, gy); ctx.fill();
   const gg = ctx.createLinearGradient(0, gy, 0, H); gg.addColorStop(0, '#ffffff'); gg.addColorStop(1, '#dfe9f7');
   ctx.fillStyle = gg; ctx.fillRect(0, gy - 6, W, H - gy + 6);
+  // おくの おかの かぞく（ちいさい ゆきだるま。ときどき てを ふる）
+  family.forEach((h, i) => {
+    const fx = i % 2 ? W * (0.9 - Math.floor(i / 2) * 0.09) : W * (0.1 + Math.floor(i / 2) * 0.09), fy = gy - 8 - (i % 2) * 6, fr = R * 0.22, sway = Math.sin(now / 400 + i) * 0.06; // まんなかを さけて りょうはしから
+    ctx.save(); ctx.translate(fx, fy); ctx.rotate(sway);
+    ball(0, -fr, fr); ball(0, -fr * 2.55, fr * 0.68);
+    ctx.fillStyle = '#2b2b38'; for (const sx of [-1, 1]) { ctx.beginPath(); ctx.arc(sx * fr * 0.22, -fr * 2.65, fr * 0.08, 0, 7); ctx.fill(); }
+    drawEmoji(ctx, h, 0, -fr * 3.35, fr * 0.8);
+    ctx.restore();
+  });
 
   // ゆきだるま
   const kb = ease(n / BODY_N), kh = ease((n - BODY_N) / HEAD_N);
@@ -80,13 +101,15 @@ let last = performance.now();
     rolling.t += dt;
     ox = rolling.t * rolling.t * 500; rot = ox / R;
     if (cx + ox - R > W + 40) { // みえなく なったら つぎの ゆきだるま
+      family.push(hat); if (family.length > 6) family.shift(); try { sessionStorage.setItem('iroiro-yuki-family', JSON.stringify(family)); } catch (e) {}
       rolling = null; done = false; n = 0; hat = pick(HATS);
     }
   }
   if (n > 0 || rolling) {
     const s = 1 + Math.sin(wob * 18) * wob * 0.06;
     ctx.save();
-    ctx.translate(cx + ox, gy);
+    hop = Math.max(0, hop - dt * 3);
+    ctx.translate(cx + ox, gy - Math.sin(hop * Math.PI) * R * 0.35);
     ctx.globalAlpha = alpha;
     // かげ
     ctx.fillStyle = 'rgba(80,110,160,.25)'; ctx.beginPath(); ctx.ellipse(0, 4, rb * 1.1, 10, 0, 0, 7); ctx.fill();

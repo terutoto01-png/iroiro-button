@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>ぽこぽこ</title>
-<link rel="stylesheet" href="common.css?v=16">
+<link rel="stylesheet" href="common.css?v=17">
 <style>
   body { background: linear-gradient(#8fd3ff, #c6ecff 22%, #7ccf5a 22%, #5fb83f); }
   #cv { touch-action: none; }
@@ -62,7 +62,8 @@ cv.addEventListener('pointerdown', (e) => {
         popText('いたっ！', h.x, hy - h.r, '#ff4d4d', 44);
         Sfx.tone(200, 0.25, 'sawtooth', 0.12, 0, 120);
       } else {
-        h.state = 'hit'; h.t = 0; game.add(1);
+        h.state = 'hit'; h.t = 0; game.add(h.gold ? 3 : 1);
+        if (h.gold) { Sfx.yay(); popText('✨', h.x, hy - h.r, '#ffd23f', 60); for (let i = 0; i < 30; i++) { const a = rand(0, 7), sp = rand(150, 420); stars.push({ x: h.x, y: hy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.9 }); } }
         Sfx.tone(rand(500, 700), 0.08, 'square', 0.1, 0, 300); Sfx.pop();
         for (let i = 0; i < 10; i++) { const a = rand(0, 7), sp = rand(120, 320); stars.push({ x: h.x, y: hy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.6 }); }
       }
@@ -85,7 +86,7 @@ let last = performance.now();
       const free = holes.filter(h => h.state === 'empty');
       if (free.length) {
         const h = pick(free), bee = Math.random() < 0.12 + lv * 0.18;
-        h.who = bee ? '🐝' : pick(ANIMALS); h.state = 'rise'; h.t = 0; h.stay = (1.6 - lv * 0.8) * rand(0.85, 1.2);
+        h.who = bee ? '🐝' : pick(ANIMALS); h.gold = !bee && Math.random() < 0.08; h.state = 'rise'; // しかけ: たまに きんいろの どうぶつ（3てん） h.t = 0; h.stay = (1.6 - lv * 0.8) * rand(0.85, 1.2);
         if (!bee) Sfx.tone(rand(800, 1100), 0.06, 'sine', 0.05);
         else Sfx.tone(220, 0.25, 'sawtooth', 0.04, 0, 240); // ぶーん
       }
@@ -111,6 +112,7 @@ let last = performance.now();
       const hy = h.y + h.r * 0.5 - h.r * 1.25 * h.up;
       const sq = h.state === 'hit' ? 1 - Math.min(1, h.t / 0.12) * 0.35 : 1;
       ctx.translate(h.x, hy + h.r * 0.6); ctx.scale(1 / sq, sq); ctx.translate(0, -h.r * 0.6);
+      if (h.gold && h.state !== 'hit') { ctx.shadowColor = `rgba(255,210,40,${0.7 + 0.3 * Math.sin(t * 10)})`; ctx.shadowBlur = 30; }
       if (h.who === '🐝') { ctx.shadowColor = 'rgba(255,40,40,.9)'; ctx.shadowBlur = 20; ctx.rotate(Math.sin(t * 30) * 0.1); }
       drawEmoji(ctx, h.state === 'hit' ? '😵' : h.who, 0, 0, h.r * 1.5);
       ctx.restore();

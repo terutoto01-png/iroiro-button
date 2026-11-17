@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>はっくしょん</title>
-<link rel="stylesheet" href="common.css?v=16">
+<link rel="stylesheet" href="common.css?v=17">
 <style>
   body { background: linear-gradient(#fff3c9, #ffd9a8); }
   .big-btn { --c1: #ff9ec2; --c2: #c9608a; }
@@ -25,6 +25,8 @@ addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
 const FACES = ['🙂', '😗', '😖', '😣', '🤧'];
 const THINGS = ['🎈', '🍃', '🧢', '📄', '🍂', '🌸', '🧸', '🍎', '🐤', '🪁', '🧦', '🍩'];
 let itch = 0, need = 0, tickle = 0, sneeze = 0, shake = 0, afterT = 0;
+// ---- しかけ: かおを ちょくせつ さわると くすぐったくて くすくす。たまに とくだいの くしゃみで かおが くるくる とんでいく ----
+let giggle = 0, spin = 0, sinceBig = 0;
 let things = [], drops = [], winds = [];
 function resetNeed() { need = Math.floor(rand(6, 11)); }
 resetNeed();
@@ -47,19 +49,28 @@ function placeThings() {
 placeThings();
 addEventListener('resize', placeThings);
 
+cv.addEventListener('pointerdown', (e) => { // かおを さわる → くすぐったい
+  const { fx, fy, fs } = L();
+  if (sneeze > 0 || Math.hypot(e.clientX - fx, e.clientY - fy) > fs * 0.5) return;
+  giggle = 1;
+  [0, 0.12, 0.24].forEach((w, i) => Sfx.tone(700 + i * 90, 0.08, 'triangle', 0.1, w, 900 + i * 90));
+  popText(pick(['くすくす', 'うふふ', 'こちょこちょ〜']), e.clientX, fy - fs * 0.6, '#c9608a', 34);
+});
 btn.addEventListener('pointerdown', () => {
   if (sneeze > 0) return;
   itch++; tickle = 1;
   const { fx, fy, fs } = L();
   if (itch >= need) { // はっくしょん！
-    sneeze = 1; shake = 1; afterT = 0;
+    const big = ++sinceBig >= 3 && Math.random() < 0.4; if (big) { sinceBig = 0; spin = 1; }
+    sneeze = 1; shake = big ? 2 : 1; afterT = 0;
     itch = 0; resetNeed();
     Sfx.noise(0.9, 1.0, 2200); Sfx.noise(0.5, 0.6, 600, 0.05);
     Sfx.tone(520, 0.3, 'sawtooth', 0.1, 0, 180);
-    speak('はっくしょん！', 1.3, 1.5);
+    speak(big ? 'はーっくしょーん！' : 'はっくしょん！', big ? 1.0 : 1.3, 1.5);
+    if (big) { Sfx.noise(1.5, 1.0, 300, 0.1); Sfx.tone(80, 1.0, 'sine', 0.4, 0.05, 40); }
     popText('はっくしょん！', innerWidth / 2, fy - fs * 0.75, '#ff4d6d', Math.min(72, innerWidth * 0.12));
     for (const t of things) {
-      const a = Math.atan2(t.y - fy, t.x - fx), sp = rand(900, 1500);
+      const a = Math.atan2(t.y - fy, t.x - fx), sp = rand(900, 1500) * (big ? 1.6 : 1);
       t.vx = Math.cos(a) * sp; t.vy = Math.sin(a) * sp - 200; t.vr = rand(-14, 14); t.state = 'fly'; t.t = 0;
     }
     for (let i = 0; i < 60; i++) { const a = rand(-Math.PI, Math.PI), sp = rand(300, 1100); drops.push({ x: fx, y: fy + fs * 0.15, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: rand(0.4, 0.9) }); }
@@ -118,8 +129,13 @@ let last = performance.now();
   let scale = 1 + k * 0.12, lean = -k * 0.15;
   if (sneeze > 0) { face = afterT < 0.8 ? '🤧' : '😆'; scale = 1.15 - (1 - sneeze) * 0.15; lean = afterT < 0.3 ? 0.25 : 0; }
   else if (itch === 0 && afterT > 0 && afterT < 3) { face = '😆'; afterT += dt; }
-  const jig = tickle * Math.sin(t * 40) * 0.06;
-  ctx.save(); ctx.translate(fx, fy); ctx.rotate(lean + jig); ctx.scale(scale, scale);
+  giggle = Math.max(0, giggle - dt * 1.2);
+  if (giggle > 0 && sneeze <= 0) face = '🤭';
+  const jig = tickle * Math.sin(t * 40) * 0.06 + giggle * Math.sin(t * 30) * 0.08;
+  // とくだい くしゃみ: かおが うしろへ くるくる とんで もどる
+  let sx = 0, sy = 0, sr = 0;
+  if (spin > 0) { spin = Math.max(0, spin - dt * 0.6); const k2 = Math.sin((1 - spin) * Math.PI); sx = -k2 * fs * 0.25; sy = -k2 * fs * 0.6; sr = (1 - spin) * Math.PI * 4; }
+  ctx.save(); ctx.translate(fx + sx, fy + sy); ctx.rotate(lean + jig + sr); ctx.scale(scale, scale);
   drawEmoji(ctx, face, 0, 0, fs);
   ctx.restore();
 
