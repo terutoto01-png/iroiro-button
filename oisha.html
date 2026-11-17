@@ -118,7 +118,10 @@ let last = performance.now();
     drawEmoji(ctx, fly.e, 0, 0, s * (fly.k === 'kega' ? 0.32 : 0.38)); ctx.restore();
   }
   // ヒント: 🩺 を おしてね
-  if (state === 'wait') { const r = steth.getBoundingClientRect(); ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5); drawEmoji(ctx, '👇', r.left + r.width / 2, r.top - 34 - Math.abs(Math.sin(t * 3)) * 12, 44); ctx.globalAlpha = 1; }
+  if (state === 'wait') { // どうぐの だいに かからない たかさに だす
+    const r = steth.getBoundingClientRect(), top = document.getElementById('tools').getBoundingClientRect().top;
+    ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5); drawEmoji(ctx, '👇', r.left + r.width / 2, top - 38 - Math.abs(Math.sin(t * 3)) * 12, 44); ctx.globalAlpha = 1;
+  }
   for (const sp of sparks) { sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.vy += 300 * dt; sp.life -= dt; ctx.fillStyle = `hsla(${sp.hue}, 100%, 65%, ${Math.max(0, sp.life)})`; ctx.beginPath(); ctx.arc(sp.x, sp.y, 5, 0, 7); ctx.fill(); }
   sparks = sparks.filter(sp => sp.life > 0);
   requestAnimationFrame(loop);
