@@ -23,3 +23,7 @@ Service Worker のキャッシュを正しく更新するため、共通ファ�
 1. `common.css` / `common.js` などの URL にある `?v=` の数字を上げる
 2. `sw.js` 内の `CORE_CACHE` のバージョン番号を上げる
 3. `sw.js` 内の `CORE_ASSETS` 配列の `?v=` も同じ数字にする
+
+## つかっている ほかの ひとの もの
+- `lib/matter.min.js` … [Matter.js](https://brm.io/matter-js/) 0.19.0（MIT License）。どうぶつつみき の ぶつり けいさん。
+- `fonts/iroemoji.woff2` … [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) から、この サイトで つかう えもじ だけを きりだした もの（SIL Open Font License 1.1、`fonts/OFL.txt`）。Android で きしゅの ふるい えもじに ならない ように つかう。

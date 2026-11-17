@@ -1,14 +1,9 @@
 // いろいろボタン 共通ヘルパー（file:// でも動くようにクラシックスクリプト）
 
 // ---- Android: きしゅの ふるい えもじ（ドコモ ふう など）に ならない ように、Google の えもじフォントを つかう ----
-const EMOJI_FONT = /Android/i.test(navigator.userAgent) ? 'Noto Color Emoji' : '';
-if (EMOJI_FONT) {
-  document.documentElement.classList.add('emoji-font');
-  const l = document.createElement('link');
-  l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap';
-  l.onload = () => window.clearEmojiCache && clearEmojiCache(); // フォントの ていぎが とどいたら キャンバスの えもじを つくりなおす
-  document.head.appendChild(l);
-}
+// フォントは この サイトの fonts/iroemoji.woff2（Noto Color Emoji から つかう えもじ だけ きりだした もの。OFL）
+const EMOJI_FONT = /Android/i.test(navigator.userAgent) ? 'IroEmoji' : '';
+if (EMOJI_FONT) document.documentElement.classList.add('emoji-font');
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
