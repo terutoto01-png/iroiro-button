@@ -139,6 +139,17 @@ window.addEventListener('DOMContentLoaded', () => {
   if (document.body.dataset.noBack !== undefined) return;
   const a = document.createElement('a');
   a.href = 'index.html'; a.className = 'back'; a.textContent = '🏠';
+  // こどもは おしながら ゆびが ずれるので、リンクの click（すこし うごくと とりけし）に たよらず、
+  // はなした ときに 🏠 の ちかく なら もどる。おした ときに ほかの ものに つたわらない ように する
+  let downOn = false;
+  a.addEventListener('pointerdown', (e) => { downOn = true; e.stopPropagation(); try { a.releasePointerCapture(e.pointerId); } catch (err) {} });
+  addEventListener('pointerup', (e) => {
+    if (!downOn) return; downOn = false;
+    const r = a.getBoundingClientRect(), m = 30;
+    if (e.clientX > r.left - m && e.clientX < r.right + m && e.clientY > r.top - m && e.clientY < r.bottom + m) location.href = 'index.html';
+  }, true);
+  addEventListener('pointercancel', () => { downOn = false; }, true);
+  a.addEventListener('click', (e) => e.preventDefault()); // にじゅうに うごかない ように
   document.body.appendChild(a);
 });
 

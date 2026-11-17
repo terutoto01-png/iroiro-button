@@ -21,6 +21,9 @@ canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
   box-shadow: 0 4px 0 rgba(0,0,0,.2);
 }
 .back:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+/* みための まわりも おせる ように（ゆびが すこし ずれても だいじょうぶ） */
+.back::after, .vol::after { content: ''; position: absolute; inset: -14px; }
+.vol { position: fixed; }
 .vol {
   position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 50;
   background: #fff; border: none; font-size: 20px; padding: 8px 14px; border-radius: 999px;

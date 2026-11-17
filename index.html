@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css?v=12">
+<link rel="stylesheet" href="common.css?v=13">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -55,7 +55,7 @@
 <div id="jump"></div>
 <div id="fade" class="hide"></div>
 <button id="more" class="big-btn hide" aria-label="した"><span>⬇️</span></button>
-<script src="common.js?v=12"></script>
+<script src="common.js?v=13"></script>
 <script>
 // 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'mic' = マイク録音）
 const PAGES = [
@@ -96,6 +96,22 @@ const PAGES = [
   ['katahame', '🧩', '#ff9f1c', '#c47200'], ['kenkenpa', '🦶', '#8a9099', '#5b6068'],
   ['daruma', '🙈', '#ff7b54', '#b84a26'], ['oisha', '🩺', '#4fc3f7', '#1e88c7'],
 ];
+// ---- こども むけの「おした」はんてい ----
+// リンクの click は ゆびが すこし うごくだけで とりけされる。はなした ときに ボタンの ちかくで、
+// うごきが ちいさければ「おした」に する（おおきく うごいたら スクロール なので なにも しない）
+function onTap(el, fn) {
+  let st = null;
+  el.addEventListener('pointerdown', (e) => { st = { x: e.clientX, y: e.clientY, sy: scrollY, id: e.pointerId }; });
+  addEventListener('pointerup', (e) => {
+    if (!st || e.pointerId !== st.id) return;
+    const moved = Math.hypot(e.clientX - st.x, e.clientY - st.y) + Math.abs(scrollY - st.sy); st = null;
+    const r = el.getBoundingClientRect(), m = 16;
+    if (moved < 28 && e.clientX > r.left - m && e.clientX < r.right + m && e.clientY > r.top - m && e.clientY < r.bottom + m) fn(e);
+  }, true);
+  addEventListener('pointercancel', () => { st = null; }, true);
+  el.addEventListener('click', (e) => e.preventDefault()); // ふつうの click では うごかさない（にじゅう ぼうし）
+}
+
 // なかま（みだしの えもじ、いろ、はいる ページ）。どこにも はいっていない ページは さいごの なかまへ
 const GROUPS = [
   { e: '🎆', bg: '#fff1c2', bd: '#f2c94c', items: ['hanabi', 'niji', 'purupuru', 'uchuu', 'nagareboshi', 'kaminari', 'nami', 'hotaru', 'sakura', 'funsui', 'uzumaki', 'aurora', 'shinkai', 'biidama'] },
@@ -139,7 +155,7 @@ GROUPS.forEach((g, gi) => {
   grid.appendChild(h); heads.push(h);
   const j = document.createElement('button');
   j.textContent = g.e; j.style.setProperty('--bg', g.bg); j.style.setProperty('--bd', g.bd);
-  j.addEventListener('click', () => { Sfx.pop(); glideTo(h.getBoundingClientRect().top + scrollY - 16); });
+  onTap(j, () => { Sfx.pop(); glideTo(h.getBoundingClientRect().top + scrollY - 16); });
   jump.appendChild(j);
   for (const [file, emoji, c1, c2] of list) {
     const a = document.createElement('a');
@@ -148,7 +164,7 @@ GROUPS.forEach((g, gi) => {
     a.style.setProperty('--c1', c1); a.style.setProperty('--c2', c2);
     a.innerHTML = `<span class="emoji">${emoji}</span>`;
     a.addEventListener('pointerdown', () => Sfx.pop());
-    a.addEventListener('click', () => { saveScroll(); seen.add(file); saveSeen(); });
+    onTap(a, () => { saveScroll(); seen.add(file); saveSeen(); location.href = file + '.html'; });
     if (!seen.has(file)) a.classList.add('new');
     grid.appendChild(a);
   }
@@ -205,7 +221,7 @@ function glideTo(to) {
   };
   scrollAnim = requestAnimationFrame(step);
 }
-more.addEventListener('click', () => {
+onTap(more, () => {
   Sfx.pop();
   if (more.classList.contains('top')) glideTo(0);
   else glideTo(scrollY + innerHeight * 0.6);

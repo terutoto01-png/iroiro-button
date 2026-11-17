@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>ビーだま</title>
-<link rel="stylesheet" href="common.css?v=12">
+<link rel="stylesheet" href="common.css?v=13">
 <style>
   body { background: radial-gradient(circle, #f7efe0, #d9c3a0); }
   .big-btn { --c1: #5b8cff; --c2: #2f55b8; }
@@ -18,13 +18,14 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🔮</span></button></div>
-<script src="common.js?v=12"></script>
+<script src="common.js?v=13"></script>
 <script>
 // ビーだま: iPad を かたむけると ころがる（センサーが ないときは したに おちる）
+// みぎしたの あなに ちかづくと すいこまれて、くるくる まわって おちる
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
 const btn = document.getElementById('btn');
 fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
-let balls = [], grav = { x: 0, y: 1 }, sensor = false, asked = false, lastClick = 0;
+let falling = [], balls = [], grav = { x: 0, y: 1 }, sensor = false, asked = false, lastClick = 0;
 
 function onTilt(e) {
   if (e.beta == null) return;
@@ -71,6 +72,14 @@ function click(v) {
   Sfx.tone(rand(2000, 3200), 0.04, 'sine', Math.min(0.25, v / 3000));
 }
 
+function holeAt() {
+  const r = Math.max(34, Math.min(60, Math.min(innerWidth, innerHeight) * 0.085));
+  return { x: innerWidth - r - 6, y: innerHeight - r - 6, r }; // かどに よせる（おくに たまらない ように）
+}
+function dropSound() { // ころころ… ぽとん
+  for (let i = 0; i < 5; i++) Sfx.tone(1400 - i * 180, 0.06, 'sine', 0.12, i * 0.09);
+  Sfx.tone(180, 0.25, 'sine', 0.3, 0.55, 90);
+}
 function drawBall(b) {
   const g = ctx.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.35, b.r * 0.1, b.x, b.y, b.r);
   g.addColorStop(0, 'rgba(255,255,255,0.95)');
@@ -87,7 +96,12 @@ let last = performance.now();
 (function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000); last = now;
   const W = innerWidth, H = innerHeight, G = 1500;
+  const hole = holeAt();
   for (const b of balls) {
+    // あなの ちかくは すこし ひきこまれる（すりばち）
+    const hx = hole.x - b.x, hy = hole.y - b.y, hd = Math.hypot(hx, hy);
+    if (hd < hole.r * 2.2) { const k = (1 - hd / (hole.r * 2.2)) * 2600; b.vx += hx / (hd + 1) * k * dt; b.vy += hy / (hd + 1) * k * dt; }
+    if (hd < hole.r - b.r * 0.4) { b.gone = true; falling.push({ ...b, a: Math.atan2(-hy, -hx), d: hd, t: 0 }); dropSound(); continue; }
     b.vx += grav.x * G * dt; b.vy += grav.y * G * dt;
     b.vx *= Math.pow(0.7, dt); b.vy *= Math.pow(0.7, dt);
     b.x += b.vx * dt; b.y += b.vy * dt;
@@ -111,7 +125,22 @@ let last = performance.now();
       }
     }
   }
+  balls = balls.filter(b => !b.gone);
   ctx.clearRect(0, 0, W, H);
+  // あな
+  const hg = ctx.createRadialGradient(hole.x, hole.y, hole.r * 0.2, hole.x, hole.y, hole.r * 1.25);
+  hg.addColorStop(0, '#1b120a'); hg.addColorStop(0.75, '#3b2a18'); hg.addColorStop(0.8, '#a88458'); hg.addColorStop(1, 'rgba(168,132,88,0)');
+  ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(hole.x, hole.y, hole.r * 1.25, 0, 7); ctx.fill();
+  // おちていく ビーだま（くるくる まわって ちいさく くらく）
+  for (const f of falling) {
+    f.t += dt / 0.7;
+    f.a += dt * 9; f.d = Math.max(0, f.d * Math.pow(0.02, dt));
+    const k = Math.min(1, f.t), sc = 1 - k * 0.85;
+    const x = hole.x + Math.cos(f.a) * f.d, y = hole.y + Math.sin(f.a) * f.d;
+    ctx.save(); ctx.globalAlpha = 1 - k * 0.7; ctx.filter = `brightness(${1 - k * 0.7})`;
+    drawBall({ ...f, x, y, r: f.r * sc }); ctx.restore();
+  }
+  falling = falling.filter(f => f.t < 1);
   for (const b of balls) drawBall(b);
   requestAnimationFrame(loop);
 })(last);
