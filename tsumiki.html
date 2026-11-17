@@ -5,178 +5,174 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
-<title>ひかりのつみき</title>
+<title>どうぶつつみき</title>
 <link rel="stylesheet" href="common.css?v=15">
 <style>
-  body { background: linear-gradient(hsl(var(--h, 230), 60%, var(--l1, 22%)), hsl(calc(var(--h, 230) + 40), 55%, var(--l2, 45%))); transition: background 1s; }
-  #fx, #fg { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
-  #fx { pointer-events: none; }
-  #fg { touch-action: none; }
-  .big-btn { --c1: #29d3c8; --c2: #148a82; }
-  .corner .big-btn { width: min(30vw, 160px); height: min(30vw, 160px); }
+  body { background: linear-gradient(#8fd3ff, #d4f1ff 70%); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff9f1c; --c2: #c47200; }
+  .bottom-center { bottom: max(14px, env(safe-area-inset-bottom) + 6px); }
+  .bottom-center .big-btn { width: min(24vw, 120px); height: min(24vw, 120px); font-size: min(7vw, 34px); }
+  #reset { position: fixed; left: max(14px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom) + 6px); z-index: 30;
+           width: min(16vw, 76px); height: min(16vw, 76px); font-size: min(4.5vw, 22px); --c1: #fff; --c2: #b9c3cf; }
 </style>
 </head>
 <body>
-<canvas id="fg"></canvas>
-<canvas id="fx"></canvas>
-<div class="corner"><button id="btn" class="big-btn"><span class="emoji">⬇️</span></button></div>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">⬇️</span></button></div>
+<button id="reset" class="big-btn"><span class="emoji">🔄</span></button>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
 <script src="common.js?v=14"></script>
-<script src="gpu-particles.js?v=3"></script>
-<script src="game.js?v=2"></script>
 <script>
-// ひかりのつみき: ゆれている ブロックを ボタンで おとして つみあげる。はみだした ぶんは きれて おちる。
-// ぜんぜん かさならないと ハートが へる。ぴったり だと ひかって すこし ひろがる。
-const fg = document.getElementById('fg'), fgx = fg.getContext('2d'), btn = document.getElementById('btn');
-const BH = 46;
-let dpr = 1, stack = [], mover = null, falling = [], cam = 0, sys = null;
+// どうぶつつみき: うえの クレーンが どうぶつを つって うごく。ボタン（または がめんを タッチ）で おとして、だいの うえに つみあげる。
+// どうぶつごとに おおきさと かたちが ちがう。だいから おちても おしまいに しない（「わ〜」と きえるだけ）。
+// いちばん たかく つめた ところに 👑 の せん。🔄 で ぜんぶ おろして はじめから。
+const { Engine, Bodies, Composite, Body } = Matter;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn'), resetBtn = document.getElementById('reset');
+let dpr = fitCanvas(cv, ctx);
 
-const L = () => ({ W: innerWidth, H: innerHeight, ground: innerHeight - 110 });
-const baseW = () => Math.min(innerWidth * 0.5, 340);
-const screenY = (level) => L().ground - level * BH + cam;
+// どうぶつ: えもじ, よこ, たて（ユニットの なんばい）
+const ANIMALS = [
+  ['🐘', 1.55, 1.1], ['🐻', 1.15, 1.05], ['🐶', 1.0, 0.9], ['🐱', 0.9, 0.85], ['🐭', 0.62, 0.55], ['🐸', 0.85, 0.65],
+  ['🐷', 1.0, 0.85], ['🐼', 1.1, 1.0], ['🐢', 1.3, 0.62], ['🐰', 0.75, 1.0], ['🦒', 0.8, 1.55], ['🐧', 0.7, 0.95],
+];
+const KEY = 'iroiro-best-doubutsu';
+let U, engine, ground, groundW, groundY, bodies = [], hand = null, next = null, crane = 0.5, craneDir = 1, cool = 0, cam = 0, camT = 0;
+let best = 0, sparks = [], lastDrop = null;
+try { best = parseFloat(localStorage.getItem(KEY)) || 0; } catch (e) {}
+let cheerAt = best > 0 ? best + 0.05 : 1.5; // まえの きろくを こえたら おいわい
 
-function reset() {
-  stack = [{ x: innerWidth / 2, w: baseW(), hue: 190 }];
-  falling = []; cam = 0; newMover();
+function setup() {
+  dpr = fitCanvas(cv, ctx);
+  const W = innerWidth, H = innerHeight;
+  U = Math.min(W, H) * 0.12;
+  engine = Engine.create(); engine.gravity.y = 1.1;
+  groundW = Math.min(W * 0.84, U * 6.5); groundY = btn.getBoundingClientRect().top - 40; // だいは ひろめ
+  ground = Bodies.rectangle(W / 2, groundY + 20, groundW, 40, { isStatic: true, friction: 1, frictionStatic: 2, chamfer: { radius: 10 } });
+  Composite.add(engine.world, ground);
+  bodies = []; cam = 0; camT = 0; hand = null; next = pickAnimal(); newHand();
 }
-function newMover() {
-  const top = stack[stack.length - 1], lv = stack.length;
-  mover = { w: top.w, hue: (top.hue + 18) % 360, phase: -Math.PI / 2, speed: Math.min(3.6, 1.3 + lv * 0.08) };
-}
-const game = Game.create('tsumiki', {
-  onStart() { reset(); },
-  onOver() { // タワーが くずれて ひかりに なる
-    stack.forEach((b, i) => {
-      falling.push({ x: b.x, y: screenY(i) - cam, w: b.w, hue: b.hue, vx: rand(-260, 260), vy: -rand(100, 500), rot: 0, vr: rand(-4, 4) });
-      setTimeout(() => sparkle(b.x, screenY(i) - BH / 2, b.hue, 30, 1.2), i * 40);
-    });
-    stack = []; mover = null;
-  },
-});
-const resize = () => { dpr = fitCanvas(fg, fgx); };
-resize(); addEventListener('resize', resize);
-reset();
+function pickAnimal() { return pick(ANIMALS); }
+function newHand() { hand = { a: next, t: 0 }; next = pickAnimal(); }
+setup();
+addEventListener('resize', setup);
 
-function sparkle(x, y, hue, n, spread = 1, star = false) {
-  if (!sys) return;
-  const list = [];
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, sp = rand(80, 420) * spread;
-    const c = GPUParticles.hsv(((hue / 360) + rand(-0.05, 0.05) + 1) % 1, 0.6, 1);
-    list.push({ x: x + rand(-20, 20), y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 80, r: c[0], g: c[1], b: c[2], life: rand(0.5, 1.2), size: rand(5, 11), shape: star || Math.random() < 0.25 ? 3 : 0 });
-  }
-  sys.emit(list);
-}
-
-function drop() {
-  if (!mover) return;
-  const top = stack[stack.length - 1], lv = stack.length;
-  const x = mover.x, w = mover.w;
-  const left = Math.max(x - w / 2, top.x - top.w / 2), right = Math.min(x + w / 2, top.x + top.w / 2);
-  const overlap = right - left;
-  const y = screenY(lv) - cam;
-  if (overlap <= 4) { // ぜんぜん のってない
-    falling.push({ x, y, w, hue: mover.hue, vx: (x - top.x) * 1.5, vy: 0, rot: 0, vr: (x > top.x ? 1 : -1) * rand(2, 4) });
-    Sfx.tone(220, 0.3, 'triangle', 0.15, 0, 110);
-    if (!game.hit()) newMover();
-    return;
-  }
-  if (Math.abs(x - top.x) < 10) { // ぴったり！
-    const nw = Math.min(baseW(), top.w + 8);
-    stack.push({ x: top.x, w: nw, hue: mover.hue, flash: 1 });
-    sparkle(top.x, screenY(lv) - BH, mover.hue, 50, 1, true);
-    Sfx.chime();
-    popText('ぴったり！', top.x, screenY(lv) - BH - 40, '#fff', 40);
-    game.add(2);
-  } else {
-    const cx = (left + right) / 2;
-    stack.push({ x: cx, w: overlap, hue: mover.hue, flash: 0.6 });
-    // はみだした ぶんが きれて おちる
-    const cutW = w - overlap, side = x > top.x ? 1 : -1;
-    const cutX = side > 0 ? right + cutW / 2 : left - cutW / 2;
-    falling.push({ x: cutX, y, w: cutW, hue: mover.hue, vx: side * rand(60, 160), vy: -60, rot: 0, vr: side * rand(1.5, 3.5) });
-    sparkle(cutX, y + cam - BH / 2, mover.hue, 16, 0.7);
-    Sfx.tone(400 + lv * 20, 0.12, 'square', 0.07);
-    Sfx.noise(0.15, 0.4, 1500);
-    game.add(1);
-  }
-  newMover();
-}
-
-btn.addEventListener('pointerdown', () => { if (!game.press()) drop(); });
-fg.addEventListener('pointerdown', () => { if (!game.press()) drop(); }); // がめんの どこを おしても おとせる
-
-function block(x, yTop, w, hue, flash = 0, alpha = 1) {
-  fgx.save();
-  fgx.globalAlpha = alpha;
-  fgx.shadowColor = `hsla(${hue}, 100%, 65%, ${0.7 + flash * 0.3})`; fgx.shadowBlur = 18 + flash * 30;
-  const g = fgx.createLinearGradient(0, yTop, 0, yTop + BH);
-  g.addColorStop(0, `hsl(${hue}, 90%, ${72 + flash * 20}%)`); g.addColorStop(1, `hsl(${hue}, 85%, ${48 + flash * 20}%)`);
-  fgx.fillStyle = g;
-  fgx.beginPath(); fgx.roundRect(x - w / 2, yTop, w, BH - 4, 10); fgx.fill();
-  fgx.shadowBlur = 0;
-  fgx.fillStyle = 'rgba(255,255,255,.45)'; fgx.beginPath(); fgx.roundRect(x - w / 2 + 6, yTop + 4, Math.max(0, w - 12), 7, 4); fgx.fill();
-  fgx.restore();
-}
-
-(async () => {
-  sys = await GPUParticles.create(document.getElementById('fx'), { count: 20000 });
-  sys.params.grav = [0, 400]; sys.params.drag = 0.7;
-  let ambient = 0, last = performance.now();
-  sys.start((dt, t) => {
-    const { W, H, ground } = L();
-    // うごく ブロック
-    if (mover && game.state === 'play') {
-      mover.phase += dt * mover.speed;
-      mover.x = W / 2 + Math.sin(mover.phase) * W * 0.34;
-    } else if (mover) { mover.phase += dt * 1.2; mover.x = W / 2 + Math.sin(mover.phase) * W * 0.3; }
-    // カメラ（たかく なったら うえへ）
-    const target = Math.max(0, stack.length * BH - H * 0.42);
-    cam += (target - cam) * Math.min(1, dt * 3);
-    // はいけいの いろ: たかく なるほど よぞら・うちゅうへ
-    const hgt = stack.length;
-    document.body.style.setProperty('--h', 230 + hgt * 4);
-    document.body.style.setProperty('--l1', Math.max(4, 30 - hgt * 1.2) + '%');
-    document.body.style.setProperty('--l2', Math.max(12, 55 - hgt * 1.5) + '%');
-    // ふわふわ ひかる つぶ（たかいと ほしに）
-    ambient += dt * (6 + hgt * 0.8);
-    while (ambient > 1) {
-      ambient--;
-      const star = Math.random() < Math.min(0.8, hgt / 25);
-      const c = GPUParticles.hsv(Math.random(), 0.3, 1);
-      sys.emit([{ x: rand(0, W), y: rand(0, H), vx: rand(-10, 10), vy: -rand(5, 30) - 400 * 0, r: c[0] * 0.7, g: c[1] * 0.7, b: c[2] * 0.7, life: rand(2, 4), size: star ? rand(4, 8) : rand(3, 6), shape: star ? 3 : 0 }]);
-    }
-
-    fgx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    fgx.clearRect(0, 0, W, H);
-    // じめん
-    const gy = ground + cam;
-    if (gy < H + 40) { fgx.fillStyle = 'rgba(255,255,255,.12)'; fgx.fillRect(0, gy, W, H - gy); }
-    stack.forEach((b, i) => { b.flash = Math.max(0, (b.flash || 0) - dt * 2); block(b.x, screenY(i + 1), b.w, b.hue, b.flash); });
-    if (mover) {
-      const yTop = screenY(stack.length + 1) - (game.state === 'play' ? 0 : 0);
-      block(mover.x, yTop, mover.w, mover.hue, 0.2 + 0.2 * Math.sin(t * 6));
-      // おちる ところの めじるし（うすい せん）
-      fgx.strokeStyle = 'rgba(255,255,255,.25)'; fgx.setLineDash([6, 8]); fgx.lineWidth = 2;
-      fgx.beginPath(); fgx.moveTo(mover.x - mover.w / 2, yTop + BH); fgx.lineTo(mover.x - mover.w / 2, screenY(stack.length)); fgx.moveTo(mover.x + mover.w / 2, yTop + BH); fgx.lineTo(mover.x + mover.w / 2, screenY(stack.length)); fgx.stroke();
-      fgx.setLineDash([]);
-    }
-    for (const f of falling) {
-      f.vy += 1400 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vr * dt;
-      fgx.save(); fgx.translate(f.x, f.y + cam - BH / 2); fgx.rotate(f.rot); fgx.translate(-f.x, -(f.y + cam - BH / 2));
-      block(f.x, f.y + cam - BH, f.w, f.hue, 0, 0.85);
-      fgx.restore();
-    }
-    falling = falling.filter(f => f.y + cam < H + 200);
-    // はじまるまえ: ゆびで あいず
-    if (game.state !== 'play') {
-      const r = btn.getBoundingClientRect();
-      fgx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5);
-      drawEmoji(fgx, '👉', r.left - 50 - Math.abs(Math.sin(t * 3)) * 20, r.top + r.height / 2, 60);
-      fgx.globalAlpha = 1;
-      if (!mover && game.state === 'over' && performance.now() > game.readyAt) { reset(); }
-    }
+function drop(x) {
+  if (!hand || cool > 0) return;
+  const [e, w, h] = hand.a, W = innerWidth;
+  const bw = w * U, bh = h * U;
+  const cx = Math.max(bw / 2 + 4, Math.min(W - bw / 2 - 4, x));
+  const b = Bodies.rectangle(cx, craneY() + 40 + bh / 2 - cam, bw, bh, {
+    chamfer: { radius: Math.min(bw, bh) * 0.18 }, friction: 1, frictionStatic: 2, frictionAir: 0.035, restitution: 0, // ころがりにくく、ゆっくり おちる
+    density: 0.0018 * (w * h > 1.3 ? 1.4 : 1),
   });
-})();
+  b.emoji = e; b.bw = bw; b.bh = bh; b.born = performance.now(); b.wob = 0;
+  Composite.add(engine.world, b); bodies.push(b); lastDrop = b;
+  hand = null; cool = 0.9;
+  Sfx.tone(520, 0.1, 'sine', 0.12, 0, 300); // ひゅっ
+}
+const craneY = () => 70;
+btn.addEventListener('pointerdown', () => drop(innerWidth * (0.1 + crane * 0.8)));
+cv.addEventListener('pointerdown', (e) => { if (e.clientY > btn.getBoundingClientRect().top - 10) return; crane = Math.max(0, Math.min(1, (e.clientX / innerWidth - 0.1) / 0.8)); drop(e.clientX); });
+resetBtn.addEventListener('pointerdown', () => {
+  for (const b of bodies) burst(b.position.x, b.position.y + cam, 10, Math.random() * 360);
+  Sfx.noise(0.4, 0.4, 3000, 0, 'bandpass'); Sfx.tone(800, 0.2, 'sine', 0.1, 0, 1600);
+  setup();
+});
+
+function burst(x, y, n, hue) { for (let i = 0; i < n; i++) { const a = rand(0, 7), v = rand(80, 320); sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 80, life: rand(0.4, 0.9), hue: hue + rand(-20, 20) }); } }
+
+// いま つみあがっている たかさ（だいの うえから、おちついている どうぶつの いちばん うえ）
+function height() {
+  let top = groundY;
+  for (const b of bodies) if (!b.gone && landed.has(b)) top = Math.min(top, b.bounds.min.y); // ついた どうぶつ だけ
+  return Math.max(0, (groundY - top) / U);
+}
+// ぜんぶの どうぶつが とまって いるか（きろくは おちついた ときだけ）
+let calmT = 0, landed = new Set();
+const calm = () => bodies.every(b => b.gone || !landed.has(b) || (b.speed < 0.6 && Math.abs(b.angularVelocity) < 0.03)); // おちてくる とちゅうの どうぶつは かぞえない
+
+let last = performance.now(), acc = 0;
+(function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const W = innerWidth, H = innerHeight, t = now / 1000;
+  acc += dt;
+  while (acc > 1 / 120) { Engine.update(engine, 1000 / 120); acc -= 1 / 120; }
+  cool -= dt;
+  if (!hand && cool <= 0) newHand();
+  crane += craneDir * dt * 0.25; if (crane > 1) { crane = 1; craneDir = -1; } if (crane < 0) { crane = 0; craneDir = 1; }
+
+  // おちた どうぶつ（だいより ずっと した）
+  for (const b of bodies) {
+    if (!b.gone && b.position.y > groundY + H * 0.6) {
+      b.gone = true; Composite.remove(engine.world, b);
+      Sfx.tone(700, 0.4, 'sine', 0.1, 0, 200);
+      popText('わ〜！', Math.max(60, Math.min(W - 60, b.position.x)), H * 0.55, '#ff6fa8', 40);
+    }
+    // ついた とき の おと（はじめて とまった とき）
+    if (!landed.has(b) && !b.gone && performance.now() - b.born > 300 && b.speed < 0.8) {
+      landed.add(b); Sfx.tone(200 + Math.random() * 80, 0.12, 'sine', 0.25, 0, 120); burst(b.position.x, b.bounds.max.y + cam, 8, 40);
+    }
+    b.wob = Math.min(1, Math.abs(b.angularVelocity) * 6 + (b.speed > 3 ? 0.5 : 0));
+  }
+  bodies = bodies.filter(b => !b.gone);
+
+  // たかさ と きろく
+  const h = height();
+  calmT = calm() && landed.size ? calmT + dt : 0;
+  if (calmT > 0.6 && h > best + 0.05) {
+    if (h >= cheerAt) { cheerAt = h + 1; Sfx.chime(); popText('👑', W / 2, H * 0.3, '#ffd23f', 64); } // きろく こうしん（1だん ぶん ごとに）
+    best = h; try { localStorage.setItem(KEY, best.toFixed(2)); } catch (e) {}
+  }
+  // カメラ: たかく なったら うえへ（クレーンと すきまを のこす）
+  const topY = groundY - h * U;
+  camT = Math.max(0, (craneY() + U * 3.2) - topY);
+  cam += (camT - cam) * Math.min(1, dt * 2);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // くも（すこし おそく ながれる）
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  for (let i = 0; i < 5; i++) { const x = ((i * 0.27 + t * 0.008) % 1.3 - 0.15) * W, y = (i * 140 + cam * 0.3) % (H + 200) - 60; ctx.beginPath(); ctx.arc(x, y, 26, 0, 7); ctx.arc(x + 30, y - 8, 34, 0, 7); ctx.arc(x + 62, y, 24, 0, 7); ctx.fill(); }
+  ctx.save(); ctx.translate(0, cam);
+  // じめん と だい
+  ctx.fillStyle = '#7fbf4d'; ctx.fillRect(-10, groundY + 60, W + 20, H + 2000);
+  ctx.fillStyle = '#a0683a'; ctx.beginPath(); ctx.roundRect(W / 2 - groundW / 2, groundY, groundW, 40, 10); ctx.fill();
+  ctx.fillStyle = '#7a4a24'; ctx.fillRect(W / 2 - groundW * 0.35, groundY + 38, 18, 30); ctx.fillRect(W / 2 + groundW * 0.35 - 18, groundY + 38, 18, 30);
+  // きろくの せん
+  if (best > 0.3) {
+    const by = groundY - best * U;
+    ctx.strokeStyle = 'rgba(255,190,0,.8)'; ctx.setLineDash([12, 10]); ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, by); ctx.lineTo(W, by); ctx.stroke(); ctx.setLineDash([]);
+    drawEmoji(ctx, '👑', W - 30, by - 18, 30);
+  }
+  // どうぶつ
+  for (const b of bodies) {
+    ctx.save(); ctx.translate(b.position.x, b.position.y); ctx.rotate(b.angle);
+    const s = Math.max(b.bw, b.bh);
+    ctx.scale(b.bw / s * 1.12, b.bh / s * 1.12); // かたちに あわせて すこし のばす
+    drawEmoji(ctx, b.emoji, 0, 0, s * 0.95);
+    ctx.restore();
+    if (b.wob > 0.35) drawEmoji(ctx, '💦', b.position.x + b.bw * 0.45, b.bounds.min.y + 4, 22); // ぐらぐら
+  }
+  ctx.restore();
+  // クレーン
+  const cx = W * (0.1 + crane * 0.8), cy = craneY();
+  ctx.strokeStyle = '#8a929e'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(10, cy - 18); ctx.lineTo(W - 10, cy - 18); ctx.stroke();
+  ctx.fillStyle = '#ffb300'; ctx.beginPath(); ctx.roundRect(cx - 22, cy - 30, 44, 24, 8); ctx.fill();
+  if (hand) {
+    hand.t = Math.min(1, hand.t + dt * 5);
+    const [e, w, hh] = hand.a, bw = w * U * (0.6 + 0.4 * hand.t), bh = hh * U * (0.6 + 0.4 * hand.t), s = Math.max(bw, bh);
+    ctx.strokeStyle = '#8a929e'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx, cy + 40); ctx.stroke();
+    ctx.save(); ctx.translate(cx, cy + 40 + bh / 2); ctx.rotate(Math.sin(t * 3) * 0.08); ctx.scale(bw / s * 1.12, bh / s * 1.12); drawEmoji(ctx, e, 0, 0, s * 0.95); ctx.restore();
+    // おちる ところの めじるし
+    ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.setLineDash([6, 10]); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx, cy + 40 + bh); ctx.lineTo(cx, groundY + cam); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // つぎの どうぶつ
+  if (next) { ctx.globalAlpha = 0.8; drawEmoji(ctx, next[0], W - 34, cy + 30, 30); ctx.globalAlpha = 1; }
+  for (const p of sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 400 * dt; p.life -= dt; ctx.fillStyle = `hsla(${p.hue}, 90%, 60%, ${Math.max(0, p.life * 1.5)})`; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, 7); ctx.fill(); }
+  sparks = sparks.filter(p => p.life > 0);
+  requestAnimationFrame(loop);
+})(last);
 </script>
 </body>
 </html>
