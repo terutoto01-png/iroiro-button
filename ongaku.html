@@ -10,8 +10,9 @@
 <style>
   body { background: hsl(var(--h, 200), 80%, 85%); transition: background .3s; }
   .big-btn { --c1: #ff7eb6; --c2: #c94a85; }
-  #song { --c1: #ffd34d; --c2: #c99a1a; }
-  .corner .big-btn { width: min(20vw, 100px); height: min(20vw, 100px); font-size: min(6vw, 28px); }
+  /* きょくを かえる ボタン: おおきい ボタンの すぐ みぎどなり */
+  #song { --c1: #ffd34d; --c2: #c99a1a; position: absolute; left: calc(100% + min(4vw, 22px)); bottom: 6px;
+          width: min(20vw, 100px); height: min(20vw, 100px); font-size: min(6vw, 28px); }
   .note { position: fixed; z-index: 5; pointer-events: none; font-size: 64px; font-weight: bold;
           animation: fly 2s ease-out forwards; text-shadow: 0 3px 0 rgba(0,0,0,.15); }
   @keyframes fly {
@@ -22,65 +23,106 @@
 </style>
 </head>
 <body>
-<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎵</span></button></div>
-<div class="corner"><button id="song" class="big-btn"><span class="emoji">⭐</span></button></div>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎵</span></button><button id="song" class="big-btn"><span class="emoji">⭐</span></button></div>
 <script src="common.js?v=12"></script>
 <script>
-// どれも むかしからの こどもの うた（パブリックドメインの メロディ）。1おしで 1おと。
+// どれも むかしからの こどもの うた（パブリックドメインの メロディ）。
+// 1おしで「ひとかたまり（ことば ひとつ ぶん）」を リズム つきで ならす。1おと ずつだと リズムが きえて なんの うたか わからない ため。
+// [おと, ながさ（はく）]。れんだ しても まえの かたまりの あとに つづけて ならす（さきに たまるのは 1つ まで）。
 const C = 261.63, D = 293.66, E = 329.63, F = 349.23, G = 392.0, A = 440.0;
+const n = (f, b = 1) => [f, b];
 const SONGS = [
-  { e: '⭐', notes: [C,C,G,G,A,A,G, F,F,E,E,D,D,C, G,G,F,F,E,E,D, G,G,F,F,E,E,D, C,C,G,G,A,A,G, F,F,E,E,D,D,C] }, // きらきらぼし
-  { e: '🐸', notes: [C,D,E,F,E,D,C, E,F,G,A,G,F,E, C,C,C,C, C,C,D,D,E,E,F,F,E,D,C] }, // かえるのうた
-  { e: '🦋', notes: [G,E,E, F,D,D, C,D,E,F,G,G,G, G,E,E,E, F,D,D,D, C,E,G,G,E,E,E, D,D,D,D,D,E,F, E,E,E,E,E,F,G, G,E,E,E, F,D,D,D, C,E,G,G,C] }, // ちょうちょう
-  { e: '🐑', notes: [E,D,C,D,E,E,E, D,D,D, E,G,G, E,D,C,D,E,E,E, E,D,D,E,D,C] }, // メリーさんのひつじ
+  { e: '⭐', chunks: [ // きらきらぼし
+    [n(C), n(C), n(G), n(G)], [n(A), n(A), n(G, 2)], [n(F), n(F), n(E), n(E)], [n(D), n(D), n(C, 2)],
+    [n(G), n(G), n(F), n(F)], [n(E), n(E), n(D, 2)], [n(G), n(G), n(F), n(F)], [n(E), n(E), n(D, 2)],
+    [n(C), n(C), n(G), n(G)], [n(A), n(A), n(G, 2)], [n(F), n(F), n(E), n(E)], [n(D), n(D), n(C, 2)]] },
+  { e: '🐸', chunks: [ // かえるのうた
+    [n(C), n(D), n(E), n(F)], [n(E), n(D), n(C, 2)], [n(E), n(F), n(G), n(A)], [n(G), n(F), n(E, 2)],
+    [n(C, 2)], [n(C, 2)], [n(C, 2)], [n(C, 2)],
+    [n(C, .5), n(C, .5), n(D, .5), n(D, .5), n(E, .5), n(E, .5), n(F, .5), n(F, .5)], [n(E), n(D), n(C, 2)]] },
+  { e: '🦋', chunks: [ // ちょうちょう
+    [n(G), n(E), n(E, 2)], [n(F), n(D), n(D, 2)], [n(C), n(D), n(E), n(F)], [n(G), n(G), n(G, 2)],
+    [n(G), n(E), n(E), n(E)], [n(F), n(D), n(D), n(D)], [n(C), n(E), n(G), n(G)], [n(E), n(E), n(E, 2)],
+    [n(D), n(D), n(D), n(D)], [n(D), n(E), n(F, 2)], [n(E), n(E), n(E), n(E)], [n(E), n(F), n(G, 2)],
+    [n(G), n(E), n(E, 2)], [n(F), n(D), n(D, 2)], [n(C), n(E), n(G), n(G)], [n(C, 3)]] },
+  { e: '🐑', chunks: [ // メリーさんのひつじ
+    [n(E, 1.5), n(D, .5), n(C), n(D)], [n(E), n(E), n(E, 2)], [n(D), n(D), n(D, 2)], [n(E), n(G), n(G, 2)],
+    [n(E, 1.5), n(D, .5), n(C), n(D)], [n(E), n(E), n(E), n(E)], [n(D), n(D), n(E), n(D)], [n(C, 4)]] },
 ];
+const BEAT = 0.36; // 1はくの ながさ（びょう）。こどもが いっしょに うたえる くらいの はやさ
 const HUE = { [C]: 0, [D]: 30, [E]: 55, [F]: 120, [G]: 190, [A]: 270 };
 const btn = document.getElementById('btn'), songBtn = document.getElementById('song');
-let song = 0, idx = 0;
-const SONG = () => SONGS[song].notes;
-function setSong(n) {
-  song = n % SONGS.length; idx = 0;
-  songBtn.querySelector('.emoji').textContent = SONGS[song].e;
+let song = 0, idx = 0, busyUntil = 0;
+const CH = () => SONGS[song].chunks;
+let iconTimer = 0;
+function setSong(k, iconDelay = 0) { // iconDelay: アイコンを かえるのを まつ じかん（ms）
+  song = k % SONGS.length; idx = 0;
+  clearTimeout(iconTimer);
+  const e = SONGS[song].e;
+  iconTimer = setTimeout(() => { songBtn.querySelector('.emoji').textContent = e; songBtn.animate([{ scale: 1.3 }, { scale: 1 }], { duration: 300 }); }, iconDelay);
 }
 songBtn.addEventListener('pointerdown', () => {
   setSong(song + 1);
-  // あたらしい うたの さいしょの 3おと を ちらっと
-  SONG().slice(0, 3).forEach((f, i) => setTimeout(() => play(f, 0.5), i * 160));
+  const c = Sfx.ac(); busyUntil = c.currentTime;
+  playChunk(CH()[0], 0.5, false); // あたらしい うたの さいしょを ちらっと
   flashPress(songBtn);
 });
 
-function play(f, vol = 1) {
-  const c = Sfx.ac(), t = c.currentTime;
+function play(f, vol, when, dur) {
+  const c = Sfx.ac(), t = when;
   [1, 2, 3].forEach((h, i) => {
     const o = c.createOscillator(), g = c.createGain();
     o.type = i ? 'sine' : 'triangle'; o.frequency.value = f * h;
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(0.25 * vol / (h * h), t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.0);
-    o.connect(g).connect(Sfx.out()); o.start(t); o.stop(t + 1.05);
+    g.gain.setValueAtTime(0.25 * vol / (h * h) * 0.7, t + Math.max(0.02, dur * 0.8));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.35);
+    o.connect(g).connect(Sfx.out()); o.start(t); o.stop(t + dur + 0.4);
   });
+}
+// ひとかたまりを ならす。まえの かたまりが まだ なっていれば その あとに つづける
+function playChunk(chunk, vol = 1, visual = true) {
+  const c = Sfx.ac();
+  let t = Math.max(c.currentTime + 0.02, busyUntil);
+  const delay0 = t - c.currentTime;
+  for (const [f, b] of chunk) {
+    const dur = b * BEAT;
+    play(f, vol, t, dur);
+    if (visual) setTimeout(() => showNote(f), (t - c.currentTime) * 1000);
+    t += dur;
+  }
+  busyUntil = t;
+  return delay0;
+}
+function showNote(f) {
+  const h = HUE[f];
+  document.body.style.setProperty('--h', h);
+  const el = document.createElement('div');
+  el.className = 'note';
+  el.textContent = pick(['♪', '♫', '♩', '♬']);
+  el.style.color = `hsl(${h}, 85%, 50%)`;
+  const r = btn.getBoundingClientRect();
+  el.style.left = r.left + r.width / 2 + rand(-60, 60) + 'px';
+  el.style.top = r.top - 40 + 'px';
+  el.style.setProperty('--dx', rand(-200, 200) + 'px');
+  el.style.setProperty('--rot', rand(-40, 40) + 'deg');
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2100);
+  btn.style.setProperty('--c1', `hsl(${h}, 85%, 62%)`);
+  btn.style.setProperty('--c2', `hsl(${h}, 70%, 40%)`);
 }
 
 btn.addEventListener('pointerdown', () => {
-  const f = SONG()[idx];
-  idx = (idx + 1) % SONG().length;
-  play(f);
-  const h = HUE[f];
-  document.body.style.setProperty('--h', h);
-  const n = document.createElement('div');
-  n.className = 'note';
-  n.textContent = pick(['♪', '♫', '♩', '♬']);
-  n.style.color = `hsl(${h}, 85%, 50%)`;
-  const r = btn.getBoundingClientRect();
-  n.style.left = r.left + r.width / 2 + rand(-60, 60) + 'px';
-  n.style.top = r.top - 40 + 'px';
-  n.style.setProperty('--dx', rand(-200, 200) + 'px');
-  n.style.setProperty('--rot', rand(-40, 40) + 'deg');
-  document.body.appendChild(n);
-  setTimeout(() => n.remove(), 2100);
-  btn.style.setProperty('--c1', `hsl(${h}, 85%, 62%)`);
-  btn.style.setProperty('--c2', `hsl(${h}, 70%, 40%)`);
-  if (idx === 0) { setTimeout(() => Sfx.chime(), 400); setTimeout(() => setSong(song + 1), 600); } // さいごまで ひけたら つぎの うた
+  const c = Sfx.ac();
+  if (busyUntil - c.currentTime > 1.6) return; // れんだ しすぎて たまらない ように（さきに 1かたまり まで）
+  playChunk(CH()[idx]);
+  idx = (idx + 1) % CH().length;
+  if (idx === 0) { // さいごまで ひけたら すぐ つぎの うたへ（おなじ うたに もどらない ように）
+    const wait = (busyUntil - c.currentTime) * 1000;
+    setTimeout(() => Sfx.chime(), wait + 150);
+    setSong(song + 1, wait + 150); // うたは すぐ かわるが、アイコンは なりおわってから
+    busyUntil += 0.5; // おわりの チャラン の ぶん すこし まつ
+  }
 });
 </script>
 </body>
