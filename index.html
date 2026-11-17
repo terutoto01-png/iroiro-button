@@ -31,10 +31,28 @@
   .grid a:nth-child(even) { animation: bob 2.4s ease-in-out -1.2s infinite; }
   .grid a:active { animation: none; }
   @keyframes bob { 50% { translate: 0 -6px; } }
+  /* なかまの みだし（えもじ だけ。もじは つかわない） */
+  .sec-h { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; margin: 10px 0 -6px; scroll-margin-top: 16px; }
+  .sec-h:first-child { margin-top: 0; }
+  .sec-h b { font-size: min(10vw, 46px); line-height: 1; padding: 8px 18px; border-radius: 999px; background: var(--bg); box-shadow: 0 4px 0 var(--bd); }
+  .sec-h i { flex: 1; height: 6px; border-radius: 3px; background: var(--bd); opacity: .55; }
+  /* みぎはしの ジャンプ ボタン */
+  #jump { position: fixed; right: max(8px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%); z-index: 40;
+          display: flex; flex-direction: column; gap: 8px; }
+  #jump button { width: min(12vw, 54px); height: min(12vw, 54px); border-radius: 50%; border: none; padding: 0; cursor: pointer;
+                 font-size: min(6vw, 28px); background: var(--bg); box-shadow: 0 4px 0 var(--bd); transition: scale .2s; font-family: inherit; }
+  #jump button.on { scale: 1.18; box-shadow: 0 4px 0 var(--bd), 0 0 0 4px #fff; }
+  #jump button:active { translate: 0 3px; box-shadow: 0 1px 0 var(--bd); }
+  .grid { padding-right: calc(min(12vw, 54px) + 22px) !important; }
+  /* まだ ひらいていない ボタン: かどで ✨ が きらきら */
+  .grid a.new::after { content: '✨'; position: absolute; right: -10%; top: -10%; font-size: .9em; pointer-events: none;
+                       animation: twinkle 1.4s ease-in-out infinite; filter: drop-shadow(0 0 6px #fff6a8); }
+  @keyframes twinkle { 0%, 100% { scale: .8; rotate: -10deg; opacity: .75; } 50% { scale: 1.15; rotate: 12deg; opacity: 1; } }
 </style>
 </head>
 <body data-no-back data-scroll>
 <nav class="grid" id="grid"></nav>
+<div id="jump"></div>
 <div id="fade" class="hide"></div>
 <button id="more" class="big-btn hide" aria-label="した"><span>⬇️</span></button>
 <script src="common.js?v=12"></script>
@@ -75,7 +93,17 @@ const PAGES = [
   ['shoberu', '🚜', '#ffb300', '#b87d00'], ['pokopoko', '🐹', '#ff8a3d', '#b8561c'],
   ['gattai', '🐘', '#ff7ab8', '#c94585'],
 ];
-const grid = document.getElementById('grid');
+// なかま（みだしの えもじ、いろ、はいる ページ）。どこにも はいっていない ページは さいごの なかまへ
+const GROUPS = [
+  { e: '🎆', bg: '#fff1c2', bd: '#f2c94c', items: ['hanabi', 'niji', 'purupuru', 'uchuu', 'nagareboshi', 'kaminari', 'nami', 'hotaru', 'sakura', 'funsui', 'uzumaki', 'aurora', 'shinkai', 'biidama'] },
+  { e: '🎉', bg: '#ffd9e8', bd: '#f28bb5', items: ['kamifubuki', 'shabondama', 'fuusen', 'bikkuri', 'popcorn', 'hakushon', 'toire', 'obake', 'saikoro', 'gacha', 'okashi', 'keeki', 'oryouri', 'yukidaruma', 'tsurii', 'ohana'] },
+  { e: '🚗', bg: '#d6ecff', bd: '#7fb6ef', items: ['kuruma', 'densha', 'fumikiri', 'drive', 'roketto', 'shoberu', 'hashire'] },
+  { e: '🐶', bg: '#ffe6cc', bd: '#f0ac6a', items: ['doubutsu', 'nigeru', 'sakana', 'nadenade', 'kyouryuu', 'tamago', 'gattai'] },
+  { e: '👆', bg: '#e2f7d9', bd: '#8fce73', items: ['fukifuki', 'nijipen', 'katachi', 'mizuyari', 'biyoon', 'awaawa', 'domino'] },
+  { e: '🎵', bg: '#eadfff', bd: '#ae8ff0', items: ['ongaku', 'taiko', 'onara', 'koemane', 'kao', 'kusuguri'] },
+  { e: '🎮', bg: '#d9f5f2', bd: '#6fcfc4', items: ['pyonpyon', 'tsumiki', 'inseki', 'hanabimamori', 'pokopoko'] },
+];
+const grid = document.getElementById('grid'), jump = document.getElementById('jump');
 
 // このブラウザで WebGPU が本当に使えるか（アダプタまで取れるか）
 async function hasWebGPU() {
@@ -85,18 +113,51 @@ async function hasWebGPU() {
 
 (async () => {
 const can = { gpu: await hasWebGPU(), hic: HIC.supported, mic: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) };
-// うごかないと わかっているボタンは ださない
-for (const [file, emoji, c1, c2, need] of PAGES) {
-  if (need && !can[need]) continue;
-  const a = document.createElement('a');
-  a.href = file + '.html';
-  a.className = 'big-btn';
-  a.style.setProperty('--c1', c1); a.style.setProperty('--c2', c2);
-  a.innerHTML = `<span class="emoji">${emoji}</span>`;
-  a.addEventListener('pointerdown', () => Sfx.pop());
-  a.addEventListener('click', saveScroll);
-  grid.appendChild(a);
+// ---- ひらいた ことの ある ボタン（この ブラウザに おぼえておく） ----
+// はじめて この しくみが うごく ときは、ふるい ボタンは「ひらいた こと あり」に しておき、さいきん ふえた ぶんだけ ✨ に する
+const NEWEST = ['yukidaruma', 'hakushon', 'tsurii', 'awaawa', 'gacha', 'domino', 'toire', 'shinkai', 'shoberu', 'pokopoko', 'gattai'];
+let seen;
+try { seen = JSON.parse(localStorage.getItem('iroiro-seen')); } catch (e) {}
+if (!Array.isArray(seen)) { seen = PAGES.map(p => p[0]).filter(f => !NEWEST.includes(f)); saveSeen(); }
+seen = new Set(seen);
+function saveSeen() { try { localStorage.setItem('iroiro-seen', JSON.stringify([...seen])); } catch (e) {} }
+
+// うごかないと わかっているボタンは ださない。なかま ごとに みだしを つけて ならべる
+const byFile = Object.fromEntries(PAGES.map(p => [p[0], p]));
+const placed = new Set(GROUPS.flatMap(g => g.items));
+GROUPS[GROUPS.length - 1].items.push(...PAGES.map(p => p[0]).filter(f => !placed.has(f)));
+const heads = [];
+GROUPS.forEach((g, gi) => {
+  const list = g.items.map(f => byFile[f]).filter(p => p && !(p[4] && !can[p[4]]));
+  if (!list.length) return;
+  const h = document.createElement('div');
+  h.className = 'sec-h'; h.style.setProperty('--bg', g.bg); h.style.setProperty('--bd', g.bd);
+  h.innerHTML = `<b>${g.e}</b><i></i>`;
+  grid.appendChild(h); heads.push(h);
+  const j = document.createElement('button');
+  j.textContent = g.e; j.style.setProperty('--bg', g.bg); j.style.setProperty('--bd', g.bd);
+  j.addEventListener('click', () => { Sfx.pop(); glideTo(h.getBoundingClientRect().top + scrollY - 16); });
+  jump.appendChild(j);
+  for (const [file, emoji, c1, c2] of list) {
+    const a = document.createElement('a');
+    a.href = file + '.html';
+    a.className = 'big-btn';
+    a.style.setProperty('--c1', c1); a.style.setProperty('--c2', c2);
+    a.innerHTML = `<span class="emoji">${emoji}</span>`;
+    a.addEventListener('pointerdown', () => Sfx.pop());
+    a.addEventListener('click', () => { saveScroll(); seen.add(file); saveSeen(); });
+    if (!seen.has(file)) a.classList.add('new');
+    grid.appendChild(a);
+  }
+});
+// いま みている なかまの ジャンプ ボタンを すこし おおきく
+function markJump() {
+  let cur = 0;
+  heads.forEach((h, i) => { if (h.getBoundingClientRect().top < innerHeight * 0.4) cur = i; });
+  [...jump.children].forEach((b, i) => b.classList.toggle('on', i === cur));
 }
+addEventListener('scroll', markJump, { passive: true });
+markJump();
 // まえに みていた ところへ もどす（ボタンを ならべてから）
 try {
   const y = parseFloat(sessionStorage.getItem('menu-scroll'));
