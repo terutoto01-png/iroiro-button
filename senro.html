@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>せんろかき</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: #a6dc7c; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #2bb24c; --c2: #187a31; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚂</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// せんろかき: ゆびで なぞると せんろが できて、でんしゃが その うえを はしる。ボタンで ぽっぽー と はやく なる。
+// せんろの はしっこに つづけて かくと のびる。せんろどうしが まじわると はし、がめんの はしまで かくと トンネルが できる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const STEP = 6, GAP = 50;
+let track = [], closed = false, lens = [], total = 0, bridges = [], tunnels = [];
+let train = { s: 0, dir: 1, v: 110, boost: 0, wait: 0 }, draft = null, smoke = [], flowers = [];
+
+function resample(pts) {
+  const out = [pts[0]]; let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    let a = out[out.length - 1], b = pts[i], d = Math.hypot(b.x - a.x, b.y - a.y);
+    while (d >= STEP) { const k = STEP / d; a = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k }; out.push(a); d = Math.hypot(b.x - a.x, b.y - a.y); }
+  }
+  return out;
+}
+function smooth(pts) { // かくかくを なめらかに
+  for (let r = 0; r < 3; r++) pts = pts.map((p, i) => i === 0 || i === pts.length - 1 ? p : { x: (pts[i - 1].x + p.x * 2 + pts[i + 1].x) / 4, y: (pts[i - 1].y + p.y * 2 + pts[i + 1].y) / 4 });
+  return pts;
+}
+function setTrack(pts, isClosed) {
+  track = pts; closed = isClosed; lens = [0];
+  for (let i = 1; i < track.length; i++) lens.push(lens[i - 1] + Math.hypot(track[i].x - track[i - 1].x, track[i].y - track[i - 1].y));
+  total = lens[lens.length - 1] + (closed ? Math.hypot(track[0].x - track[track.length - 1].x, track[0].y - track[track.length - 1].y) : 0);
+  // まじわる ところ → はし（あとから かいた ほうが うえ）
+  bridges = [];
+  const seg = (i) => [track[i], track[(i + 1) % track.length]];
+  const n = closed ? track.length : track.length - 1;
+  for (let i = 0; i < n; i++) for (let j = i + 8; j < n; j++) {
+    if (closed && j - i > n - 8) continue; // わの つなぎめは となりどうし
+    const [a, b] = seg(i), [c, d] = seg(j), p = cross(a, b, c, d);
+    if (p && !bridges.some(q => Math.hypot(q.x - p.x, q.y - p.y) < 40)) bridges.push({ x: p.x, y: p.y, i: j, ang: Math.atan2(d.y - c.y, d.x - c.x) });
+  }
+  // がめんの はし → トンネル
+  tunnels = [];
+  if (!closed) for (const [k, end] of [[0, track[0]], [track.length - 1, track[track.length - 1]]]) {
+    if (end.x < 30 || end.x > W - 30 || end.y < 30 || end.y > H - 30) { const o = track[Math.max(0, Math.min(track.length - 1, k + (k ? -4 : 4)))]; tunnels.push({ x: end.x, y: end.y, ang: Math.atan2(end.y - o.y, end.x - o.x), k }); }
+  }
+}
+function cross(a, b, c, d) {
+  const r = { x: b.x - a.x, y: b.y - a.y }, s = { x: d.x - c.x, y: d.y - c.y }, den = r.x * s.y - r.y * s.x;
+  if (Math.abs(den) < 1e-6) return null;
+  const t = ((c.x - a.x) * s.y - (c.y - a.y) * s.x) / den, u = ((c.x - a.x) * r.y - (c.y - a.y) * r.x) / den;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? { x: a.x + r.x * t, y: a.y + r.y * t } : null;
+}
+function ovalTrack() {
+  const cx = W / 2, cy = H * 0.45, rx = W * 0.34, ry = Math.min(H * 0.22, rx * 0.8), pts = [];
+  for (let a = 0; a < Math.PI * 2; a += 0.02) pts.push({ x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry });
+  setTrack(resample(pts), true); train.s = 0; train.dir = 1;
+}
+ovalTrack();
+for (let i = 0; i < 18; i++) flowers.push({ x: Math.random(), y: Math.random(), e: pick(['🌼', '🌷', '🌳', '🌲', '🏠', '🐄']) });
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; });
+
+function at(s) { // せんろの うえの いち と むき
+  if (closed) s = ((s % total) + total) % total; else s = Math.max(0, Math.min(lens[lens.length - 1], s));
+  let lo = 0, hi = lens.length - 1;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (lens[m] <= s) lo = m; else hi = m - 1; }
+  const a = track[lo], b = track[(lo + 1) % track.length] || a, seg = (lens[lo + 1] ?? total) - lens[lo] || 1, k = (s - lens[lo]) / seg;
+  return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, ang: Math.atan2(b.y - a.y, b.x - a.x) };
+}
+
+function honk() { Sfx.tone(587, 0.35, 'square', 0.06); Sfx.tone(740, 0.35, 'square', 0.05); Sfx.tone(587, 0.5, 'square', 0.06, 0.4); Sfx.tone(740, 0.5, 'square', 0.05, 0.4); }
+btn.addEventListener('pointerdown', () => { train.boost = 2.5; honk(); if (train.wait > 0) train.wait = 0.01; });
+
+cv.addEventListener('pointerdown', (e) => {
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  const p = { x: e.clientX, y: e.clientY };
+  // せんろの はしっこ から かきはじめたら のばす
+  let ext = null;
+  if (!closed && track.length) {
+    if (Math.hypot(track[track.length - 1].x - p.x, track[track.length - 1].y - p.y) < 45) ext = 'end';
+    else if (Math.hypot(track[0].x - p.x, track[0].y - p.y) < 45) ext = 'start';
+  }
+  draft = { pts: [p], ext, id: e.pointerId };
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!draft || draft.id !== e.pointerId) return;
+  const l = draft.pts[draft.pts.length - 1];
+  if (Math.hypot(e.clientX - l.x, e.clientY - l.y) > 4) { draft.pts.push({ x: e.clientX, y: e.clientY }); if (draft.pts.length % 6 === 0) Sfx.tone(rand(300, 340), 0.03, 'triangle', 0.03); }
+});
+const finish = (e) => {
+  if (!draft || draft.id !== e.pointerId) return;
+  const d = draft; draft = null;
+  let pts = d.pts;
+  let len = 0; for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  if (len < 70) { // みじかい タッチ: でんしゃを さわったら ぽっぽー
+    const hd = at(train.s), p = pts[0];
+    if (Math.hypot(hd.x - p.x, hd.y - p.y) < 55) { train.boost = 2.5; honk(); train.hop = 1; }
+    return;
+  }
+  if (d.ext === 'end') pts = track.concat(pts);
+  else if (d.ext === 'start') pts = pts.slice().reverse().concat(track);
+  pts = smooth(resample(pts));
+  const isClosed = Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 50 && len > 300;
+  const keepS = d.ext === 'start' ? null : train.s;
+  setTrack(pts, isClosed);
+  if (d.ext === 'end' && keepS !== null) train.s = keepS; else if (!d.ext) { train.s = 0; train.dir = 1; }
+  else { train.s = Math.min(train.s + len, lens[lens.length - 1]); }
+  train.wait = 0;
+  Sfx.chime(); if (bridges.length) setTimeout(() => Sfx.tone(880, 0.3, 'triangle', 0.1), 300);
+};
+cv.addEventListener('pointerup', finish); cv.addEventListener('pointercancel', finish);
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  train.boost = Math.max(0, train.boost - dt); train.hop = Math.max(0, (train.hop || 0) - dt * 2);
+  const v = train.v * (train.boost > 0 ? 2.2 : 1);
+  if (train.wait > 0) {
+    train.wait -= dt;
+    if (train.wait <= 0) { train.dir *= -1; }
+  } else {
+    train.s += v * dt * train.dir;
+    if (!closed) {
+      const end = lens[lens.length - 1], tail = GAP * 2;
+      // せんとうが はしに ついたら とまって ぎゃくむき（トンネルの なかでは すこし ながく）
+      if (train.dir > 0 && train.s >= end) { train.s = end; train.wait = tunnels.some(q => q.k) ? 1.6 : 0.7; Sfx.tone(300, 0.2, 'sine', 0.08); }
+      if (train.dir < 0 && train.s <= 0) { train.s = 0; train.wait = tunnels.some(q => !q.k) ? 1.6 : 0.7; Sfx.tone(300, 0.2, 'sine', 0.08); }
+      if (end < tail + 20) train.s = Math.max(0, Math.min(end, train.s));
+    }
+  }
+  // けむり
+  if (Math.random() < dt * (train.boost ? 14 : 6) && train.wait <= 0) { const h = at(train.s); smoke.push({ x: h.x, y: h.y - 30, r: 6, life: 1 }); }
+  for (const s of smoke) { s.y -= 30 * dt; s.r += 16 * dt; s.life -= dt * 0.8; }
+  smoke = smoke.filter(s => s.life > 0);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function rails(pts, isClosed, alpha) {
+  if (pts.length < 2) return;
+  ctx.globalAlpha = alpha;
+  // まくらぎ
+  ctx.strokeStyle = '#8a5a34'; ctx.lineWidth = 5;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length - 1; i += 2) {
+    const a = pts[i], b = pts[i + 1], ang = Math.atan2(b.y - a.y, b.x - a.x), nx = -Math.sin(ang) * 13, ny = Math.cos(ang) * 13;
+    ctx.moveTo(a.x + nx, a.y + ny); ctx.lineTo(a.x - nx, a.y - ny);
+  }
+  ctx.stroke();
+  // レール
+  ctx.strokeStyle = '#7b8494'; ctx.lineWidth = 3;
+  for (const side of [1, -1]) {
+    ctx.beginPath();
+    pts.forEach((a, i) => {
+      const b = pts[Math.min(i + 1, pts.length - 1)], c = pts[Math.max(i - 1, 0)], ang = Math.atan2(b.y - c.y, b.x - c.x);
+      const x = a.x - Math.sin(ang) * 8 * side, y = a.y + Math.cos(ang) * 8 * side;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    });
+    if (isClosed) ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawCar(e, s, size) {
+  const p = at(s);
+  let a = p.ang; if (train.dir < 0) a += Math.PI;
+  ctx.save(); ctx.translate(p.x, p.y - (e === '🚂' ? train.hop * 20 : 0));
+  if (Math.cos(a) >= 0) { ctx.rotate(a); ctx.scale(-1, 1); } else ctx.rotate(a + Math.PI);
+  drawEmoji(ctx, e, 0, -8, size); ctx.restore();
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  for (const f of flowers) drawEmoji(ctx, f.e, f.x * W, 80 + f.y * (H - 100), 28);
+  rails(track, closed, 1);
+  // はし
+  for (const b of bridges) {
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.ang);
+    ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(-44, -12, 88, 30);
+    ctx.fillStyle = '#c94a3a'; ctx.fillRect(-40, -18, 80, 36);
+    ctx.fillStyle = '#e8d7b8'; ctx.fillRect(-40, -12, 80, 24);
+    ctx.strokeStyle = '#7b8494'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-40, -8); ctx.lineTo(40, -8); ctx.moveTo(-40, 8); ctx.lineTo(40, 8); ctx.stroke();
+    ctx.restore();
+  }
+  if (draft) { ctx.setLineDash([10, 8]); rails(draft.pts, false, 0.6); ctx.setLineDash([]); }
+  // でんしゃ（せんとう → うしろ）
+  const cars = ['🚂', '🚃', '🚃'];
+  for (let i = cars.length - 1; i >= 0; i--) drawCar(cars[i], train.s - train.dir * i * GAP, 52);
+  for (const s of smoke) { ctx.fillStyle = `rgba(255,255,255,${s.life * 0.8})`; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); }
+  // トンネル（でんしゃの うえに かくので、なかに はいって みえる）
+  for (const q of tunnels) {
+    ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.ang + Math.PI / 2);
+    // ローカルの うえ（-y）が がめんの そと。やまで せんろの はしを かくし、うちがわに あなを あける
+    ctx.fillStyle = '#4f9a35'; ctx.beginPath(); ctx.ellipse(0, -40, 76, 64, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#6fbf4a'; ctx.beginPath(); ctx.ellipse(-10, -52, 50, 40, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#9a8a78'; ctx.beginPath(); ctx.ellipse(0, 22, 34, 30, 0, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#2b2420'; ctx.beginPath(); ctx.ellipse(0, 22, 24, 22, 0, Math.PI, 0); ctx.fill();
+    ctx.restore();
+  }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

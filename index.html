@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css?v=17">
+<link rel="stylesheet" href="common.css?v=18">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -95,6 +95,16 @@ const PAGES = [
   ['pinball', '🕹️', '#ff5e7e', '#b8304d'], ['meiro', '🗺️', '#66bb44', '#3f8a26'],
   ['katahame', '🧩', '#ff9f1c', '#c47200'], ['kenkenpa', '🦶', '#8a9099', '#5b6068'],
   ['daruma', '🙈', '#ff7b54', '#b84a26'], ['oisha', '🩺', '#4fc3f7', '#1e88c7'],
+  ['shoubou', '🚒', '#ff3b3b', '#a81c1c'], ['tsuri', '🎣', '#20a4e8', '#0d6f99'],
+  ['senro', '🚂', '#2bb24c', '#187a31'], ['aisu', '🍦', '#ff8fb8', '#c95a85'],
+  ['osanpo', '🐥', '#ffd23f', '#b8900a'], ['tejina', '🎩', '#9b5cff', '#5a2bb3'],
+  ['kazan', '🌋', '#ff6a3d', '#b8401c'], ['kouji', '🚧', '#ffb300', '#b87d00'],
+  ['sentaku', '🧺', '#4fc3f7', '#1e88c7'], ['tako', '🪁', '#ff5a5a', '#c22f2f'],
+  ['kaeru', '🐸', '#4caf50', '#2e7031'], ['oyasumi', '🌙', '#5a6bd8', '#2f3b8f'],
+  ['hamigaki', '🦷', '#29b6f6', '#0277bd'], ['mushitori', '🦋', '#66bb44', '#3f8a26'],
+  ['kureen', '🧸', '#ff4d8d', '#b8245c'], ['amefuri', '☔', '#5b8cff', '#2f55b8'],
+  ['obentou', '🍙', '#ff7b00', '#b35500'], ['booringu', '🎳', '#7c5cff', '#4b2fc4'],
+  ['suberidai', '🐧', '#3fa9ff', '#1a5fb3'], ['sensha', '🚿', '#29b6f6', '#0277bd'],
 ];
 // ---- こども むけの「おした」はんてい ----
 // リンクの click は ゆびが すこし うごくだけで とりけされる。はなした ときに ボタンの ちかくで、
@@ -114,13 +124,13 @@ function onTap(el, fn) {
 
 // なかま（みだしの えもじ、いろ、はいる ページ）。どこにも はいっていない ページは さいごの なかまへ
 const GROUPS = [
-  { e: '🎆', bg: '#fff1c2', bd: '#f2c94c', items: ['hanabi', 'niji', 'purupuru', 'uchuu', 'nagareboshi', 'kaminari', 'nami', 'hotaru', 'sakura', 'funsui', 'uzumaki', 'aurora', 'shinkai', 'biidama'] },
-  { e: '🎉', bg: '#ffd9e8', bd: '#f28bb5', items: ['kamifubuki', 'shabondama', 'fuusen', 'bikkuri', 'popcorn', 'hakushon', 'toire', 'obake', 'saikoro', 'gacha', 'okashi', 'keeki', 'oryouri', 'yukidaruma', 'tsurii', 'ohana'] },
-  { e: '🚗', bg: '#d6ecff', bd: '#7fb6ef', items: ['kuruma', 'densha', 'fumikiri', 'drive', 'roketto', 'shoberu', 'hashire'] },
-  { e: '🐶', bg: '#ffe6cc', bd: '#f0ac6a', items: ['doubutsu', 'nigeru', 'sakana', 'nadenade', 'kyouryuu', 'tamago', 'gattai'] },
-  { e: '👆', bg: '#e2f7d9', bd: '#8fce73', items: ['fukifuki', 'nijipen', 'katachi', 'mizuyari', 'biyoon', 'awaawa', 'domino'] },
+  { e: '🎆', bg: '#fff1c2', bd: '#f2c94c', items: ['hanabi', 'niji', 'purupuru', 'uchuu', 'nagareboshi', 'kaminari', 'nami', 'hotaru', 'sakura', 'funsui', 'uzumaki', 'aurora', 'shinkai', 'biidama', 'kazan', 'amefuri', 'oyasumi'] },
+  { e: '🎉', bg: '#ffd9e8', bd: '#f28bb5', items: ['kamifubuki', 'shabondama', 'fuusen', 'bikkuri', 'popcorn', 'hakushon', 'toire', 'obake', 'saikoro', 'gacha', 'okashi', 'keeki', 'oryouri', 'yukidaruma', 'tsurii', 'ohana', 'tejina', 'aisu', 'obentou', 'kureen'] },
+  { e: '🚗', bg: '#d6ecff', bd: '#7fb6ef', items: ['kuruma', 'densha', 'fumikiri', 'drive', 'roketto', 'shoberu', 'hashire', 'shoubou', 'senro', 'kouji', 'sensha'] },
+  { e: '🐶', bg: '#ffe6cc', bd: '#f0ac6a', items: ['doubutsu', 'nigeru', 'sakana', 'nadenade', 'kyouryuu', 'tamago', 'gattai', 'osanpo', 'tsuri', 'kaeru', 'mushitori', 'suberidai'] },
+  { e: '👆', bg: '#e2f7d9', bd: '#8fce73', items: ['fukifuki', 'nijipen', 'katachi', 'mizuyari', 'biyoon', 'awaawa', 'domino', 'sentaku', 'hamigaki', 'tako'] },
   { e: '🎵', bg: '#eadfff', bd: '#ae8ff0', items: ['ongaku', 'taiko', 'onara', 'kao', 'kusuguri'] },
-  { e: '🎮', bg: '#d9f5f2', bd: '#6fcfc4', items: ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'pyonpyon', 'tsumiki', 'inseki', 'pokopoko'] },
+  { e: '🎮', bg: '#d9f5f2', bd: '#6fcfc4', items: ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'pyonpyon', 'tsumiki', 'inseki', 'pokopoko', 'booringu'] },
 ];
 const grid = document.getElementById('grid'), jump = document.getElementById('jump');
 

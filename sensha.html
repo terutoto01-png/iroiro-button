@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>せんしゃ</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#e6f4ff, #cfe8fb); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #29b6f6; --c2: #0277bd; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚿</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// せんしゃ: どろんこの くるまが はいってくる。ボタンで ブラシ → みず が じゅんばんに うごいて あらう。ゆびで ごしごし しても おちる。
+// ぴかぴかに なると くるまが よろこんで ぷっぷー と でていき、つぎの どろんこ くるまが くる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const CARS = ['🚗', '🚙', '🚌', '🚒', '🚓', '🚕', '🚜', '🚑', '🛻'];
+const oc = document.createElement('canvas'), ox = oc.getContext('2d');
+let C, car = null, mud = [], foam = [], drops = [], sparkle = [], pass = null, nextPass = 'brush', sponge = null;
+
+function layout() { const cs = Math.min(W * 0.72, H * 0.42, 380); C = { x: W / 2, y: Math.min(H * 0.5, H - 150 - cs * 0.3), cs }; oc.width = oc.height = Math.ceil(cs * 1.3 * dpr); }
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+const fontOf = (s) => `${s}px ${EMOJI_FONT ? '"' + EMOJI_FONT + '"' : '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif'}`;
+
+if (EMOJI_FONT && document.fonts) document.fonts.load(fontOf(40), CARS.join('')).catch(() => {});
+function newCar() {
+  car = { e: pick(CARS), x: -C.cs, st: 'in', t: 0, hop: 0 };
+  mud = [];
+  for (let i = 0; i < 70; i++) mud.push({ u: rand(-0.42, 0.42), v: rand(-0.18, 0.28), r: rand(0.05, 0.11), a: 1, c: pick(['#7a5030', '#8a6239', '#6b4526', '#9c7048']), rot: rand(0, 3) });
+  nextPass = 'brush'; Sfx.tone(140, 0.4, 'sawtooth', 0.05);
+}
+newCar();
+// くるまの えに かかっていない どろは みえないので とりのぞく（ぜんぶ ふけた ことが わかる ように）
+function trimMud() {
+  const s = C.cs, half = oc.width / dpr / 2;
+  ox.setTransform(dpr, 0, 0, dpr, 0, 0); ox.clearRect(0, 0, half * 2, half * 2); ox.globalCompositeOperation = 'source-over';
+  ox.save(); ox.translate(half, half); ox.scale(-1, 1); ox.font = fontOf(s * 0.8); ox.textAlign = 'center'; ox.textBaseline = 'middle'; ox.fillText(car.e, 0, 0); ox.restore();
+  let img; try { img = ox.getImageData(0, 0, oc.width, oc.height).data; } catch (e) { return; }
+  const keep = mud.filter(m => { const px = Math.round((half + m.u * s) * dpr), py = Math.round((half + m.v * s) * dpr); return img[(py * oc.width + px) * 4 + 3] > 60; });
+  if (keep.length >= 12) mud = keep;
+}
+const dirt = () => mud.reduce((s, m) => s + Math.max(0, m.a), 0) / mud.length;
+
+function scrubCol(x, rad, amt) { // そうちは たての れつ ぜんぶを あらう
+  for (const m of mud) if (Math.abs(car.x + m.u * C.cs - x) < rad) m.a -= amt;
+}
+function scrubAt(x, y, rad, amt) {
+  const cs = C.cs;
+  for (const m of mud) { const mx = car.x + m.u * cs, my = C.y + m.v * cs; if (Math.hypot(mx - x, my - y) < rad + m.r * cs) m.a -= amt; }
+}
+
+btn.addEventListener('pointerdown', () => {
+  if (!car || car.st !== 'wash' || pass) return;
+  pass = { kind: nextPass, t: 0 };
+  nextPass = nextPass === 'brush' ? 'water' : 'brush';
+  if (pass.kind === 'brush') Sfx.noise(1.5, 0.12, 900, 0, 'bandpass'); else Sfx.noise(1.5, 0.15, 4000, 0, 'highpass');
+});
+cv.addEventListener('pointerdown', (e) => {
+  if (!car) return;
+  if (car.st === 'wash') { try { cv.setPointerCapture(e.pointerId); } catch (err) {} sponge = { x: e.clientX, y: e.clientY, id: e.pointerId, sT: 0 }; }
+  else if (car.st === 'happy' && Math.abs(e.clientX - car.x) < C.cs * 0.5) { car.hop = 1; honk(); }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!sponge || sponge.id !== e.pointerId) return;
+  const d = Math.hypot(e.clientX - sponge.x, e.clientY - sponge.y); sponge.x = e.clientX; sponge.y = e.clientY;
+  if (car.st !== 'wash') return;
+  scrubAt(sponge.x, sponge.y, 30, Math.min(d, 40) * 0.025);
+  if (Math.random() < 0.5) foam.push({ x: sponge.x + rand(-20, 20), y: sponge.y + rand(-15, 15), r: rand(6, 14), stick: true, life: 1 });
+  sponge.sT -= d; if (sponge.sT < 0) { sponge.sT = 60; Sfx.noise(0.12, 0.06, 2500, 0, 'bandpass'); }
+});
+const up = (e) => { if (sponge && sponge.id === e.pointerId) sponge = null; };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+function honk() { Sfx.tone(440, 0.15, 'square', 0.07); Sfx.tone(440, 0.2, 'square', 0.07, 0.2); }
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  if (car) {
+    car.t += dt; car.hop = Math.max(0, car.hop - dt * 2);
+    if (car.st === 'in') { car.x += (C.x - car.x) * Math.min(1, dt * 2.5); if (Math.abs(car.x - C.x) < 2) { car.x = C.x; car.st = 'wash'; trimMud(); } }
+    else if (car.st === 'wash' && dirt() < 0.04 && !pass) {
+      if (foam.some(f => f.stick)) { pass = { kind: 'water', t: 0 }; Sfx.noise(1.5, 0.15, 4000, 0, 'highpass'); }
+      else { car.st = 'happy'; car.t = 0; car.hop = 1; honk(); Sfx.chime(); popText('ぴかぴか！', C.x, C.y - C.cs * 0.6, '#29b6f6', 50); }
+    }
+    else if (car.st === 'happy') { if (Math.random() < dt * 8) sparkle.push({ x: car.x + rand(-0.4, 0.4) * C.cs, y: C.y + rand(-0.25, 0.2) * C.cs, life: 0.8 }); if (car.t > 2.6) { car.st = 'out'; Sfx.tone(140, 0.5, 'sawtooth', 0.05, 0, 300); } }
+    else if (car.st === 'out') { car.x += (150 + car.t * 200) * dt; if (car.x > W + C.cs) { car = null; setTimeout(newCar, 500); } }
+  }
+  // そうちが うごく
+  if (pass) {
+    pass.t += dt;
+    const u = pass.t / 1.6, px = C.x - C.cs * 0.7 + u * C.cs * 1.4;
+    if (pass.kind === 'brush') { scrubCol(px, C.cs * 0.14, dt * 2.4); if (Math.random() < dt * 30) foam.push({ x: px + rand(-20, 20), y: C.y + rand(-0.25, 0.25) * C.cs, r: rand(8, 18), stick: true, life: 1 }); }
+    else { scrubCol(px, C.cs * 0.16, dt * 3); for (let i = 0; i < 3; i++) drops.push({ x: px + rand(-30, 30), y: C.y - C.cs * 0.55, vy: rand(300, 500), life: 1 }); for (const f of foam) if (f.stick && Math.abs(f.x - px) < C.cs * 0.15) { f.stick = false; f.vy = 0; } }
+    if (u >= 1) pass = null;
+  }
+  for (const f of foam) if (!f.stick) { f.vy = (f.vy || 0) + 500 * dt; f.y += f.vy * dt; f.life -= dt; }
+  foam = foam.filter(f => f.life > 0 && f.y < H + 20);
+  if (foam.length > 260) foam.splice(0, foam.length - 260);
+  for (const d of drops) { d.y += d.vy * dt; d.life -= dt; }
+  drops = drops.filter(d => d.life > 0 && d.y < H);
+  for (const s of sparkle) s.life -= dt;
+  sparkle = sparkle.filter(s => s.life > 0);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#9aa6b3'; ctx.fillRect(0, C.y + C.cs * 0.32, W, H);
+  ctx.fillStyle = '#ffd400'; for (let x = 0; x < W; x += 50) ctx.fillRect(x, C.y + C.cs * 0.32, 25, 6);
+  // わく
+  ctx.fillStyle = '#ff7b00'; ctx.fillRect(C.x - C.cs * 0.8, C.y - C.cs * 0.62, C.cs * 1.6, 16);
+  ctx.fillRect(C.x - C.cs * 0.8, C.y - C.cs * 0.62, 14, C.cs * 0.95); ctx.fillRect(C.x + C.cs * 0.8 - 14, C.y - C.cs * 0.62, 14, C.cs * 0.95);
+  if (car) {
+    const s = C.cs, half = oc.width / dpr / 2;
+    ox.setTransform(dpr, 0, 0, dpr, 0, 0); ox.clearRect(0, 0, half * 2, half * 2);
+    ox.globalCompositeOperation = 'source-over';
+    ox.save(); ox.translate(half, half); ox.scale(-1, 1); ox.font = fontOf(s * 0.8); ox.textAlign = 'center'; ox.textBaseline = 'middle'; ox.fillText(car.e, 0, 0); ox.restore();
+    ox.globalCompositeOperation = 'source-atop';
+    for (const m of mud) if (m.a > 0) { ox.globalAlpha = Math.min(1, m.a); ox.fillStyle = m.c; ox.beginPath(); ox.ellipse(half + m.u * s, half + m.v * s, m.r * s, m.r * s * 0.75, m.rot, 0, 7); ox.fill(); }
+    ox.globalAlpha = 1; ox.globalCompositeOperation = 'source-over';
+    const y = C.y - Math.sin(car.hop * Math.PI) * 40 + (car.st === 'out' || car.st === 'in' ? Math.sin(t * 20) * 2 : 0);
+    ctx.drawImage(oc, car.x - half, y - half, half * 2, half * 2);
+  }
+  for (const f of foam) { ctx.fillStyle = `rgba(255,255,255,${Math.min(0.95, f.life)})`; ctx.strokeStyle = 'rgba(160,210,255,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 7); ctx.fill(); ctx.stroke(); }
+  if (pass) {
+    const u = pass.t / 1.6, px = C.x - C.cs * 0.7 + u * C.cs * 1.4;
+    if (pass.kind === 'brush') {
+      for (const k of [-1, 1]) { const bx = px + k * 14; for (let i = 0; i < 10; i++) { ctx.fillStyle = ['#ff4f7b', '#4fc3f7', '#ffd23f'][(i + Math.floor(t * 20)) % 3]; ctx.fillRect(bx - 16, C.y - C.cs * 0.5 + i * C.cs * 0.08, 32, C.cs * 0.07); } }
+    } else {
+      ctx.fillStyle = '#607d8b'; ctx.fillRect(px - 40, C.y - C.cs * 0.6, 80, 14);
+      ctx.fillStyle = 'rgba(90,170,255,.8)'; for (const d of drops) ctx.fillRect(d.x, d.y, 3, 12);
+    }
+  }
+  for (const s of sparkle) drawEmoji(ctx, '✨', s.x, s.y, 30 * s.life);
+  if (sponge && car && car.st === 'wash') drawEmoji(ctx, '🧽', sponge.x, sponge.y, 54);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

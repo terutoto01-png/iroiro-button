@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>はっぱジャンプ</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#cdeeff, #9fdcff 30%, #3fa9dc 31%, #1f7fb3); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #4caf50; --c2: #2e7031; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🐸</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// はっぱジャンプ: ボタンで カエルが つぎの はっぱへ ぴょん（どこまでも すすむ）。たまに すべって ぼちゃん → すぐ もどる。
+// とんでいる むしを さわると、したを のばして ぱくっ。みずを さわると ぽちゃん、ときどき さかなが はねる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+let GAP, baseY, frog = { i: 0, jump: null, fall: 0, belly: 0 }, cam = 0, bugs = [], tongue = null, ripples = [], fishes = [], eaten = 0, deco = [];
+function layout() { GAP = Math.min(W * 0.32, 190); baseY = H * 0.6; }
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+const padY = (i) => baseY + Math.sin(i * 1.7) * H * 0.06;
+const padX = (i) => i * GAP;
+const frogPos = () => {
+  if (frog.jump) { const u = frog.jump.u, a = frog.jump.from, b = frog.jump.to; return { x: padX(a) + (padX(b) - padX(a)) * u, y: padY(a) + (padY(b) - padY(a)) * u - Math.sin(u * Math.PI) * 110 - 26 }; }
+  return { x: padX(frog.i), y: padY(frog.i) - 26 + (frog.fall > 0 ? 40 : 0) };
+};
+
+btn.addEventListener('pointerdown', () => {
+  if (frog.jump || frog.fall > 0) return;
+  frog.jump = { from: frog.i, to: frog.i + 1, u: 0, slip: Math.random() < 0.12 && frog.i > 1 };
+  Sfx.tone(300, 0.2, 'sine', 0.15, 0, 900);
+});
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  if (!tongue && !frog.jump && frog.fall <= 0) for (const b of bugs) if (Math.hypot(b.x - x, b.y - y) < 46) { tongue = { b, t: 0 }; Sfx.tone(900, 0.12, 'sine', 0.12, 0, 300); return; }
+  if (y > H * 0.31) {
+    ripples.push({ x: x + cam, y, r: 4, life: 1 }); Sfx.tone(rand(500, 700), 0.1, 'sine', 0.1, 0, 200);
+    if (Math.random() < 0.35) fishes.push({ x: x + cam, y, t: 0, dir: Math.random() < 0.5 ? -1 : 1 });
+  }
+});
+function newBug() { return { e: pick(['🦋', '🪰', '🐝', '🦋', '🐞']), x: rand(40, W - 40), y: rand(100, H * 0.42), a: rand(0, 6), sp: rand(0.8, 1.6), t: 0 }; }
+for (let i = 0; i < 3; i++) bugs.push(newBug());
+for (let i = 0; i < 30; i++) deco.push({ i: i + rand(0.3, 0.7), e: pick(['🪷', '🌿', '🪷', '🌾']), dy: rand(-0.12, 0.25) });
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  if (frog.jump) {
+    frog.jump.u += dt / 0.5;
+    if (frog.jump.u >= 1) {
+      const j = frog.jump; frog.jump = null; frog.i = j.to;
+      if (j.slip) { frog.fall = 1.3; Sfx.noise(0.4, 0.25, 1200); popText('ぼちゃん！', W * 0.3, padY(frog.i) - 90, '#fff', 40); for (let k = 0; k < 3; k++) ripples.push({ x: padX(frog.i), y: padY(frog.i), r: 10 + k * 14, life: 1 }); }
+      else { Sfx.tone(180, 0.1, 'sine', 0.2); ripples.push({ x: padX(frog.i), y: padY(frog.i) + 6, r: 20, life: 0.8 }); }
+      if (frog.i % 10 === 0 && !j.slip) { Sfx.chime(); popText('すごい！', W * 0.5, H * 0.25, '#2e7031', 44); }
+    }
+  }
+  if (frog.fall > 0) { frog.fall -= dt; if (frog.fall <= 0) { Sfx.tone(400, 0.15, 'sine', 0.12, 0, 700); popText('よいしょ', W * 0.3, padY(frog.i) - 90, '#fff', 32); } }
+  frog.belly = Math.max(0, frog.belly - dt * 0.5);
+  cam += (padX(frog.i) - W * 0.3 - cam) * Math.min(1, dt * 3);
+  for (const b of bugs) { if (tongue && tongue.b === b && tongue.t > 0.12) continue; b.t += dt; b.a += dt * b.sp; b.x += Math.cos(b.a) * 70 * dt; b.y += Math.sin(b.a * 1.7) * 50 * dt; b.x = Math.max(20, Math.min(W - 20, b.x)); b.y = Math.max(90, Math.min(H * 0.45, b.y)); }
+  if (tongue) {
+    tongue.t += dt;
+    if (tongue.t > 0.3 && !tongue.done) {
+      tongue.done = true; bugs = bugs.filter(b => b !== tongue.b); eaten++;
+      Sfx.tone(200, 0.1, 'square', 0.06); popText('ぱくっ', frogPos().x - cam, frogPos().y - 60, '#2e7031', 34);
+      if (eaten % 5 === 0) { frog.belly = 1; setTimeout(() => { Sfx.tone(120, 0.35, 'sawtooth', 0.08, 0, 80); popText('げっぷ', W * 0.3, H * 0.3, '#2e7031', 36); }, 500); }
+      setTimeout(() => bugs.push(newBug()), 1500);
+    }
+    if (tongue.t > 0.45) tongue = null;
+  }
+  for (const r of ripples) { r.r += 40 * dt; r.life -= dt; }
+  ripples = ripples.filter(r => r.life > 0);
+  for (const f of fishes) f.t += dt;
+  fishes = fishes.filter(f => f.t < 1);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const i0 = Math.floor(cam / GAP) - 1, i1 = Math.ceil((cam + W) / GAP) + 1;
+  for (const d of deco) { const x = (d.i % 30) * GAP; for (let k = Math.floor(cam / (30 * GAP)) * 30 * GAP; k < cam + W + 30 * GAP; k += 30 * GAP) { const sx = x + k - cam; if (sx > -40 && sx < W + 40) drawEmoji(ctx, d.e, sx, baseY + d.dy * H, 32); } }
+  for (const r of ripples) { ctx.strokeStyle = `rgba(255,255,255,${r.life * 0.8})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(r.x - cam, r.y, r.r, r.r * 0.35, 0, 0, 7); ctx.stroke(); }
+  for (let i = Math.max(0, i0); i <= i1; i++) {
+    const x = padX(i) - cam, y = padY(i), r = Math.min(56, GAP * 0.33);
+    ctx.fillStyle = '#3f9a3a'; ctx.beginPath(); ctx.ellipse(x, y + 4, r, r * 0.4, 0, 0.3, Math.PI * 2 - 0.1); ctx.lineTo(x, y + 4); ctx.fill();
+    ctx.fillStyle = '#5cc25a'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.38, 0, 0.3, Math.PI * 2 - 0.1); ctx.lineTo(x, y); ctx.fill();
+  }
+  for (const f of fishes) { const u = f.t; ctx.save(); ctx.translate(f.x - cam + f.dir * u * 60, f.y - Math.sin(u * Math.PI) * 80); ctx.rotate(f.dir * (u - 0.5) * 2); if (f.dir > 0) ctx.scale(-1, 1); drawEmoji(ctx, '🐟', 0, 0, 36); ctx.restore(); }
+  // カエル
+  const p = frogPos(), fx = p.x - cam;
+  if (tongue) {
+    const k = tongue.t < 0.15 ? tongue.t / 0.15 : Math.max(0, 1 - (tongue.t - 0.15) / 0.3), bx = tongue.b.x, by = tongue.b.y;
+    ctx.strokeStyle = '#ff6b8a'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(fx, p.y + 4); ctx.lineTo(fx + (bx - fx) * k, p.y + 4 + (by - p.y - 4) * k); ctx.stroke();
+    if (tongue.t > 0.15) { tongue.b.x = fx + (bx - fx) * k; tongue.b.y = p.y + 4 + (by - p.y - 4) * k; }
+  }
+  if (frog.fall > 0) { ctx.save(); ctx.beginPath(); ctx.rect(fx - 60, p.y - 80, 120, 80); ctx.clip(); drawEmoji(ctx, '🐸', fx, p.y + Math.sin(t * 10) * 4, 60); ctx.restore(); }
+  else { const s = 60 * (1 + frog.belly * 0.35), sq = frog.jump ? 1 : 1 + Math.sin(t * 3) * 0.03; ctx.save(); ctx.translate(fx, p.y); ctx.scale(1, sq); drawEmoji(ctx, '🐸', 0, 0, s); ctx.restore(); }
+  for (const b of bugs) { ctx.save(); ctx.translate(b.x, b.y); if (Math.cos(b.a) > 0) ctx.scale(-1, 1); drawEmoji(ctx, b.e, 0, 0, 36); ctx.restore(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

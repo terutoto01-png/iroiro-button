@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ボウリング</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: #3a2a4f; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #7c5cff; --c2: #4b2fc4; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🎳</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// ボウリング: ボールを ゆびで うえへ はじいて ピンを たおす（ボタンでも まっすぐ ころがる）。
+// 2かい なげたら ならべなおし。ぜんぶ たおすと ピンが おどりだす。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+let L, ball, pins = [], throwN = 0, phase = 'ready', pt = 0, flick = null, dance = 0, sparks = [];
+
+function layout() {
+  const lw = Math.min(W * 0.66, 340);
+  L = { x: W / 2, w: lw, top: 70, bot: H - 20, ps: lw / 5.2 };
+  L.pr = L.ps * 0.3; L.br = L.ps * 0.42; L.start = { x: W / 2, y: H - Math.max(170, L.br + 150) };
+}
+function rack() {
+  pins = [];
+  const hy = L.top + 60 + L.ps * 3;
+  for (let r = 0; r < 4; r++) for (let i = 0; i <= r; i++) pins.push({ x: L.x + (i - r / 2) * L.ps, y: hy - r * L.ps * 0.9, vx: 0, vy: 0, down: false, rot: 0, hx: 0, hy: 0 });
+  pins.forEach(p => { p.hx = p.x; p.hy = p.y; });
+}
+function newBall() { ball = { x: L.start.x, y: L.start.y, vx: 0, vy: 0, roll: false, spin: 0 }; phase = 'ready'; }
+layout(); rack(); newBall();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); rack(); newBall(); throwN = 0; });
+
+function roll(vx, vy) {
+  if (phase !== 'ready') return;
+  ball.vx = vx; ball.vy = vy; ball.roll = true; phase = 'roll'; pt = 0; throwN++;
+  Sfx.noise(1.5, 0.08, 300);
+}
+btn.addEventListener('pointerdown', () => { const head = pins[0]; roll((head.x + pick([-1, 1]) * L.ps * 0.22 - ball.x) * 0.55 + rand(-25, 25), -650); });
+cv.addEventListener('pointerdown', (e) => {
+  if (phase !== 'ready') return;
+  if (Math.hypot(e.clientX - ball.x, e.clientY - ball.y) < L.br + 50) { try { cv.setPointerCapture(e.pointerId); } catch (err) {} flick = { id: e.pointerId, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }] }; }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!flick || flick.id !== e.pointerId) return;
+  flick.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (flick.hist.length > 8) flick.hist.shift();
+  ball.x = Math.max(L.x - L.w / 2 + L.br, Math.min(L.x + L.w / 2 - L.br, e.clientX)); ball.y = Math.max(L.start.y - 60, Math.min(L.start.y + 40, e.clientY));
+});
+const release = (e) => {
+  if (!flick || flick.id !== e.pointerId) return;
+  const h = flick.hist, a = h[0], b = h[h.length - 1], dtm = Math.max(16, b.t - a.t) / 1000; flick = null;
+  let vx = (b.x - a.x) / dtm, vy = (b.y - a.y) / dtm;
+  if (vy > -150) { ball.x = L.start.x; ball.y = L.start.y; return; } // うえに はじいて いない
+  const sp = Math.hypot(vx, vy), k = Math.min(1, 1100 / sp); vx *= k; vy *= k; if (vy > -380) { vx *= -380 / vy; vy = -380; }
+  roll(vx, vy);
+};
+cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+
+function collide(a, ra, ma, b, rb, mb) {
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+  if (d >= ra + rb || d === 0) return false;
+  const nx = dx / d, ny = dy / d, ov = ra + rb - d;
+  a.x -= nx * ov * mb / (ma + mb); a.y -= ny * ov * mb / (ma + mb); b.x += nx * ov * ma / (ma + mb); b.y += ny * ov * ma / (ma + mb);
+  const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+  if (rv > 0) return false;
+  const j = -(1.8) * rv / (1 / ma + 1 / mb);
+  a.vx -= j * nx / ma; a.vy -= j * ny / ma; b.vx += j * nx / mb; b.vy += j * ny / mb;
+  return true;
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.02, (now - last) / 1000), t = now / 1000; last = now;
+  pt += dt;
+  if (ball.roll) {
+    ball.x += ball.vx * dt; ball.y += ball.vy * dt; ball.spin += Math.hypot(ball.vx, ball.vy) * dt * 0.05;
+    const gutter = Math.abs(ball.x - L.x) > L.w / 2 - L.br * 0.6;
+    if (gutter) { ball.x = L.x + Math.sign(ball.x - L.x) * (L.w / 2 + L.br * 0.3); ball.vx = 0; }
+    if (!gutter) for (const p of pins) if (collide(ball, L.br, 5, p, L.pr, 1)) { Sfx.tone(rand(700, 1000), 0.1, 'triangle', 0.15); Sfx.noise(0.12, 0.2, 2500); }
+    if (ball.y < L.top - 40) ball.roll = false;
+  }
+  for (const p of pins) {
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    const f = Math.pow(0.12, dt); p.vx *= f; p.vy *= f;
+    if (Math.hypot(p.vx, p.vy) > 22 && !p.down) { p.down = true; p.rot = Math.atan2(p.vy, p.vx); }
+  }
+  for (let i = 0; i < pins.length; i++) for (let j = i + 1; j < pins.length; j++) if (collide(pins[i], L.pr, 1, pins[j], L.pr, 1)) Sfx.tone(rand(900, 1300), 0.06, 'triangle', 0.08);
+  const still = pins.every(p => Math.hypot(p.vx, p.vy) < 6);
+  if (phase === 'roll' && !ball.roll && still && pt > 0.8) {
+    const all = pins.every(p => p.down);
+    if (all) { phase = 'dance'; pt = 0; dance = 0; Sfx.yay(); setTimeout(() => Sfx.chime(), 300); popText(throwN === 1 ? 'ストライク！' : 'ぜんぶ！', W / 2, H * 0.4, '#ffd23f', 52); for (let i = 0; i < 50; i++) sparks.push({ x: L.x, y: L.top + 100, vx: rand(-300, 300), vy: rand(-400, 100), life: 1.4, hue: rand(0, 360) }); }
+    else if (throwN >= 2) { phase = 'reset'; pt = 0; }
+    else { phase = 'sweep'; pt = 0; }
+  }
+  if (phase === 'sweep' && pt > 0.9) { pins = pins.filter(p => !p.down); newBall(); }
+  if (phase === 'reset' && pt > 1.1) { rack(); newBall(); throwN = 0; Sfx.tone(400, 0.2, 'sine', 0.08, 0, 600); }
+  if (phase === 'dance') {
+    dance += dt;
+    pins.forEach((p, i) => { p.down = false; p.x += (p.hx - p.x) * dt * 3; p.y += (p.hy - p.y) * dt * 3; p.jump = Math.abs(Math.sin(dance * 6 + i)); });
+    if (Math.floor(dance * 4) !== Math.floor((dance - dt) * 4)) Sfx.tone([523, 659, 784, 659][Math.floor(dance * 4) % 4], 0.15, 'square', 0.05);
+    if (dance > 3.5) { pins.forEach(p => p.jump = 0); rack(); newBall(); throwN = 0; }
+  }
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 400 * dt; s.life -= dt; }
+  sparks = sparks.filter(s => s.life > 0);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // レーン
+  ctx.fillStyle = '#5a4870'; ctx.fillRect(L.x - L.w / 2 - L.br * 1.4, L.top - 20, L.w + L.br * 2.8, H);
+  const g = ctx.createLinearGradient(L.x - L.w / 2, 0, L.x + L.w / 2, 0);
+  g.addColorStop(0, '#e9c48f'); g.addColorStop(0.5, '#f6dcb0'); g.addColorStop(1, '#e9c48f');
+  ctx.fillStyle = g; ctx.fillRect(L.x - L.w / 2, L.top - 20, L.w, H);
+  ctx.strokeStyle = 'rgba(160,110,60,.25)'; ctx.lineWidth = 1;
+  for (let x = L.x - L.w / 2; x < L.x + L.w / 2; x += L.w / 12) { ctx.beginPath(); ctx.moveTo(x, L.top - 20); ctx.lineTo(x, H); ctx.stroke(); }
+  ctx.fillStyle = '#7c5cff'; for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(L.x + i * L.w / 7, L.start.y - 120); ctx.lineTo(L.x + i * L.w / 7 - 8, L.start.y - 100); ctx.lineTo(L.x + i * L.w / 7 + 8, L.start.y - 100); ctx.fill(); }
+  // ピン
+  for (const p of pins) {
+    const jy = (p.jump || 0) * 24;
+    if (p.down) {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(0, 0, L.pr * 2, L.pr * 0.8, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#e8394a'; ctx.fillRect(L.pr * 0.6, -L.pr * 0.75, L.pr * 0.3, L.pr * 1.5);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(p.x + 3, p.y + 4, L.pr, L.pr * 0.8, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(p.x, p.y - jy, L.pr, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#e8394a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(p.x, p.y - jy, L.pr * 0.62, 0, 7); ctx.stroke();
+      if (phase === 'dance') { ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(p.x - 4, p.y - jy - 2, 2, 0, 7); ctx.arc(p.x + 4, p.y - jy - 2, 2, 0, 7); ctx.fill(); }
+    }
+  }
+  // ボール
+  const rg = ctx.createRadialGradient(ball.x - L.br * 0.3, ball.y - L.br * 0.3, 2, ball.x, ball.y, L.br);
+  rg.addColorStop(0, '#9fb4ff'); rg.addColorStop(1, '#2f3fb8');
+  ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(ball.x, ball.y, L.br, 0, 7); ctx.fill();
+  ctx.fillStyle = '#1a2266'; for (let k = 0; k < 3; k++) { const a = ball.spin + k * 0.7; ctx.beginPath(); ctx.arc(ball.x + Math.cos(a) * L.br * 0.4, ball.y - L.br * 0.3 + Math.sin(a) * L.br * 0.15, L.br * 0.12, 0, 7); ctx.fill(); }
+  if (phase === 'ready' && !flick) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 4); drawEmoji(ctx, '👆', ball.x + L.br + 26, ball.y + 10, 36); ctx.globalAlpha = 1; }
+  for (const s of sparks) { ctx.fillStyle = `hsla(${s.hue},90%,60%,${s.life})`; ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, 7); ctx.fill(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

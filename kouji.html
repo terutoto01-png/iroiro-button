@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>こうじげんば</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#9fdcff, #e4f6ff 55%); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ffb300; --c2: #b87d00; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚧</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// こうじげんば: ボタンを おすたびに じゅんばんに はたらく。🚜 で でこぼこを たいらに → 🚚 で じゃり → ローラーで アスファルト → しろい せん。
+// みちが できたら くるまが とおる（ボタンで もっと くる）。くるまを さわると ぷっぷー、コーンを さわると ころん。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const COL = 8, CARS = ['🚗', '🚕', '🚙', '🚌', '🚓', '🚑', '🚒', '🛻'];
+let road, cols = [], stage = 0, worker = null, cars = [], dust = [], cones = [], passed = 0, dirty = 0;
+
+function layout() {
+  road = { y: H * 0.52, h: Math.min(150, H * 0.2) };
+  const n = Math.ceil(W / COL) + 1;
+  while (cols.length < n) cols.push({ s: cols.length ? cols[0].s : 0, bump: rand(4, 26), line: false });
+  cones = [{ x: 40, y: road.y - road.h / 2 - 26, rot: 0, rv: 0 }, { x: W - 150, y: road.y + road.h / 2 + 30, rot: 0, rv: 0 }];
+}
+function reset() { cols = []; stage = 0; passed = 0; layout(); for (const c of cols) { c.s = 0; c.bump = rand(4, 26) * (0.5 + 0.5 * Math.sin(Math.random() * 6)); } }
+reset();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+
+const JOBS = [
+  { e: '🚜', from: 0, to: 1, sound: () => Sfx.noise(0.5, 0.12, 400) },
+  { e: '🚚', from: 1, to: 2, sound: () => Sfx.noise(0.4, 0.15, 1800) },
+  { e: 'roller', from: 2, to: 3, sound: () => Sfx.tone(90, 0.4, 'sawtooth', 0.06) },
+  { e: 'paint', from: 3, to: 4, sound: () => Sfx.noise(0.2, 0.05, 4000, 0, 'highpass') },
+];
+function engine() { Sfx.tone(110, 0.3, 'sawtooth', 0.05); Sfx.tone(130, 0.3, 'sawtooth', 0.04, 0.15); }
+function honk(x) { Sfx.tone(440, 0.15, 'square', 0.07); Sfx.tone(440, 0.2, 'square', 0.07, 0.2); popText('ぷっぷー', x, road.y - road.h, '#fff', 30); }
+
+btn.addEventListener('pointerdown', () => {
+  if (stage < 4) { if (!worker) { worker = { job: JOBS[stage], x: -80, sndT: 0 }; engine(); } return; }
+  cars.push(newCar()); honk(60);
+});
+function newCar() { const dir = Math.random() < 0.5 ? 1 : -1; return { e: pick(CARS), dir, x: dir > 0 ? -60 : W + 60, lane: dir > 0 ? 0.25 : -0.25, v: rand(150, 240), hop: 0 }; }
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  for (const c of cars) if (Math.hypot(c.x - x, road.y + c.lane * road.h - 10 - y) < 45) { c.hop = 1; honk(c.x); return; }
+  for (const c of cones) if (Math.hypot(c.x - x, c.y - y) < 40) { c.rv = (x < c.x ? 1 : -1) * 9; Sfx.tone(600, 0.1, 'triangle', 0.1, 0, 300); return; }
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  if (worker) {
+    const j = worker.job, sp = j.e === 'paint' ? 220 : 160;
+    worker.x += sp * dt; worker.sndT -= dt;
+    if (worker.sndT < 0) { worker.sndT = 0.35; j.sound(); }
+    const ci = Math.floor(worker.x / COL);
+    for (let i = 0; i <= ci && i < cols.length; i++) if (i >= 0 && cols[i].s === j.from) { cols[i].s = j.to; if (Math.random() < 0.3) dust.push({ x: i * COL, y: road.y + rand(-road.h / 2, road.h / 2), r: rand(6, 14), life: 1, c: j.to === 2 ? '#bbb' : '#c9a37a' }); }
+    if (worker.x > W + 120) { worker = null; stage++; Sfx.chime(); if (stage === 4) { Sfx.yay(); popText('みち できた！', W / 2, road.y - road.h, '#ff7b00', 44); for (let i = 0; i < 3; i++) setTimeout(() => cars.push(newCar()), i * 700); } }
+  }
+  for (const c of cars) { c.x += c.dir * c.v * dt; c.hop = Math.max(0, c.hop - dt * 2.5); if ((c.dir > 0 && c.x > W + 80) || (c.dir < 0 && c.x < -80)) { c.done = true; passed++; } }
+  cars = cars.filter(c => !c.done);
+  if (stage === 4 && Math.random() < dt * 0.4 && cars.length < 4) cars.push(newCar());
+  // たくさん とおったら また こうじ
+  if (stage === 4 && passed >= 14 && !cars.length) { for (let i = 0; i < 40; i++) dust.push({ x: rand(0, W), y: road.y + rand(-road.h / 2, road.h / 2), r: rand(10, 26), life: 1.5, c: '#c9a37a' }); reset(); Sfx.noise(1, 0.2, 500); }
+  for (const d of dust) { d.y -= 20 * dt; d.r += 10 * dt; d.life -= dt; }
+  dust = dust.filter(d => d.life > 0);
+  for (const c of cones) { c.rv += -c.rot * 30 * dt - c.rv * 3 * dt; c.rot += c.rv * dt; }
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function roller(x, y) {
+  ctx.fillStyle = '#ffcc00'; ctx.fillRect(x - 46, y - 52, 70, 34);
+  ctx.fillStyle = '#333'; ctx.fillRect(x - 40, y - 74, 6, 24); ctx.fillStyle = '#e8394a'; ctx.fillRect(x - 46, y - 78, 40, 8);
+  ctx.fillStyle = '#777'; ctx.beginPath(); ctx.arc(x + 30, y - 22, 24, 0, 7); ctx.fill(); ctx.fillStyle = '#999'; ctx.fillRect(x + 6, y - 46, 48, 48);
+  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(x - 30, y - 14, 15, 0, 7); ctx.fill();
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#8bc34a'; ctx.fillRect(0, road.y - road.h / 2 - 50, W, H);
+  // みち（れつ ごとに）
+  const top = road.y - road.h / 2;
+  cols.forEach((c, i) => {
+    const x = i * COL;
+    if (c.s === 0) { ctx.fillStyle = '#a0754a'; ctx.fillRect(x, top - c.bump, COL + 1, road.h + c.bump); ctx.fillStyle = '#8a6239'; ctx.fillRect(x, top + road.h * 0.3 + Math.sin(i) * 8, COL + 1, 6); }
+    else if (c.s === 1) { ctx.fillStyle = '#b8895a'; ctx.fillRect(x, top, COL + 1, road.h); }
+    else if (c.s === 2) { ctx.fillStyle = '#a9a9a9'; ctx.fillRect(x, top, COL + 1, road.h); ctx.fillStyle = '#888'; for (let k = 0; k < 4; k++) ctx.fillRect(x + (k * 5 + i * 3) % COL, top + ((k * 37 + i * 17) % road.h), 3, 3); }
+    else { ctx.fillStyle = '#4a4d55'; ctx.fillRect(x, top, COL + 1, road.h); if (c.s === 4 && Math.floor(x / 32) % 2 === 0) { ctx.fillStyle = '#fff'; ctx.fillRect(x, road.y - 3, COL + 1, 6); } }
+  });
+  for (const c of cones) { ctx.save(); ctx.translate(c.x, c.y + 20); ctx.rotate(c.rot); drawEmoji(ctx, '🚧', 0, -20, 40); ctx.restore(); }
+  for (const d of dust) { ctx.globalAlpha = Math.min(0.8, d.life); ctx.fillStyle = d.c; ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+  // はたらく くるま
+  if (worker) {
+    const j = worker.job, y = road.y + 10 + Math.sin(t * 20) * 2;
+    if (j.e === 'roller') roller(worker.x, y);
+    else if (j.e === 'paint') { ctx.fillStyle = '#ff7b00'; ctx.fillRect(worker.x - 30, road.y - 30, 44, 26); ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(worker.x - 20, road.y, 9, 0, 7); ctx.arc(worker.x + 4, road.y, 9, 0, 7); ctx.fill(); drawEmoji(ctx, '👷', worker.x - 8, road.y - 50, 36); }
+    else { ctx.save(); ctx.translate(worker.x, y - 30); ctx.scale(-1, 1); drawEmoji(ctx, j.e, 0, 0, 90); ctx.restore(); }
+  } else if (stage < 4) {
+    // つぎに くる くるまが まっている
+    const e = JOBS[stage].e;
+    drawEmoji(ctx, '👷', 34, road.y - road.h / 2 - 70 + Math.abs(Math.sin(t * 3)) * -6, 40);
+    if (Math.sin(t * 2) > 0) drawEmoji(ctx, '💬', 64, road.y - road.h / 2 - 104, 28);
+  }
+  for (const c of cars) { ctx.save(); ctx.translate(c.x, road.y + c.lane * road.h - 14 - Math.sin(c.hop * Math.PI) * 30); if (c.dir > 0) ctx.scale(-1, 1); drawEmoji(ctx, c.e, 0, 0, 60); ctx.restore(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

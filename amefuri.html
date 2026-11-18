@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>あめふり</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: #8aa4bd; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #5b8cff; --c2: #2f55b8; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">☔</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// あめふり: そらを さわると かさが ぱっと ひらいて、あめが ぽつぽつ はねる。みずたまりを さわると ぱしゃっ（🐸 が ぴょん）。
+// ボタンで あめが やんで おひさま と にじ。🐌 が のそのそ あるく（さわると からに かくれる）。もういちど おすと また あめ。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const CAN = [['#ff4f7b', '#ffd0dc'], ['#ffd23f', '#fff3b8'], ['#4fc3f7', '#d6f1ff'], ['#66bb44', '#dff5d0'], ['#9b5cff', '#e6dbff']];
+let raining = true, wet = 1, drops = [], umbs = [], splashes = [], puddles = [], frog = { p: 0, jump: 0 }, snail = null, rainT = 0, flowers = [];
+
+function layout() {
+  const gy = H - 70;
+  puddles = [{ x: W * 0.22, y: gy + 26, rx: Math.min(90, W * 0.18) }, { x: W * (W < 600 ? 0.5 : 0.6), y: gy + 34, rx: Math.min(110, W * 0.17) }];
+  flowers = []; for (let i = 0; i < 7; i++) flowers.push({ x: (i + 0.5) * W / 7 + rand(-10, 10) });
+}
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+for (let i = 0; i < 160; i++) drops.push({ x: rand(0, W), y: rand(-H, H), v: rand(500, 750) });
+
+btn.addEventListener('pointerdown', () => {
+  raining = !raining;
+  if (!raining) { Sfx.chime(); popText('はれた！', W / 2, H * 0.3, '#ff9f1c', 48); if (!snail) snail = { x: -40, hide: 0 }; }
+  else { Sfx.noise(1.2, 0.12, 200); popText('ぽつぽつ', W / 2, H * 0.3, '#fff', 40); }
+});
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  if (snail && Math.hypot(snail.x - x, H - 86 - y) < 40) { snail.hide = 2.2; Sfx.tone(500, 0.12, 'sine', 0.1, 0, 300); return; }
+  for (const p of puddles) if (Math.abs(x - p.x) < p.rx && Math.abs(y - p.y) < 40) {
+    for (let i = 0; i < 18; i++) splashes.push({ x: x + rand(-20, 20), y: p.y, vx: rand(-160, 160), vy: rand(-380, -160), life: 0.9, big: true });
+    Sfx.noise(0.3, 0.25, 1600); popText('ぱしゃっ', x, p.y - 70, '#fff', 34);
+    if (p === puddles[1]) frog.jump = 1;
+    return;
+  }
+  if (y < H - 90) {
+    if (umbs.length >= 5) umbs[0].away = true;
+    umbs.push({ x, y, open: 0, c: pick(CAN), t: 0, away: false, vx: 0, vy: 0, spin: 0 });
+    Sfx.tone(300, 0.15, 'sine', 0.12, 0, 700); Sfx.noise(0.15, 0.1, 2500, 0, 'highpass');
+  }
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  wet += ((raining ? 1 : 0) - wet) * Math.min(1, dt * 0.8);
+  if (raining) { rainT -= dt; if (rainT < 0) { rainT = 0.9; Sfx.noise(1, 0.035 * wet, 5000, 0, 'highpass'); } }
+  for (const d of drops) {
+    d.y += d.v * dt; d.x -= 40 * dt;
+    let hit = false;
+    for (const u of umbs) if (u.open > 0.6 && !u.away) { const r = 60 * u.open; if (Math.abs(d.x - u.x) < r && d.y > u.y - 10 && d.y < u.y + 8 && Math.hypot(d.x - u.x, (d.y - u.y) * 1.6) < r + 6) { hit = true; if (Math.random() < 0.4) splashes.push({ x: d.x, y: d.y, vx: (d.x - u.x) * 2 + rand(-30, 30), vy: rand(-150, -60), life: 0.4 }); if (Math.random() < 0.03) Sfx.tone(rand(1400, 2200), 0.03, 'sine', 0.03); } }
+    if (hit || d.y > H - 70 + rand(0, 60)) {
+      if (!hit && Math.random() < 0.15) splashes.push({ x: d.x, y: d.y, vx: rand(-40, 40), vy: rand(-90, -30), life: 0.3 });
+      if (raining) { d.y = rand(-80, -10); d.x = rand(0, W + 60); } else d.y = H + 999;
+    }
+  }
+  if (raining) for (const d of drops) if (d.y > H + 500) { d.y = rand(-H, 0); d.x = rand(0, W + 60); }
+  for (const u of umbs) {
+    u.t += dt; u.open = Math.min(1, u.open + dt * 4);
+    if (u.t > 8 && !u.away) u.away = true;
+    if (u.away) { u.vy -= 300 * dt; u.vx += 60 * dt; u.x += u.vx * dt; u.y += u.vy * dt; u.spin += dt * 3; }
+  }
+  umbs = umbs.filter(u => u.y > -150);
+  for (const s of splashes) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 900 * dt; s.life -= dt; }
+  splashes = splashes.filter(s => s.life > 0);
+  frog.jump = Math.max(0, frog.jump - dt * 1.6);
+  if (frog.jump > 0.95 && !frog.snd) { frog.snd = true; Sfx.tone(140, 0.15, 'square', 0.08, 0, 110); Sfx.tone(140, 0.15, 'square', 0.08, 0.2, 110); }
+  if (frog.jump === 0) frog.snd = false;
+  if (snail) { snail.hide = Math.max(0, snail.hide - dt); if (!snail.hide) snail.x += 14 * dt; if (snail.x > W + 40) snail = raining ? null : { x: -40, hide: 0 }; }
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function umbrella(u) {
+  const r = 60 * u.open;
+  ctx.save(); ctx.translate(u.x, u.y); ctx.rotate(u.spin + Math.sin(u.t * 2) * 0.05);
+  ctx.strokeStyle = '#6b3f1d'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(0, -r * 0.1); ctx.lineTo(0, 60); ctx.arc(-8, 60, 8, 0, Math.PI); ctx.stroke();
+  const n = 6;
+  for (let i = 0; i < n; i++) {
+    const a0 = Math.PI + i * Math.PI / n, a1 = a0 + Math.PI / n;
+    ctx.fillStyle = u.c[i % 2]; ctx.beginPath(); ctx.moveTo(0, -r * 0.55);
+    ctx.lineTo(Math.cos(a0) * r, Math.sin(a0) * r * 0.55 + 6); ctx.quadraticCurveTo(Math.cos((a0 + a1) / 2) * r * 0.9, Math.sin((a0 + a1) / 2) * r * 0.5 + 14, Math.cos(a1) * r, Math.sin(a1) * r * 0.55 + 6);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = '#6b3f1d'; ctx.beginPath(); ctx.arc(0, -r * 0.58, 4, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sun = 1 - wet;
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, `rgb(${Math.round(110 + 33 * sun)},${Math.round(130 + 81 * sun)},${Math.round(155 + 100 * sun)})`); g.addColorStop(1, `rgb(${Math.round(170 + 60 * sun)},${Math.round(185 + 60 * sun)},${Math.round(200 + 55 * sun)})`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (sun > 0.05) {
+    ctx.globalAlpha = sun; drawEmoji(ctx, '☀️', W * 0.78, 130, 80);
+    for (let i = 0; i < 6; i++) { ctx.strokeStyle = ['#ff4d4d', '#ff9f1c', '#ffe14d', '#5fd35f', '#4fa8ff', '#9b5cff'][i]; ctx.globalAlpha = sun * 0.55; ctx.lineWidth = 11; ctx.beginPath(); ctx.arc(W * 0.42, H * 0.62, Math.min(W * 0.45, 420) - i * 11, Math.PI, 0); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+  // くも
+  for (let i = 0; i < 6; i++) { const x = (i / 5) * W + Math.sin(t * 0.2 + i) * 20 + sun * (i < 3 ? -W * 0.6 : W * 0.6), y = 70 + (i % 2) * 34; ctx.fillStyle = `rgba(${Math.round(150 + 100 * sun)},${Math.round(160 + 90 * sun)},${Math.round(175 + 80 * sun)},.95)`; for (const [dx, dy, r] of [[0, 0, 60], [-50, 14, 44], [50, 14, 46]]) { ctx.beginPath(); ctx.arc(x + dx, y + dy, r, 0, 7); ctx.fill(); } }
+  // じめん
+  ctx.fillStyle = '#7bb35a'; ctx.fillRect(0, H - 70, W, 70);
+  for (const f of flowers) { const open = sun; drawEmoji(ctx, open > 0.5 ? '🌷' : '🌱', f.x, H - 84, 30 + open * 8); }
+  for (const p of puddles) { ctx.fillStyle = `rgba(90,140,200,${0.35 + 0.5 * wet})`; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.rx * (0.5 + 0.5 * wet), 16 * (0.5 + 0.5 * wet), 0, 0, 7); ctx.fill(); }
+  const fp = puddles[1];
+  drawEmoji(ctx, '🐸', fp.x - fp.rx * 0.3, fp.y - 18 - Math.sin(frog.jump * Math.PI) * 90, 40);
+  if (snail) drawEmoji(ctx, snail.hide ? '🐚' : '🐌', snail.x, H - 86, 38);
+  // あめ
+  ctx.strokeStyle = 'rgba(220,235,255,.75)'; ctx.lineWidth = 2; ctx.beginPath();
+  for (const d of drops) if (d.y > -20 && d.y < H) { ctx.moveTo(d.x, d.y); ctx.lineTo(d.x + 4, d.y - 14); }
+  ctx.stroke();
+  for (const u of umbs) umbrella(u);
+  ctx.fillStyle = 'rgba(200,225,255,.9)';
+  for (const s of splashes) { ctx.beginPath(); ctx.arc(s.x, s.y, s.big ? 5 : 2.5, 0, 7); ctx.fill(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

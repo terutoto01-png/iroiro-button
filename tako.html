@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>たこあげ</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: #8fd3ff; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff5a5a; --c2: #c22f2f; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🪁</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// たこあげ: がめんを なぞると かぜが ふいて たこが あがる。ボタンは つよい かぜ。かぜが ないと すこしずつ さがる。
+// たかく なると とりの むれ、くもを ぬけて くもの うえ（にじ）、もっと うえは ひこうき と ほし。じっと していると とりが よってくる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const TOP = 3200;
+let alt = 0, altV = 0, kx = 0, ky = 0, tilt = 0, calm = 0, streaks = [], clouds = [], birds = [], lastP = null, reached = {};
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; });
+for (let i = 0; i < 26; i++) clouds.push({ a: rand(900, 1500), x: Math.random(), s: rand(60, 140) });
+for (let i = 0; i < 8; i++) clouds.push({ a: rand(200, 2800), x: Math.random(), s: rand(40, 80) });
+
+function gust(power) {
+  altV += power; calm = 0;
+  for (let i = 0; i < 6; i++) streaks.push({ x: rand(-100, W * 0.3), y: rand(H * 0.1, H * 0.8), len: rand(60, 140), life: 1 });
+}
+btn.addEventListener('pointerdown', () => { gust(260); Sfx.noise(0.8, 0.18, 800, 0, 'bandpass'); });
+cv.addEventListener('pointerdown', (e) => { lastP = { x: e.clientX, y: e.clientY, id: e.pointerId }; try { cv.setPointerCapture(e.pointerId); } catch (err) {} });
+cv.addEventListener('pointermove', (e) => {
+  if (!lastP || lastP.id !== e.pointerId) return;
+  const d = Math.hypot(e.clientX - lastP.x, e.clientY - lastP.y); lastP.x = e.clientX; lastP.y = e.clientY;
+  altV += Math.min(d, 60) * 1.4; calm = 0;
+  if (Math.random() < 0.15) { streaks.push({ x: e.clientX - 60, y: e.clientY, len: rand(40, 90), life: 0.8 }); Sfx.noise(0.2, 0.05, 900, 0, 'bandpass'); }
+});
+const up = (e) => { if (lastP && lastP.id === e.pointerId) lastP = null; };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+function skyColor(a) {
+  const k = Math.min(1, a / TOP);
+  const c0 = [143, 211, 255], c1 = [70, 140, 230], c2 = [25, 35, 95], m = k < 0.6 ? k / 0.6 : (k - 0.6) / 0.4, A = k < 0.6 ? c0 : c1, B = k < 0.6 ? c1 : c2;
+  return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * m)).join(',')})`;
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  calm += dt;
+  altV -= 120 * dt; altV *= Math.pow(0.4, dt);
+  alt = Math.max(0, Math.min(TOP, alt + altV * dt));
+  if (alt <= 0 && altV < 0) altV = 0;
+  if (alt >= TOP) altV = Math.min(altV, 0);
+  // たこの いち（たかい ほど がめんの うえの ほう）
+  const low = Math.min(1, alt / 300);
+  kx = W * 0.55 + Math.sin(t * 0.9) * W * 0.12; ky = H * (0.75 - 0.4 * low) + Math.sin(t * 1.7) * 14;
+  tilt = Math.sin(t * 1.3) * 0.25 + Math.min(0.4, altV / 600);
+  for (const k of [[1500, 'くものうえ！'], [2600, 'たかーい！']]) if (alt > k[0] && !reached[k[0]]) { reached[k[0]] = 1; popText(k[1], W / 2, H * 0.2, '#fff', 48); Sfx.chime(); }
+  if (alt < 1200) reached[1500] = 0;
+  if (alt < 2300) reached[2600] = 0;
+  for (const s of streaks) { s.x += 500 * dt; s.life -= dt; }
+  streaks = streaks.filter(s => s.life > 0);
+  // とり: じっと しているか、とりの たかさ に いると よってくる
+  const birdZone = alt > 250 && alt < 1300;
+  if ((calm > 2.5 || birdZone) && birds.length < 5 && Math.random() < dt * 1.2) birds.push({ x: Math.random() < 0.5 ? -40 : W + 40, y: rand(H * 0.1, H * 0.6), a: rand(0, 6), r: rand(50, 110), t: 0 });
+  for (const b of birds) {
+    b.t += dt; b.a += dt * 1.6;
+    const tx = kx + Math.cos(b.a) * b.r, ty = ky + Math.sin(b.a) * b.r * 0.6;
+    const leave = !(calm > 2.5 || birdZone) || b.t > 12;
+    if (leave) { b.x += (b.x < kx ? -1 : 1) * 260 * dt; b.y -= 40 * dt; } else { b.x += (tx - b.x) * dt * 1.5; b.y += (ty - b.y) * dt * 1.5; }
+    if (Math.random() < dt * 0.4) Sfx.tone(rand(1800, 2400), 0.08, 'sine', 0.05, 0, rand(2600, 3000));
+  }
+  birds = birds.filter(b => b.x > -80 && b.x < W + 80);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, skyColor(alt + H * 2)); g.addColorStop(1, skyColor(alt));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // ほし
+  if (alt > 2200) { ctx.fillStyle = `rgba(255,255,255,${Math.min(1, (alt - 2200) / 800)})`; for (let i = 0; i < 50; i++) ctx.fillRect((i * 97) % W, (i * 53) % (H * 0.7), 2, 2); }
+  // にじ と たいよう（くもの うえ）
+  const sy = (a) => ky + (alt - a); // その たかさ が がめんの どこか
+  if (alt > 1200) {
+    const ry = sy(1900) + H * 0.3;
+    for (let i = 0; i < 6; i++) { ctx.strokeStyle = ['#ff4d4d', '#ff9f1c', '#ffe14d', '#5fd35f', '#4fa8ff', '#9b5cff'][i]; ctx.globalAlpha = 0.6; ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(W * 0.4, ry, W * 0.5 - i * 12, Math.PI, 0); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+  drawEmoji(ctx, '☀️', W - 80, 120 + Math.max(0, 300 - alt * 0.2), 64);
+  if (alt > 1600 && alt < 3000) { const px = ((t * 60) % (W + 200)) - 100; drawEmoji(ctx, '✈️', W - px, sy(2200), 60); }
+  // くも
+  for (const c of clouds) { const y = sy(c.a); if (y < -150 || y > H + 150) continue; ctx.fillStyle = 'rgba(255,255,255,.92)'; const x = c.x * W; for (const [dx, dy, r] of [[0, 0, 1], [-0.6, 0.15, 0.7], [0.6, 0.15, 0.75], [0.25, -0.3, 0.6]]) { ctx.beginPath(); ctx.arc(x + dx * c.s, y + dy * c.s, r * c.s * 0.6, 0, 7); ctx.fill(); } }
+  // じめん と こども
+  const gy = H - 60 + alt;
+  if (gy < H + 10) {
+    ctx.fillStyle = '#7fcf6a'; ctx.fillRect(0, gy, W, H - gy + 10);
+    drawEmoji(ctx, '🌳', W * 0.85, gy - 30, 70); drawEmoji(ctx, '🌳', W * 0.08, gy - 24, 56);
+  }
+  const hx = W * 0.22, hy = gy - 30;
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(hx + 14, Math.min(hy - 10, H + 40)); ctx.quadraticCurveTo((hx + kx) / 2, Math.max(ky, Math.min(hy, H)) + 40, kx, ky + 30); ctx.stroke();
+  if (gy < H + 60) drawEmoji(ctx, '🧒', hx, hy, 56);
+  // かぜ
+  ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  for (const s of streaks) { ctx.globalAlpha = s.life; ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x + s.len, s.y - 4); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+  // たこ
+  ctx.save(); ctx.translate(kx, ky); ctx.rotate(tilt);
+  // しっぽ
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, 40);
+  const tail = [];
+  for (let i = 1; i <= 6; i++) { const x = Math.sin(t * 4 - i * 0.8) * 10 * i * 0.6, y = 40 + i * 18; tail.push([x, y]); ctx.lineTo(x, y); }
+  ctx.stroke();
+  tail.forEach(([x, y], i) => { ctx.fillStyle = ['#ff4d4d', '#ffd23f', '#4fa8ff'][i % 3]; ctx.beginPath(); ctx.moveTo(x - 8, y - 5); ctx.lineTo(x + 8, y + 5); ctx.lineTo(x + 8, y - 5); ctx.lineTo(x - 8, y + 5); ctx.fill(); });
+  const k = 44;
+  const parts = [['#ff4d4d', [0, -k], [k * 0.75, 0], [0, 0]], ['#ffd23f', [k * 0.75, 0], [0, k], [0, 0]], ['#4fa8ff', [0, k], [-k * 0.75, 0], [0, 0]], ['#5fd35f', [-k * 0.75, 0], [0, -k], [0, 0]]];
+  for (const [c, a, b, o] of parts) { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.lineTo(...o); ctx.fill(); }
+  ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, -k); ctx.lineTo(0, k); ctx.moveTo(-k * 0.75, 0); ctx.lineTo(k * 0.75, 0); ctx.stroke();
+  ctx.restore();
+  for (const b of birds) { ctx.save(); ctx.translate(b.x, b.y + Math.sin(b.t * 12) * 3); if (Math.cos(b.a) < 0) ctx.scale(-1, 1); drawEmoji(ctx, '🐦', 0, 0, 34); ctx.restore(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

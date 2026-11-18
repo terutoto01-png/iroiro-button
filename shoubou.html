@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>しょうぼうしゃ</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#9fdcff, #e4f6ff 70%); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff3b3b; --c2: #a81c1c; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚒</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// しょうぼうしゃ: いえが もえている。ボタンを おしている あいだ（または がめんを さわった ところへ）ホースで みずを かけて けす。
+// ぜんぶ きえたら、しばらくして また どこかが もえる。ときどき やねに 🐱 が いて、さわると はしごで たすける。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const G = 900, HOUSE_COLORS = ['#ffd27a', '#ffb3c7', '#b8e0ff', '#c9f0b0'];
+let houses = [], fires = [], drops = [], puffs = [], cat = null, aim = null, btnHeld = false;
+let nextFireT = 0.8, sprayT = 0, hissT = 0, clearT = -1, tk = { x: 0, y: 0 };
+
+function layout() {
+  const n = Math.max(2, Math.min(4, Math.floor(W / 170))), base = H - 110;
+  const hw = Math.min(170, (W - 40) / n * 0.8);
+  houses = [];
+  for (let i = 0; i < n; i++) {
+    const cx = 20 + (W - 40) * (i + 0.5) / n, bh = Math.min(hw * 1.05, (base - 150) / 1.5), x = cx - hw / 2, top = base - bh;
+    houses.push({ x, w: hw, bh, top, base, roofH: hw * 0.45, color: HOUSE_COLORS[i % 4],
+      wins: [[x + hw * 0.28, top + bh * 0.3], [x + hw * 0.72, top + bh * 0.3], [x + hw * 0.28, top + bh * 0.7]] });
+  }
+  tk = { x: Math.max(70, W * 0.13), y: H - 52 };
+}
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+
+const firePos = (f) => { const h = houses[f.h % houses.length]; return { x: h.wins[f.k][0], y: h.wins[f.k][1], r: h.w * 0.24 }; };
+const nozzle = () => ({ x: tk.x + 34, y: tk.y - 44 });
+
+function startFires() {
+  const spots = [];
+  houses.forEach((h, i) => h.wins.forEach((w, k) => spots.push({ h: i, k })));
+  spots.sort(() => Math.random() - 0.5);
+  const n = Math.min(spots.length, 1 + Math.floor(Math.random() * 3));
+  fires = spots.slice(0, n).map(s => ({ ...s, hp: 1, ph: rand(0, 6) }));
+  // サイレン
+  for (let i = 0; i < 3; i++) { Sfx.tone(660, 0.35, 'triangle', 0.08, i * 0.7, 880); Sfx.tone(880, 0.35, 'triangle', 0.08, i * 0.7 + 0.35, 660); }
+  // ときどき もえていない いえの やねに ねこ
+  if (!cat && Math.random() < 0.45) {
+    const free = houses.map((h, i) => i).filter(i => !fires.some(f => f.h === i));
+    if (free.length) cat = { h: pick(free), st: 'sit', t: 0, k: 0 };
+  }
+}
+
+cv.addEventListener('pointerdown', (e) => {
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  if (cat && cat.st === 'sit') { const c = catPos(); if (Math.hypot(e.clientX - c.x, e.clientY - c.y) < 50) { cat.st = 'up'; cat.t = 0; Sfx.tone(700, 0.25, 'sine', 0.15, 0, 950); return; } }
+  aim = { x: e.clientX, y: e.clientY, id: e.pointerId };
+});
+cv.addEventListener('pointermove', (e) => { if (aim && aim.id === e.pointerId) { aim.x = e.clientX; aim.y = e.clientY; } });
+const endAim = (e) => { if (aim && aim.id === e.pointerId) aim = null; };
+cv.addEventListener('pointerup', endAim); cv.addEventListener('pointercancel', endAim);
+btn.addEventListener('pointerdown', (e) => { btnHeld = true; try { btn.setPointerCapture(e.pointerId); } catch (err) {} });
+for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) btn.addEventListener(t, () => { btnHeld = false; });
+
+function catPos() { const h = houses[cat.h % houses.length]; return { x: h.x + h.w / 2, y: h.top - h.roofH * 0.45 }; }
+
+function spray(dt) {
+  if (!aim && !btnHeld) return;
+  const n0 = nozzle();
+  let tx, ty;
+  if (aim) { tx = aim.x; ty = aim.y; }
+  else {
+    const live = fires.filter(f => f.hp > 0).map(firePos).sort((a, b) => Math.hypot(a.x - n0.x, a.y - n0.y) - Math.hypot(b.x - n0.x, b.y - n0.y));
+    if (live.length) { tx = live[0].x + Math.sin(performance.now() / 150) * 12; ty = live[0].y; } else { tx = W * 0.6; ty = H * 0.35; }
+  }
+  sprayT += dt;
+  while (sprayT > 1 / 70) {
+    sprayT -= 1 / 70;
+    const dx = tx - n0.x, dy = ty - n0.y, fl = Math.max(0.3, Math.min(0.8, Math.hypot(dx, dy) / 800));
+    drops.push({ x: n0.x, y: n0.y, vx: dx / fl + rand(-25, 25), vy: dy / fl - 0.5 * G * fl + rand(-25, 25), life: 2 });
+  }
+  hissT -= dt;
+  if (hissT < 0) { hissT = 0.12; Sfx.noise(0.18, 0.05, 2600, 0, 'bandpass'); }
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  // ひ
+  if (nextFireT > 0) { nextFireT -= dt; if (nextFireT <= 0) startFires(); }
+  spray(dt);
+  for (const d of drops) {
+    d.vy += G * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.life -= dt;
+    for (const f of fires) {
+      if (f.hp <= 0) continue;
+      const p = firePos(f);
+      if (Math.hypot(d.x - p.x, d.y - p.y) < p.r) {
+        f.hp -= 0.016; d.life = 0;
+        if (Math.random() < 0.3) puffs.push({ x: p.x + rand(-10, 10), y: p.y - 10, vx: rand(-20, 20), vy: rand(-90, -50), r: rand(8, 16), life: 1, white: true });
+        if (f.hp <= 0) { Sfx.noise(0.6, 0.25, 3500, 0, 'highpass'); for (let i = 0; i < 12; i++) puffs.push({ x: p.x, y: p.y, vx: rand(-60, 60), vy: rand(-140, -60), r: rand(12, 26), life: 1.4, white: true }); }
+        break;
+      }
+    }
+    if (d.y > H - 30 && d.life > 0) { d.life = 0; if (Math.random() < 0.2) puffs.push({ x: d.x, y: H - 30, vx: rand(-40, 40), vy: rand(-80, -30), r: 4, life: 0.4, splash: true }); }
+  }
+  drops = drops.filter(d => d.life > 0 && d.x > -50 && d.x < W + 50);
+  if (fires.length && clearT < 0 && fires.every(f => f.hp <= 0)) {
+    clearT = 0; Sfx.yay(); setTimeout(() => Sfx.chime(), 250);
+    popText(pick(['きえた！', 'やったー！', 'ありがとう！']), W / 2, H * 0.25, '#ff5a3c', 52);
+  }
+  if (clearT >= 0) { clearT += dt; if (clearT > 3) { clearT = -1; fires = []; nextFireT = 0.5; } }
+  // けむり
+  for (const f of fires) if (f.hp > 0 && Math.random() < dt * 6) { const p = firePos(f); puffs.push({ x: p.x + rand(-8, 8), y: p.y - p.r, vx: rand(-15, 15), vy: rand(-60, -30), r: rand(10, 18), life: 1.6 }); }
+  for (const p of puffs) { p.x += p.vx * dt; p.y += p.vy * dt; p.r += dt * 14; p.life -= dt; if (p.splash) p.vy += G * dt; }
+  puffs = puffs.filter(p => p.life > 0);
+  // ねこ
+  if (cat) {
+    cat.t += dt;
+    if (cat.st === 'up' && cat.t > 0.9) { cat.st = 'down'; cat.t = 0; }
+    else if (cat.st === 'down' && cat.t > 1.3) { cat.st = 'safe'; cat.t = 0; Sfx.chime(); popText('にゃーん', tk.x, tk.y - 110, '#ff7ab8', 40); for (let i = 0; i < 8; i++) puffs.push({ x: tk.x, y: tk.y - 80, vx: rand(-60, 60), vy: rand(-120, -40), r: 1, life: 1.2, heart: true }); }
+    else if (cat.st === 'safe' && cat.t > 3.5) cat = null;
+  }
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // みち
+  ctx.fillStyle = '#7fcf6a'; ctx.fillRect(0, H - 110, W, 20);
+  ctx.fillStyle = '#8a8f99'; ctx.fillRect(0, H - 90, W, 90);
+  ctx.fillStyle = '#fff'; for (let x = 10; x < W; x += 60) ctx.fillRect(x, H - 46, 30, 5);
+  // いえ
+  houses.forEach((h, i) => {
+    ctx.fillStyle = h.color; ctx.fillRect(h.x, h.top, h.w, h.bh);
+    ctx.fillStyle = '#c0504d'; ctx.beginPath(); ctx.moveTo(h.x - 12, h.top + 2); ctx.lineTo(h.x + h.w / 2, h.top - h.roofH); ctx.lineTo(h.x + h.w + 12, h.top + 2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#8a5a34'; ctx.fillRect(h.x + h.w * 0.6, h.top + h.bh * 0.55, h.w * 0.24, h.bh * 0.45);
+    h.wins.forEach((w, k) => {
+      const f = fires.find(f => f.h === i && f.k === k), hot = f && f.hp > 0, s = h.w * 0.24;
+      ctx.fillStyle = hot ? '#ff9a3c' : (f ? '#9aa6b3' : '#e8f7ff'); ctx.fillRect(w[0] - s / 2, w[1] - s / 2, s, s);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.strokeRect(w[0] - s / 2, w[1] - s / 2, s, s);
+    });
+  });
+  // けむり（うしろ）
+  for (const p of puffs) {
+    if (p.heart) { drawEmoji(ctx, '💗', p.x, p.y, 22); continue; }
+    ctx.fillStyle = p.splash ? 'rgba(120,190,255,.8)' : p.white ? `rgba(255,255,255,${Math.min(0.8, p.life)})` : `rgba(90,90,100,${Math.min(0.45, p.life * 0.3)})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+  }
+  // ひ
+  for (const f of fires) {
+    if (f.hp <= 0) continue;
+    const p = firePos(f), s = p.r * 2 * (0.45 + 0.55 * f.hp) * (1 + 0.08 * Math.sin(t * 18 + f.ph));
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, s);
+    g.addColorStop(0, 'rgba(255,170,40,.55)'); g.addColorStop(1, 'rgba(255,120,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, s, 0, 7); ctx.fill();
+    drawEmoji(ctx, '🔥', p.x, p.y - s * 0.2, s);
+  }
+  // はしご と ねこ
+  if (cat) {
+    const c = catPos(), top = { x: tk.x + 10, y: tk.y - 50 };
+    let k = 0, cp = c;
+    if (cat.st === 'up') k = Math.min(1, cat.t / 0.8);
+    else if (cat.st === 'down') { k = 1; const u = Math.min(1, cat.t / 1.2); cp = { x: c.x + (top.x - c.x) * u, y: c.y + (top.y - c.y) * u }; }
+    else if (cat.st === 'safe') { k = Math.max(0, 1 - cat.t * 2); cp = { x: top.x + 10, y: top.y - 30 - Math.abs(Math.sin(cat.t * 6)) * 16 }; }
+    if (k > 0) {
+      const ex = top.x + (c.x - top.x) * k, ey = top.y + (c.y + 18 - top.y) * k, ang = Math.atan2(ey - top.y, ex - top.x), nx = -Math.sin(ang) * 9, ny = Math.cos(ang) * 9;
+      ctx.strokeStyle = '#d0d4da'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(top.x + nx, top.y + ny); ctx.lineTo(ex + nx, ey + ny); ctx.moveTo(top.x - nx, top.y - ny); ctx.lineTo(ex - nx, ey - ny); ctx.stroke();
+      const len = Math.hypot(ex - top.x, ey - top.y); ctx.lineWidth = 3; ctx.beginPath();
+      for (let d = 14; d < len; d += 16) { const x = top.x + Math.cos(ang) * d, y = top.y + Math.sin(ang) * d; ctx.moveTo(x + nx, y + ny); ctx.lineTo(x - nx, y - ny); }
+      ctx.stroke();
+    }
+    const bob = cat.st === 'sit' ? Math.sin(t * 3) * 3 : 0;
+    drawEmoji(ctx, '🐱', cp.x, cp.y + bob, 44);
+    if (cat.st === 'sit' && Math.sin(t * 2) > 0.6) drawEmoji(ctx, '💬', cp.x + 30, cp.y - 34, 26);
+  }
+  // みず
+  ctx.fillStyle = 'rgba(70,160,255,.85)';
+  for (const d of drops) { ctx.beginPath(); ctx.arc(d.x, d.y, 4.5, 0, 7); ctx.fill(); }
+  // しょうぼうしゃ（みぎむき）
+  ctx.save(); ctx.translate(tk.x, tk.y); ctx.scale(-1, 1); drawEmoji(ctx, '🚒', 0, 0, 110); ctx.restore();
+  // ホース の さき
+  const n0 = nozzle(); ctx.fillStyle = '#ffd400'; ctx.beginPath(); ctx.arc(n0.x, n0.y, 7, 0, 7); ctx.fill();
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

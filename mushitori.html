@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>むしとり</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#bfe9ff, #e8f8d0 45%, #a6dc7c 46%); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #66bb44; --c2: #3f8a26; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🦋</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// むしとり: ゆびで あみを さっと うごかして、とんでいる むしを つかまえる（ボタンでも あみが さっと つかまえる）。
+// つかまえた むしは びんの なかで ぱたぱた。6ぴき たまるか、びんを さわると、ふたが あいて みんな そらへ かえっていく。たまに きんいろの むし。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const BUGS = ['🦋', '🐝', '🐞', '🦋', '🪲', '🦗', '🦋'];
+let bugs = [], jar = [], freed = [], net = { x: 0, y: 0, on: false, auto: null, swing: 0 }, flowers = [], openT = -1, lastP = null;
+function layout() { flowers = []; for (let i = 0; i < 16; i++) flowers.push({ x: rand(20, W - 20), y: rand(H * 0.5, H - 30), e: pick(['🌼', '🌸', '🌷', '🌻', '🌿']) }); }
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+const JAR = () => ({ x: 58, y: H - 90 });
+function newBug() { const gold = Math.random() < 0.1; return { e: gold ? '🪲' : pick(BUGS), gold, x: Math.random() < 0.5 ? -30 : W + 30, y: rand(110, H * 0.7), a: rand(0, 6), sp: rand(0.7, 1.5), v: rand(50, 90), t: 0 }; }
+for (let i = 0; i < 5; i++) { const b = newBug(); b.x = rand(40, W - 40); bugs.push(b); }
+
+function catchBug(b) {
+  bugs = bugs.filter(q => q !== b);
+  b.fly = { sx: b.x, sy: b.y, t: 0 };
+  freed.push(b);
+  Sfx.tone(700, 0.1, 'sine', 0.12, 0, 1200); Sfx.tone(1000, 0.1, 'sine', 0.1, 0.08, 1500);
+  if (b.gold) { Sfx.chime(); popText('きんいろ！', b.x, b.y - 50, '#e0a800', 40); }
+  else popText(pick(['つかまえた！', 'やったー', 'えいっ']), b.x, b.y - 50, '#3f8a26', 32);
+}
+function sweepAt(x, y, r) { for (const b of bugs) if (Math.hypot(b.x - x, b.y - y) < r) { catchBug(b); return true; } return false; }
+
+btn.addEventListener('pointerdown', () => {
+  if (net.auto || openT >= 0) return;
+  const j = JAR(); let best = null;
+  for (const b of bugs) if (b.x > 0 && b.x < W && (!best || Math.hypot(b.x - j.x, b.y - j.y) < Math.hypot(best.x - j.x, best.y - j.y))) best = b;
+  if (!best) return;
+  net.auto = { b: best, t: 0, sx: W - 80, sy: H - 160 }; net.swing = 1;
+  Sfx.noise(0.25, 0.1, 2000, 0, 'bandpass');
+});
+cv.addEventListener('pointerdown', (e) => {
+  const j = JAR();
+  if (Math.hypot(e.clientX - j.x, e.clientY - j.y) < 55) { if (jar.length) release(); return; }
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  net.on = true; net.x = e.clientX; net.y = e.clientY; lastP = { x: e.clientX, y: e.clientY, id: e.pointerId };
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!lastP || lastP.id !== e.pointerId) return;
+  const d = Math.hypot(e.clientX - lastP.x, e.clientY - lastP.y);
+  net.x = e.clientX; net.y = e.clientY; lastP.x = e.clientX; lastP.y = e.clientY;
+  if (d > 6) { net.swing = Math.min(1, net.swing + d * 0.02); if (Math.random() < 0.2) Sfx.noise(0.15, 0.05, 2200, 0, 'bandpass'); sweepAt(net.x, net.y - 30, 48); }
+});
+const up = (e) => { if (lastP && lastP.id === e.pointerId) { lastP = null; net.on = false; } };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+function release() {
+  if (openT >= 0) return;
+  openT = 0; Sfx.yay(); popText('ばいばーい', W / 2, H * 0.25, '#3f8a26', 44);
+  jar.forEach((b, i) => { b.out = { t: -i * 0.15, vx: rand(-120, 120) }; b.x = JAR().x; b.y = JAR().y - 20; });
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  net.swing = Math.max(0, net.swing - dt * 2);
+  for (const b of bugs) {
+    b.t += dt; b.a += dt * b.sp * (Math.random() < 0.02 ? 6 : 1);
+    b.x += Math.cos(b.a) * b.v * dt; b.y += Math.sin(b.a * 1.3) * b.v * 0.7 * dt;
+    if (b.x < 20 && b.t > 3) b.a = 0; if (b.x > W - 20 && b.t > 3) b.a = Math.PI;
+    b.y = Math.max(100, Math.min(H * 0.8, b.y));
+  }
+  bugs = bugs.filter(b => b.x > -120 && b.x < W + 120);
+  if (bugs.length < 5 && Math.random() < dt) bugs.push(newBug());
+  // ボタンの あみ
+  if (net.auto) {
+    const a = net.auto; a.t += dt;
+    const u = Math.min(1, a.t / 0.35); net.x = a.sx + (a.b.x - a.sx) * u; net.y = a.sy + (a.b.y + 30 - a.sy) * u;
+    if (u >= 1) { if (bugs.includes(a.b)) catchBug(a.b); net.auto = null; }
+  }
+  // びんへ とんでいく / びんから そらへ
+  const j = JAR();
+  for (const b of freed) { b.fly.t += dt; const u = Math.min(1, b.fly.t / 0.6); b.x = b.fly.sx + (j.x - b.fly.sx) * u; b.y = b.fly.sy + (j.y - b.fly.sy) * u - Math.sin(u * Math.PI) * 60; if (u >= 1) { b.done = true; jar.push(b); if (openT >= 0) b.out = { t: 0, vx: rand(-120, 120) }; else if (jar.length >= 6) setTimeout(release, 600); } }
+  freed = freed.filter(b => !b.done);
+  if (openT >= 0) {
+    openT += dt;
+    for (const b of jar) { b.out.t += dt; if (b.out.t > 0) { b.x += b.out.vx * dt; b.y -= 180 * dt; } }
+    if (openT > 4) { jar = []; openT = -1; }
+  }
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function drawNet(x, y, sw) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(-0.4 + Math.sin(sw * 8) * sw * 0.5);
+  ctx.strokeStyle = '#b5652b'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 90); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.strokeStyle = '#2e86ff'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(0, -36, 36, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(80,120,200,.5)'; ctx.lineWidth = 1;
+  ctx.beginPath(); for (let k = -30; k <= 30; k += 10) { ctx.moveTo(k, -36 - Math.sqrt(1296 - k * k)); ctx.lineTo(k, -36 + Math.sqrt(1296 - k * k)); ctx.moveTo(-Math.sqrt(1296 - k * k), -36 + k); ctx.lineTo(Math.sqrt(1296 - k * k), -36 + k); } ctx.stroke();
+  ctx.restore();
+}
+function bug(b, s, t) {
+  ctx.save(); ctx.translate(b.x, b.y + Math.sin(t * 10 + b.a) * 3);
+  if (Math.cos(b.a) > 0) ctx.scale(-1, 1);
+  ctx.scale(1, 1 - Math.abs(Math.sin(t * 14 + b.a)) * 0.12);
+  if (b.gold) { ctx.fillStyle = 'rgba(255,215,0,.45)'; ctx.beginPath(); ctx.arc(0, 0, s * 0.8, 0, 7); ctx.fill(); ctx.filter = 'sepia(1) saturate(4) brightness(1.2)'; }
+  drawEmoji(ctx, b.e, 0, 0, s); ctx.restore();
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  drawEmoji(ctx, '☀️', W - 80, 110, 56);
+  for (const f of flowers) drawEmoji(ctx, f.e, f.x, f.y, 34);
+  for (const b of bugs) bug(b, 40, t);
+  for (const b of freed) bug(b, 36, t);
+  // びん
+  const j = JAR();
+  ctx.fillStyle = 'rgba(220,240,255,.55)'; ctx.strokeStyle = 'rgba(120,160,200,.9)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(j.x - 42, j.y - 50, 84, 100, 16); ctx.fill(); ctx.stroke();
+  for (const b of jar) {
+    if (openT >= 0 && b.out.t > 0) continue;
+    const i = jar.indexOf(b); b.a = (b.a || 0) + 0.05;
+    bug({ ...b, x: j.x - 22 + (i % 3) * 22 + Math.sin(t * 3 + i) * 4, y: j.y - 20 + Math.floor(i / 3) * 30 + Math.cos(t * 4 + i) * 3 }, 24, t);
+  }
+  const lid = openT >= 0 ? Math.min(1, openT * 3) : 0;
+  ctx.save(); ctx.translate(j.x - 44, j.y - 52); ctx.rotate(-lid * 1.6); ctx.fillStyle = '#e8394a'; ctx.fillRect(0, -8, 88, 12); ctx.restore();
+  for (const b of jar) if (openT >= 0 && b.out.t > 0) bug(b, 36, t);
+  if (net.on || net.auto) drawNet(net.x, net.y, net.swing);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

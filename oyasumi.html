@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>おやすみ</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: #1b2350; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #5a6bd8; --c2: #2f3b8f; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🌙</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// おやすみ: ねるまえの しずかな ページ。ボタンで でんきを けすと、どうぶつが ひとりずつ あくびして ねていく（しずかな オルゴール）。
+// みんな ねると まどに ながれぼし。ねている こを さわると ねがえり。もういちど ボタンで でんきが ついて「おはよう」。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const KIDS = ['🐻', '🐰', '🐶', '🐱', '🐼', '🐨', '🐷', '🦊'];
+let light = 1, lightOn = true, pals = [], zz = [], star = null, allT = 0, noteT = 0, win, stars = [];
+const NOTES = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
+
+function layout() {
+  const n = W < 600 ? 3 : 5, fy = H * 0.68;
+  const kinds = KIDS.slice().sort(() => Math.random() - 0.5);
+  if (pals.length !== n) pals = Array.from({ length: n }, (_, i) => ({ e: kinds[i], st: 'awake', t: 0, flip: i % 2 ? -1 : 1, hop: 0 }));
+  pals.forEach((p, i) => { p.x = W * (i + 0.5) / n; p.y = fy; });
+  win = { x: W * 0.62, y: Math.max(100, H * 0.12), w: Math.min(W * 0.32, 220), h: Math.min(H * 0.22, 170) };
+  stars = []; for (let i = 0; i < 18; i++) stars.push({ x: Math.random(), y: Math.random(), p: rand(0, 6) });
+}
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+
+btn.addEventListener('pointerdown', () => {
+  lightOn = !lightOn;
+  Sfx.tone(lightOn ? 1200 : 800, 0.05, 'square', 0.05);
+  if (!lightOn) {
+    pals.forEach((p, i) => { p.st = 'wait'; p.t = -(1.2 + i * 2.2 + rand(0, 0.8)); });
+    allT = 0; star = null;
+  } else {
+    pals.forEach(p => { p.st = 'awake'; p.t = 0; p.hop = 1; });
+    zz = []; Sfx.chime(); popText('おはよう！', W / 2, H * 0.4, '#ff9f1c', 48);
+  }
+});
+cv.addEventListener('pointerdown', (e) => {
+  for (const p of pals) if (Math.hypot(p.x - e.clientX, p.y - e.clientY) < 60) {
+    if (p.st === 'sleep') { p.flip *= -1; p.roll = 1; Sfx.tone(300, 0.4, 'sine', 0.06, 0, 240); for (let i = 0; i < 3; i++) zz.push({ x: p.x, y: p.y - 30, vx: rand(-10, 20), life: 2.5, s: 20 }); popText('むにゃ', p.x, p.y - 70, '#c8d0ff', 26); }
+    else if (p.st === 'awake') { p.hop = 1; Sfx.tone(rand(500, 700), 0.15, 'sine', 0.1, 0, 900); }
+  }
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  light += ((lightOn ? 1 : 0) - light) * Math.min(1, dt * 3);
+  for (const p of pals) {
+    p.t += dt; p.hop = Math.max(0, p.hop - dt * 2.5); p.roll = Math.max(0, (p.roll || 0) - dt * 2);
+    if (p.st === 'wait' && p.t > 0) { p.st = 'yawn'; p.t = 0; Sfx.tone(420, 0.9, 'sine', 0.06, 0, 260); }
+    else if (p.st === 'yawn' && p.t > 1.4) { p.st = 'sleep'; p.t = 0; }
+    if (p.st === 'sleep' && Math.random() < dt * 0.6) zz.push({ x: p.x + 10, y: p.y - 26, vx: rand(5, 20), life: 2.5, s: rand(16, 24) });
+  }
+  for (const z of zz) { z.x += z.vx * dt; z.y -= 22 * dt; z.life -= dt; }
+  zz = zz.filter(z => z.life > 0);
+  // オルゴール（でんきを けしている あいだ）
+  if (!lightOn) {
+    noteT -= dt;
+    if (noteT < 0) { noteT = rand(0.55, 0.9); Sfx.tone(pick(NOTES), 1.2, 'sine', 0.035); if (Math.random() < 0.3) Sfx.tone(pick(NOTES) / 2, 1.4, 'sine', 0.025, 0.2); }
+    if (pals.every(p => p.st === 'sleep')) {
+      allT += dt;
+      if (allT > 1.5 && !star) { star = { t: 0 }; setTimeout(() => Sfx.chime(), 300); }
+      if (star) { star.t += dt; if (star.t > 1.6 && allT > 8) { star = null; allT = 1.4; } }
+    }
+  }
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const L = light;
+  // かべ と ゆか
+  ctx.fillStyle = `rgb(${Math.round(40 + 215 * L)},${Math.round(48 + 189 * L)},${Math.round(90 + 115 * L)})`; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = `rgb(${Math.round(50 + 150 * L)},${Math.round(40 + 120 * L)},${Math.round(60 + 60 * L)})`; ctx.fillRect(0, H * 0.6, W, H);
+  // まど
+  ctx.fillStyle = '#0d1440'; ctx.fillRect(win.x - win.w / 2, win.y, win.w, win.h);
+  ctx.save(); ctx.beginPath(); ctx.rect(win.x - win.w / 2, win.y, win.w, win.h); ctx.clip();
+  for (const s of stars) { ctx.fillStyle = `rgba(255,255,220,${0.5 + 0.5 * Math.sin(t * 2 + s.p)})`; ctx.fillRect(win.x - win.w / 2 + s.x * win.w, win.y + s.y * win.h, 2.5, 2.5); }
+  drawEmoji(ctx, '🌙', win.x + win.w * 0.25, win.y + win.h * 0.3, win.h * 0.32);
+  if (star) { const u = star.t / 1.4; drawEmoji(ctx, '🌠', win.x - win.w / 2 + u * win.w * 1.2, win.y + win.h * (0.15 + u * 0.5), 34); }
+  ctx.restore();
+  ctx.strokeStyle = '#c99a6a'; ctx.lineWidth = 8; ctx.strokeRect(win.x - win.w / 2, win.y, win.w, win.h);
+  ctx.beginPath(); ctx.moveTo(win.x, win.y); ctx.lineTo(win.x, win.y + win.h); ctx.moveTo(win.x - win.w / 2, win.y + win.h / 2); ctx.lineTo(win.x + win.w / 2, win.y + win.h / 2); ctx.stroke();
+  // でんき
+  const lx = W * 0.3, ly = 70;
+  ctx.strokeStyle = '#888'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, ly); ctx.stroke();
+  if (L > 0.05) { const g = ctx.createRadialGradient(lx, ly + 20, 10, lx, ly + 20, H * 0.6); g.addColorStop(0, `rgba(255,240,180,${0.5 * L})`); g.addColorStop(1, 'rgba(255,240,180,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+  ctx.fillStyle = L > 0.5 ? '#fff4b0' : '#777'; ctx.beginPath(); ctx.arc(lx, ly + 16, 14, 0, 7); ctx.fill();
+  ctx.fillStyle = '#ffb3c7'; ctx.beginPath(); ctx.moveTo(lx - 34, ly + 14); ctx.lineTo(lx + 34, ly + 14); ctx.lineTo(lx + 16, ly - 8); ctx.lineTo(lx - 16, ly - 8); ctx.fill();
+  // おふとん と どうぶつ
+  for (const p of pals) {
+    const fw = Math.min(110, W / pals.length * 0.85);
+    ctx.fillStyle = '#f4f0ff'; ctx.beginPath(); ctx.roundRect(p.x - fw / 2, p.y - 10, fw, 70, 12); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(p.x, p.y - 4, fw * 0.3, 14, 0, 0, 7); ctx.fill();
+    const lie = p.st === 'sleep' ? Math.min(1, p.t * 1.5) : 0;
+    ctx.save(); ctx.translate(p.x, p.y - 20 - Math.sin(p.hop * Math.PI) * 40 + lie * 12);
+    ctx.rotate(lie * 1.3 * p.flip + Math.sin(p.roll * Math.PI) * 0.6 * p.flip);
+    if (p.st === 'yawn') ctx.scale(1 + Math.sin(p.t * 4) * 0.05, 1 + Math.sin(p.t * 4) * 0.08);
+    const breathe = p.st === 'sleep' ? 1 + Math.sin(t * 1.5 + p.x) * 0.03 : 1;
+    ctx.scale(breathe, breathe);
+    drawEmoji(ctx, p.e, 0, 0, 56);
+    ctx.restore();
+    if (p.st === 'yawn') drawEmoji(ctx, '🥱', p.x + 34, p.y - 64, 28);
+    // かけぶとん
+    const blanket = p.st === 'sleep' ? Math.min(1, p.t * 1.2) : 0.35;
+    ctx.fillStyle = ['#ff9ec2', '#9ecbff', '#b8f0a0', '#ffd88a', '#d4b8ff'][pals.indexOf(p) % 5];
+    ctx.beginPath(); ctx.roundRect(p.x - fw / 2 + 4, p.y + 60 - 50 * blanket - 10, fw - 8, 50 * blanket + 10, 10); ctx.fill();
+  }
+  for (const z of zz) { ctx.globalAlpha = Math.min(1, z.life); ctx.fillStyle = '#c8d0ff'; ctx.font = `bold ${z.s}px sans-serif`; ctx.fillText('z', z.x, z.y); ctx.globalAlpha = 1; }
+  // くらい ときは すこし あおく
+  if (L < 0.95) { ctx.fillStyle = `rgba(10,15,50,${(1 - L) * 0.35})`; ctx.fillRect(0, 0, W, H); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

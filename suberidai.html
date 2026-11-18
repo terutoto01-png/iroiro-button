@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>すべりだい</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#bfe6ff, #eaf7ff 60%); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #3fa9ff; --c2: #1a5fb3; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🐧</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// すべりだい: ボタンで ペンギンが こおりの さかを おなかで すべって、うみに どぼん。およいで いく。
+// れんだすると つぎつぎ すべって、さきの こが はしで もじもじ すると うしろが つかえて じゅうたい。さわると くるっ。たくさん とびこむと 🐳 が しおを ふく。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const GAP = 40;
+let S, birds = [], swim = [], splash = [], snow = [], splashed = 0, whale = null;
+
+function layout() {
+  const x0 = W * 0.04, y0 = Math.max(130, H * 0.24), x1 = W * (W < 600 ? 0.6 : 0.62), y1 = H * 0.58;
+  S = { x0, y0, x1, y1, len: Math.hypot(x1 - x0, y1 - y0), ang: Math.atan2(y1 - y0, x1 - x0), sea: H * 0.7 };
+}
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+for (let i = 0; i < 40; i++) snow.push({ x: rand(0, W), y: rand(0, H), v: rand(20, 50) });
+const onSlope = (s) => ({ x: S.x0 + Math.cos(S.ang) * s, y: S.y0 + Math.sin(S.ang) * s });
+
+btn.addEventListener('pointerdown', () => {
+  const last = birds[birds.length - 1];
+  if (birds.length >= 9) return;
+  const s0 = last ? Math.min(0, last.s - GAP) : 0;
+  birds.push({ e: Math.random() < 0.1 ? '🦭' : '🐧', s: s0, v: 0, st: 'slide', spin: 0, wait: 0 });
+  Sfx.tone(rand(700, 900), 0.1, 'sine', 0.1, 0, 1200);
+});
+cv.addEventListener('pointerdown', (e) => {
+  for (const b of birds) { const p = onSlope(b.s); if (Math.hypot(p.x - e.clientX, p.y - 20 - e.clientY) < 40) { b.spin = 1; Sfx.tone(600, 0.2, 'triangle', 0.1, 0, 1000); return; } }
+  for (const b of swim) if (Math.hypot(b.x - e.clientX, b.y - e.clientY) < 40) { b.dive = 1; Sfx.tone(400, 0.2, 'sine', 0.1, 0, 200); return; }
+  if (e.clientY > S.sea) { for (let i = 0; i < 8; i++) splash.push({ x: e.clientX, y: S.sea, vx: rand(-100, 100), vy: rand(-260, -100), life: 0.8 }); Sfx.noise(0.2, 0.15, 1500); }
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  for (let i = 0; i < birds.length; i++) {
+    const b = birds[i], ahead = birds[i - 1];
+    b.spin = Math.max(0, b.spin - dt * 2);
+    if (b.st === 'slide') {
+      b.v += 320 * Math.sin(S.ang) * dt + 30 * dt;
+      b.s += b.v * dt;
+      if (ahead && ahead.st !== 'fly' && b.s > ahead.s - GAP) { b.s = ahead.s - GAP; if (b.v > ahead.v + 30) { Sfx.tone(rand(300, 400), 0.08, 'sine', 0.08, 0, 200); b.bump = 0.3; } b.v = Math.min(b.v, ahead.v); }
+      if (b.s >= S.len) {
+        b.s = S.len;
+        if (b.wait === 0 && Math.random() < 0.3) { b.wait = rand(1, 1.8); b.v = 0; b.st = 'edge'; Sfx.tone(500, 0.3, 'sine', 0.06, 0, 420); }
+        else { b.st = 'fly'; const p = onSlope(S.len); b.x = p.x; b.y = p.y - 20; b.vx = Math.cos(S.ang) * Math.max(b.v, 200) + 60; b.vy = Math.sin(S.ang) * Math.max(b.v, 200) - 200; Sfx.tone(700, 0.3, 'sine', 0.08, 0, 1100); }
+      }
+    } else if (b.st === 'edge') {
+      b.wait -= dt;
+      if (b.wait <= 0) { b.wait = -1; b.st = 'slide'; b.v = 60; }
+    } else if (b.st === 'fly') {
+      b.vy += 900 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.spin = Math.max(b.spin, 0.01);
+      if (b.y > S.sea) { b.done = true; splashed++; swim.push({ e: b.e, x: b.x, y: S.sea + 6, vx: rand(50, 90), t: 0, dive: 0 }); Sfx.noise(0.5, 0.3, 1200); Sfx.tone(200, 0.2, 'sine', 0.12, 0, 90); for (let k = 0; k < 14; k++) splash.push({ x: b.x, y: S.sea, vx: rand(-160, 160), vy: rand(-380, -140), life: 1 }); if (splashed % 10 === 0) whale = { t: 0, x: W * 0.8 }; }
+    }
+    b.bump = Math.max(0, (b.bump || 0) - dt);
+  }
+  birds = birds.filter(b => !b.done);
+  for (const b of swim) { b.t += dt; b.x += b.vx * dt; b.dive = Math.max(0, b.dive - dt); }
+  swim = swim.filter(b => b.x < W + 60);
+  for (const s of splash) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 900 * dt; s.life -= dt; }
+  splash = splash.filter(s => s.life > 0);
+  for (const f of snow) { f.y += f.v * dt; f.x += Math.sin(t + f.v) * 10 * dt; if (f.y > H) { f.y = -5; f.x = rand(0, W); } }
+  if (whale) {
+    whale.t += dt;
+    if (whale.t < 2.5 && Math.random() < dt * 30) splash.push({ x: whale.x + rand(-8, 8), y: S.sea - 20, vx: rand(-50, 50), vy: rand(-520, -380), life: 1.3 });
+    if (whale.t > 0.1 && whale.t < 0.15) { Sfx.noise(1.5, 0.15, 2500, 0, 'highpass'); popText('ぷしゅー', whale.x, S.sea - 160, '#1a5fb3', 36); }
+    if (whale.t > 4) whale = null;
+  }
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // うみ
+  ctx.fillStyle = '#2f8fd8'; ctx.beginPath(); ctx.moveTo(W * 0.45, H);
+  for (let x = W * 0.45; x <= W; x += 10) ctx.lineTo(x, S.sea + Math.sin(x / 30 + t * 2) * 4);
+  ctx.lineTo(W, H); ctx.fill();
+  if (whale) { const u = Math.min(1, whale.t * 2) * Math.min(1, (4 - whale.t) * 2); ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, S.sea + 4); ctx.clip(); drawEmoji(ctx, '🐳', whale.x, S.sea + 50 - u * 60, 110); ctx.restore(); }
+  for (const b of swim) { ctx.save(); ctx.translate(b.x, b.y + Math.sin(b.t * 3) * 3 + b.dive * 30); ctx.beginPath(); ctx.rect(-40, -60, 80, 60); ctx.clip(); ctx.scale(-1, 1); drawEmoji(ctx, b.e, 0, -12, 40); ctx.restore(); }
+  // こおりの やま と すべりだい
+  ctx.fillStyle = '#f4fbff'; ctx.beginPath(); ctx.moveTo(0, S.y0 - 10); ctx.lineTo(S.x0, S.y0 - 10); ctx.lineTo(S.x1, S.y1); ctx.lineTo(S.x1 + 20, S.y1 + 10); ctx.lineTo(S.x1 + 30, H); ctx.lineTo(0, H); ctx.fill();
+  ctx.fillStyle = '#d4ecfa'; ctx.beginPath(); ctx.moveTo(S.x0, S.y0 + 6); ctx.lineTo(S.x1, S.y1 + 16); ctx.lineTo(S.x1 + 20, S.y1 + 10); ctx.lineTo(S.x1 + 30, H); ctx.lineTo(0, H); ctx.lineTo(0, S.y0 + 6); ctx.fill();
+  ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(S.x0, S.y0 - 10); ctx.lineTo(S.x1, S.y1); ctx.stroke();
+  // すべる ペンギン
+  for (const b of birds) {
+    let x, y, rot;
+    if (b.st === 'fly') { x = b.x; y = b.y; rot = Math.atan2(b.vy, b.vx) - Math.PI / 2 + 1.2; }
+    else { const p = onSlope(Math.max(-60, b.s)); x = p.x; y = p.y - 18; rot = S.ang - Math.PI / 2 + 0.2; if (b.st === 'edge') rot += Math.sin(t * 14) * 0.15; }
+    ctx.save(); ctx.translate(x, y - Math.sin(b.spin * Math.PI) * 30); ctx.rotate(rot + b.spin * Math.PI * 2); ctx.scale(-1, 1);
+    if (b.bump) ctx.scale(1 + b.bump, 1 - b.bump * 0.6);
+    drawEmoji(ctx, b.e, 0, 0, 46); ctx.restore();
+    if (b.st === 'edge') drawEmoji(ctx, '💦', x + 26, y - 30, 22);
+  }
+  for (const s of splash) { ctx.fillStyle = `rgba(220,240,255,${Math.min(1, s.life)})`; ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, 7); ctx.fill(); }
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; for (const f of snow) { ctx.beginPath(); ctx.arc(f.x, f.y, 2.5, 0, 7); ctx.fill(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>クレーンゲーム</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#ffe0f0, #ffd0e6); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff4d8d; --c2: #b8245c; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🧸</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// クレーンゲーム: アームが みぎ ひだりに うごいている。ボタンを おすと おりて、ぬいぐるみを つかんで、ひだりの あなへ。
+// とれた ものは うえの たなに ならぶ。たまに 2こ いっぺんに とれる。ガラスを さわると がたがた。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const TOYS = ['🧸', '🐰', '🐶', '🐱', '🐼', '🦄', '🐸', '🐥', '🐻', '🐨', '🦊', '🐷'];
+let B, toys = [], claw = { x: 0, dir: 1, y: 0, st: 'move', open: 1, hold: [], t: 0 }, shelf = [], falling = [], sparks = [];
+
+function layout() {
+  const bt = btn.getBoundingClientRect().top;
+  B = { l: W * 0.06, r: W * 0.94, top: 80, bot: Math.max(260, bt - 26) };
+  B.chute = B.l + Math.max(70, (B.r - B.l) * 0.22); B.rail = B.top + 26;
+  if (!claw.y) { claw.x = (B.chute + B.r) / 2; claw.y = B.rail + 30; }
+}
+const TS = () => Math.max(50, Math.min(84, (B.r - B.chute) / 4));
+function fill() {
+  const s = TS();
+  while (toys.length < 7) {
+    const x = rand(B.chute + s * 0.6, B.r - s * 0.6);
+    const under = toys.filter(q => Math.abs(q.x - x) < s * 0.8).length;
+    toys.push({ e: pick(TOYS), x, y: B.bot - s * 0.45 - Math.min(under, 1) * s * 0.6, hop: 0, vy: 0, drop: -200 - toys.length * 30 });
+  }
+}
+layout(); fill();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); toys.forEach(q => { q.x = Math.max(B.chute + 30, Math.min(B.r - 30, q.x)); q.y = Math.min(q.y, B.bot - TS() * 0.45); }); });
+
+btn.addEventListener('pointerdown', () => {
+  if (claw.st !== 'move') return;
+  claw.st = 'down'; claw.t = 0; Sfx.tone(600, 0.1, 'square', 0.06); Sfx.tone(900, 0.1, 'square', 0.06, 0.1);
+});
+cv.addEventListener('pointerdown', (e) => {
+  if (e.clientX > B.l && e.clientX < B.r && e.clientY > B.top && e.clientY < B.bot) {
+    for (const q of toys) if (!claw.hold.includes(q)) q.hop = rand(0.6, 1);
+    Sfx.noise(0.2, 0.15, 800); Sfx.tone(200, 0.08, 'square', 0.05);
+  }
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  const s = TS(), lo = B.chute + s * 0.4, hi = B.r - s * 0.5;
+  claw.t += dt;
+  if (claw.st === 'move') {
+    claw.x += claw.dir * 110 * dt; if (claw.x > hi) { claw.x = hi; claw.dir = -1; } if (claw.x < lo) { claw.x = lo; claw.dir = 1; }
+    claw.y = B.rail + 30; claw.open = 1;
+    if (Math.random() < dt * 3) Sfx.tone(160, 0.05, 'triangle', 0.03);
+  } else if (claw.st === 'down') {
+    claw.y += 220 * dt;
+    const hit = toys.filter(q => Math.abs(q.x - claw.x) < s * 0.7).sort((a, b) => a.y - b.y)[0];
+    const stop = hit ? hit.y - s * 0.4 : B.bot - s * 0.5;
+    if (claw.y >= stop) { claw.y = stop; claw.st = 'grab'; claw.t = 0; }
+  } else if (claw.st === 'grab') {
+    claw.open = Math.max(0, 1 - claw.t * 2.5);
+    if (claw.t > 0.5) {
+      const near = toys.filter(q => Math.abs(q.x - claw.x) < s * 0.7 && Math.abs(q.y - claw.y) < s * 1.1).sort((a, b) => Math.abs(a.x - claw.x) - Math.abs(b.x - claw.x));
+      claw.hold = [];
+      if (near.length && Math.random() < 0.85) { claw.hold.push(near[0]); if (near[1] && Math.random() < 0.25) claw.hold.push(near[1]); }
+      claw.st = 'up'; claw.t = 0; Sfx.tone(300, 0.3, 'square', 0.05, 0, 500);
+    }
+  } else if (claw.st === 'up') {
+    claw.y -= 160 * dt;
+    if (claw.y <= B.rail + 30) { claw.y = B.rail + 30; claw.st = claw.hold.length ? 'carry' : 'move'; if (!claw.hold.length) { claw.open = 1; Sfx.tone(300, 0.3, 'sine', 0.08, 0, 200); popText('あれれ？', W / 2, B.top + 70, '#b8245c', 30); } }
+  } else if (claw.st === 'carry') {
+    claw.x -= 120 * dt;
+    const cx = (B.l + B.chute) / 2;
+    if (claw.x <= cx) { claw.x = cx; claw.st = 'drop'; claw.t = 0; }
+  } else if (claw.st === 'drop') {
+    claw.open = Math.min(1, claw.t * 3);
+    if (claw.t > 0.2 && claw.hold.length) {
+      for (const q of claw.hold) { toys = toys.filter(z => z !== q); falling.push({ e: q.e, x: q.x, y: q.y, vy: 0, t: 0 }); }
+      claw.hold = []; Sfx.tone(800, 0.2, 'sine', 0.1, 0, 300);
+    }
+    if (claw.t > 0.8) { claw.st = 'move'; claw.dir = 1; }
+  }
+  // つかんでいる ぬいぐるみ
+  claw.hold.forEach((q, i) => { q.x = claw.x + (i ? s * 0.35 : 0) + Math.sin(t * 6) * 2; q.y = claw.y + s * 0.55 + i * 6; });
+  for (const q of toys) {
+    if (claw.hold.includes(q)) continue;
+    if (q.drop < 0) { q.drop = Math.min(0, q.drop + 500 * dt); }
+    q.hop = Math.max(0, q.hop - dt * 2.5);
+  }
+  // あなに おちて → たなへ
+  for (const f of falling) {
+    f.t += dt;
+    if (f.t < 0.5) { f.vy += 1200 * dt; f.y += f.vy * dt; }
+    else if (!f.done) {
+      f.done = true; shelf.push(f.e); if (shelf.length > 8) shelf.shift();
+      Sfx.yay(); setTimeout(() => Sfx.chime(), 200); popText('とれた！', W / 2, B.top + 80, '#ff4d8d', 46);
+      for (let i = 0; i < 20; i++) sparks.push({ x: (B.l + B.chute) / 2, y: B.bot, vx: rand(-200, 200), vy: rand(-400, -150), life: 1, hue: rand(0, 360) });
+    }
+  }
+  falling = falling.filter(f => !f.done);
+  if (toys.length < 5 && claw.st === 'move') fill();
+  for (const p of sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 600 * dt; p.life -= dt; }
+  sparks = sparks.filter(p => p.life > 0);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const s = TS();
+  // たな（うえ）
+  const sw = Math.min(44, (W - 180) / 8);
+  shelf.forEach((e, i) => drawEmoji(ctx, e, W / 2 + (i - (shelf.length - 1) / 2) * sw, 40, sw * 0.9));
+  // きかい
+  ctx.fillStyle = '#ff7ab8'; ctx.beginPath(); ctx.roundRect(B.l - 14, B.top - 14, B.r - B.l + 28, B.bot - B.top + 40, 20); ctx.fill();
+  ctx.fillStyle = '#eaf6ff'; ctx.fillRect(B.l, B.top, B.r - B.l, B.bot - B.top);
+  ctx.fillStyle = '#ffe6f2'; ctx.fillRect(B.l, B.bot - 8, B.r - B.l, 8);
+  // あな
+  ctx.fillStyle = '#3a2a40'; ctx.fillRect(B.l, B.bot - 40, B.chute - B.l, 40);
+  ctx.fillStyle = '#ffd23f'; ctx.fillRect(B.chute - 6, B.bot - 70, 8, 70);
+  // レール と アーム
+  ctx.fillStyle = '#9aa6b3'; ctx.fillRect(B.l, B.rail - 6, B.r - B.l, 10);
+  ctx.strokeStyle = '#666'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(claw.x, B.rail); ctx.lineTo(claw.x, claw.y - 14); ctx.stroke();
+  for (const q of toys) { const y = q.y + q.drop - Math.sin(q.hop * Math.PI) * 26; drawEmoji(ctx, q.e, q.x + (q.hop ? Math.sin(t * 40) * 3 : 0), y, s); }
+  ctx.fillStyle = '#c0c8d2'; ctx.beginPath(); ctx.roundRect(claw.x - 22, claw.y - 18, 44, 18, 6); ctx.fill();
+  const o = 0.25 + claw.open * 0.6;
+  ctx.strokeStyle = '#8a96a3'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  for (const d of [-1, 1]) { ctx.beginPath(); ctx.moveTo(claw.x + d * 14, claw.y); ctx.lineTo(claw.x + d * (14 + 20 * o), claw.y + 26); ctx.lineTo(claw.x + d * (6 + 10 * o), claw.y + 46); ctx.stroke(); }
+  for (const f of falling) drawEmoji(ctx, f.e, f.x, f.y, s);
+  // ガラスの ひかり
+  ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.moveTo(B.l + 20, B.top); ctx.lineTo(B.l + 60, B.top); ctx.lineTo(B.l + 20, B.top + 120); ctx.fill();
+  for (const p of sparks) { ctx.fillStyle = `hsla(${p.hue},90%,60%,${p.life})`; ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, 7); ctx.fill(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

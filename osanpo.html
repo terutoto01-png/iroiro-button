@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>おさんぽ</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: #b6e38a; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ffd23f; --c2: #b8900a; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🐣</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// おさんぽ: おかあさんガモの うしろを ヒナが ならんで ついてくる。がめんを さわると、ゆびの ほうへ あるく。
+// ボタンで ヒナが ふえる（12わ まで。そのあとは みんなで ぴょん）。みんなで いけに はいると およいで 💗。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const SP = 36, MAX = 12;
+let gap = SP, still = 0;
+let mom = { x: W * 0.3, y: H * 0.4, dir: 1, hop: 0 }, trail = [], chicks = [], goal = null, finger = null, wanderT = 0;
+let pond, deco = [], hearts = [], ripples = [], inPondAll = false, frogT = 0;
+
+function layout() {
+  pond = { x: W * 0.55, y: H * 0.62, rx: Math.min(W * 0.32, 300), ry: Math.min(H * 0.14, 150) };
+  deco = []; for (let i = 0; i < 14; i++) { const x = rand(20, W - 20), y = rand(90, H - 20); if (!inPond(x, y, 30)) deco.push({ x, y, e: pick(['🌼', '🌷', '🌿', '🍀', '🌼']) }); }
+}
+const inPond = (x, y, m = 0) => ((x - pond.x) / (pond.rx + m)) ** 2 + ((y - pond.y) / (pond.ry + m)) ** 2 < 1;
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+for (let i = 0; i < 3; i++) chicks.push({ hop: 0, born: 1 });
+
+btn.addEventListener('pointerdown', () => {
+  if (chicks.length < MAX) {
+    chicks.push({ hop: 1, born: 0 });
+    Sfx.tone(1400, 0.08, 'sine', 0.12, 0, 1800); Sfx.tone(1500, 0.08, 'sine', 0.1, 0.12, 1900);
+  } else {
+    chicks.forEach((c, i) => setTimeout(() => { c.hop = 1; Sfx.tone(1300 + i * 30, 0.06, 'sine', 0.07, 0, 1800); }, i * 70));
+  }
+  mom.hop = 1; quack();
+});
+function quack() { Sfx.tone(260, 0.12, 'sawtooth', 0.08, 0, 200); Sfx.tone(250, 0.14, 'sawtooth', 0.08, 0.16, 190); }
+cv.addEventListener('pointerdown', (e) => { try { cv.setPointerCapture(e.pointerId); } catch (err) {} finger = { x: e.clientX, y: e.clientY, id: e.pointerId }; if (Math.hypot(e.clientX - mom.x, e.clientY - mom.y) < 40) { mom.hop = 1; quack(); } });
+cv.addEventListener('pointermove', (e) => { if (finger && finger.id === e.pointerId) { finger.x = e.clientX; finger.y = e.clientY; } });
+const up = (e) => { if (finger && finger.id === e.pointerId) finger = null; };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+function trailAt(d) { // おかあさんの とおった みち を d だけ さかのぼった ところ
+  let acc = 0;
+  for (let i = trail.length - 1; i > 0; i--) {
+    const a = trail[i], b = trail[i - 1], s = Math.hypot(a.x - b.x, a.y - b.y);
+    if (acc + s >= d) { const k = (d - acc) / s; return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, dx: a.x - b.x }; }
+    acc += s;
+  }
+  const p = trail[0] || mom; return { x: p.x, y: p.y, dx: mom.dir };
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  // おかあさん
+  wanderT -= dt;
+  if (finger) goal = { x: finger.x, y: finger.y };
+  else if (!goal || wanderT < 0 || Math.hypot(goal.x - mom.x, goal.y - mom.y) < 10) {
+    wanderT = rand(2.5, 5);
+    goal = Math.random() < 0.35 ? { x: pond.x + rand(-0.6, 0.6) * pond.rx, y: pond.y + rand(-0.5, 0.5) * pond.ry } : { x: rand(40, W - 40), y: rand(110, H - 150) };
+  }
+  const dx = goal.x - mom.x, dy = goal.y - mom.y, d = Math.hypot(dx, dy), sp = (finger ? 200 : 90) * (inPond(mom.x, mom.y) ? 0.8 : 1);
+  if (d > 4) { mom.x += dx / d * Math.min(d, sp * dt); mom.y += dy / d * Math.min(d, sp * dt); if (Math.abs(dx) > 3) mom.dir = dx > 0 ? 1 : -1; }
+  mom.x = Math.max(20, Math.min(W - 20, mom.x)); mom.y = Math.max(90, Math.min(H - 20, mom.y));
+  const lt = trail[trail.length - 1];
+  if (!lt || Math.hypot(lt.x - mom.x, lt.y - mom.y) > 3) { trail.push({ x: mom.x, y: mom.y }); if (trail.length > 400) trail.shift(); }
+  mom.hop = Math.max(0, mom.hop - dt * 3);
+  // おかあさんが とまると ヒナは ぎゅっと よってくる
+  still = d > 4 ? 0 : still + dt;
+  gap += ((still > 0.4 ? 15 : SP) - gap) * Math.min(1, dt * 2);
+  // いけの なかで とまったら、おかあさんの まわりに あつまって およぐ
+  const gather = still > 0.6 && inPond(mom.x, mom.y);
+  chicks.forEach((c, i) => {
+    let p = trailAt((i + 1) * gap);
+    if (gather) { const a = i * 2.4 + t * 0.3, r = 46 + (i % 3) * 22; p = { x: mom.x + Math.cos(a) * r * 1.4, y: mom.y + Math.sin(a) * r * 0.7, dx: -Math.sin(a) }; }
+    if (c.x === undefined) { c.x = p.x; c.y = p.y; }
+    const k = Math.min(1, dt * (gather ? 2.5 : 10)); c.x += (p.x - c.x) * k; c.y += (p.y - c.y) * k;
+    if (Math.abs(p.dx) > 0.5) c.dir = p.dx > 0 ? 1 : -1; c.hop = Math.max(0, c.hop - dt * 3); c.born = Math.min(1, c.born + dt * 2);
+  });
+  // みんなで いけ
+  const all = chicks.length >= 3 && inPond(mom.x, mom.y) && chicks.filter(c => inPond(c.x, c.y, 10)).length >= Math.ceil(chicks.length * 0.6);
+  if (all && !inPondAll) { Sfx.chime(); for (let i = 0; i < 10; i++) hearts.push({ x: mom.x + rand(-60, 60), y: mom.y - 20, vy: rand(-90, -40), life: 1.6 }); popText('すいすい', mom.x, mom.y - 70, '#1e88c7', 36); }
+  inPondAll = all;
+  if (Math.random() < dt * 4) for (const b of [mom, ...chicks]) if (b.x !== undefined && inPond(b.x, b.y) && Math.random() < 0.3) ripples.push({ x: b.x, y: b.y + 8, r: 6, life: 1 });
+  for (const r of ripples) { r.r += 30 * dt; r.life -= dt; }
+  ripples = ripples.filter(r => r.life > 0);
+  for (const h of hearts) { h.y += h.vy * dt; h.life -= dt; }
+  hearts = hearts.filter(h => h.life > 0);
+  // カエル（おかあさんが ちかくを とおると げろっ）
+  frogT -= dt;
+  const fr = { x: pond.x + pond.rx * 0.55, y: pond.y - pond.ry * 0.25 };
+  if (frogT < 0 && Math.hypot(mom.x - fr.x, mom.y - fr.y) < 90) { frogT = 3; Sfx.tone(140, 0.15, 'square', 0.08, 0, 110); Sfx.tone(140, 0.15, 'square', 0.08, 0.2, 110); }
+  draw(t, fr);
+  requestAnimationFrame(loop);
+}
+
+function bird(e, x, y, dir, size, hop, born = 1) {
+  const sw = inPond(x, y);
+  ctx.save(); ctx.translate(x, y - hop * 22 + (sw ? 6 + Math.sin(performance.now() / 300 + x) * 2 : 0)); if (dir > 0) ctx.scale(-1, 1);
+  if (sw) { ctx.beginPath(); ctx.rect(-size, -size * 1.2, size * 2, size * 1.2 + size * 0.1); ctx.clip(); }
+  drawEmoji(ctx, e, 0, 0, size * born);
+  ctx.restore();
+}
+
+function draw(t, fr) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  for (const d of deco) drawEmoji(ctx, d.e, d.x, d.y, 26);
+  // いけ
+  ctx.fillStyle = '#8fd0ff'; ctx.beginPath(); ctx.ellipse(pond.x, pond.y, pond.rx + 10, pond.ry + 10, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#4fb3f0'; ctx.beginPath(); ctx.ellipse(pond.x, pond.y, pond.rx, pond.ry, 0, 0, 7); ctx.fill();
+  for (const r of ripples) { ctx.strokeStyle = `rgba(255,255,255,${r.life * 0.7})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(r.x, r.y, r.r, r.r * 0.4, 0, 0, 7); ctx.stroke(); }
+  ctx.fillStyle = '#4caf50'; ctx.beginPath(); ctx.ellipse(fr.x, fr.y + 12, 30, 12, 0, 0, 7); ctx.fill();
+  drawEmoji(ctx, '🐸', fr.x, fr.y - 4 - (frogT > 2.6 ? 10 : 0), 34);
+  // ならぶ（うえに いる ほうから かく）
+  const list = [{ e: '🦆', ...mom, size: 64 }, ...chicks.map(c => ({ e: '🐥', ...c, size: 36 }))].filter(b => b.x !== undefined).sort((a, b) => a.y - b.y);
+  for (const b of list) bird(b.e, b.x, b.y, b.dir, b.size, b.hop, b.born ?? 1);
+  for (const h of hearts) drawEmoji(ctx, '💗', h.x, h.y, 26);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

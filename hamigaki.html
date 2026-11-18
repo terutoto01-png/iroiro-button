@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>はみがき</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#dff6ff, #fff); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #29b6f6; --c2: #0277bd; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🪥</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// はみがき: どうぶつの くちの なかの ばいきん 🦠 を、ゆびで ごしごし（ボタンでも ごしごし）。ばいきんは にげていく。
+// ぜんぶ いなくなると ぴかぴか → つぎの どうぶつ。🐊 は くちが おおきい。かおを さわると…？
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const ANIMALS = ['🐶', '🐱', '🐻', '🦁', '🐊', '🐷', '🐵', '🐯', '🐊'];
+let who, M, teeth = [], germs = [], foam = [], fleeing = [], brush = { x: 0, y: 0, on: false, auto: 0 }, done = -1, snap = 0, hop = 0, giggle = 0, order = [];
+
+function layout() {
+  const croc = who === '🐊';
+  const rx = Math.min(W * (croc ? 0.42 : 0.4), croc ? 320 : 250), ry = rx * (croc ? 0.5 : 0.62);
+  M = { x: W / 2, y: Math.max(H * 0.5, 120 + rx * 0.9 + ry), rx, ry, croc };
+  const n = croc ? 9 : 6, tw = rx * 1.6 / n;
+  teeth = [];
+  for (const row of [-1, 1]) for (let i = 0; i < n; i++) {
+    const u = (i + 0.5) / n - 0.5, x = M.x + u * rx * 1.6, edge = M.ry * Math.sqrt(Math.max(0, 1 - (u * 1.6) ** 2));
+    teeth.push({ x, y: M.y + row * (edge - tw * 0.45), w: tw * 0.86, h: tw * (croc ? 0.9 : 0.75), row });
+  }
+}
+function next() {
+  if (!order.length) order = ANIMALS.slice().sort(() => Math.random() - 0.5);
+  who = order.pop(); layout();
+  const n = Math.min(teeth.length, 4 + Math.floor(Math.random() * 3) + (who === '🐊' ? 2 : 0));
+  germs = teeth.slice().sort(() => Math.random() - 0.5).slice(0, n).map(tt => ({ tt, ox: rand(-0.2, 0.2), hp: 1, ph: rand(0, 6) }));
+  done = -1;
+}
+next();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; const old = teeth; layout(); germs.forEach(g => { g.tt = teeth[old.indexOf(g.tt)] || teeth[0]; }); });
+const gpos = (g) => ({ x: g.tt.x + g.ox * g.tt.w, y: g.tt.y });
+
+function scrub(x, y, amount) {
+  for (const g of germs) {
+    const p = gpos(g);
+    if (Math.hypot(p.x - x, p.y - y) < Math.max(40, g.tt.w * 0.8)) {
+      g.hp -= amount; g.hit = 0.2;
+      if (g.hp <= 0) { fleeing.push({ x: p.x, y: p.y, vx: (p.x < M.x ? -1 : 1) * rand(200, 320), vy: rand(-260, -120), t: 0 }); Sfx.tone(900, 0.2, 'square', 0.04, 0, 1500); popText('わー', p.x, p.y - 40, '#7a3fc2', 26); }
+    }
+  }
+  germs = germs.filter(g => g.hp > 0);
+  if (Math.random() < 0.5) foam.push({ x: x + rand(-14, 14), y: y + rand(-10, 10), r: rand(5, 11), life: 1.4 });
+  if (!germs.length && done < 0) { done = 0; Sfx.chime(); setTimeout(() => Sfx.yay(), 250); popText('ぴかぴか！', M.x, M.y - M.ry - 60, '#29b6f6', 50); hop = 1; }
+}
+
+btn.addEventListener('pointerdown', () => { if (!brush.on && brush.auto <= 0) { brush.x = M.x + M.rx; brush.y = M.y; } brush.auto = 0.6; Sfx.noise(0.5, 0.12, 2500, 0, 'bandpass'); });
+cv.addEventListener('pointerdown', (e) => {
+  const hx = M.x, hy = M.y - M.ry - 70;
+  if (Math.hypot(e.clientX - hx, e.clientY - hy) < 60) {
+    if (M.croc) { snap = 1; Sfx.tone(200, 0.12, 'square', 0.1); popText('ぱくっ！', hx, hy - 50, '#2e7031', 40); }
+    else { giggle = 1; Sfx.tone(700, 0.08, 'sine', 0.1); Sfx.tone(800, 0.08, 'sine', 0.1, 0.1); Sfx.tone(900, 0.08, 'sine', 0.1, 0.2); }
+    return;
+  }
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  brush = { x: e.clientX, y: e.clientY, on: true, id: e.pointerId, auto: 0, lx: e.clientX, ly: e.clientY, sT: 0 };
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!brush.on || brush.id !== e.pointerId) return;
+  const d = Math.hypot(e.clientX - brush.lx, e.clientY - brush.ly);
+  brush.x = e.clientX; brush.y = e.clientY; brush.lx = e.clientX; brush.ly = e.clientY;
+  if (snap > 0.3) return;
+  scrub(brush.x, brush.y, Math.min(d, 40) * 0.006);
+  brush.sT -= d; if (brush.sT < 0) { brush.sT = 70; Sfx.noise(0.12, 0.06, 3000, 0, 'bandpass'); }
+});
+const up = (e) => { if (brush.id === e.pointerId) brush.on = false; };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  snap = Math.max(0, snap - dt * 1.5); hop = Math.max(0, hop - dt * 1.5); giggle = Math.max(0, giggle - dt * 1.2);
+  if (brush.auto > 0) {
+    brush.auto -= dt;
+    const g = germs[0];
+    if (g) { const p = gpos(g); brush.x += (p.x + Math.sin(t * 40) * 16 - brush.x) * Math.min(1, dt * 12); brush.y += (p.y - brush.y) * Math.min(1, dt * 12); scrub(brush.x, brush.y, dt * 1.6); }
+  }
+  for (const f of foam) { f.life -= dt; f.y -= 8 * dt; }
+  foam = foam.filter(f => f.life > 0);
+  for (const f of fleeing) { f.t += dt; f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 500 * dt; }
+  fleeing = fleeing.filter(f => f.t < 2);
+  for (const g of germs) g.hit = Math.max(0, (g.hit || 0) - dt);
+  if (done >= 0) { done += dt; if (done > 2.6) next(); }
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const hx = M.x, hy = M.y - M.ry - 70 - Math.sin(hop * Math.PI) * 30;
+  ctx.save(); ctx.translate(hx, hy); ctx.rotate(Math.sin(giggle * 20) * giggle * 0.2); drawEmoji(ctx, who, 0, 0, 110); ctx.restore();
+  // くち
+  const open = 1 - Math.sin(Math.min(1, snap * 1.5) * Math.PI) * 0.85;
+  ctx.save(); ctx.translate(M.x, M.y); ctx.scale(1, open); ctx.translate(-M.x, -M.y);
+  ctx.fillStyle = M.croc ? '#3f8a26' : '#f0b98a'; ctx.beginPath(); ctx.ellipse(M.x, M.y, M.rx + 22, M.ry + 22, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#8a1f2b'; ctx.beginPath(); ctx.ellipse(M.x, M.y, M.rx, M.ry, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#ff7a8a'; ctx.beginPath(); ctx.ellipse(M.x, M.y + M.ry * 0.45, M.rx * 0.5, M.ry * 0.35, 0, 0, 7); ctx.fill();
+  for (const tt of teeth) {
+    ctx.fillStyle = done >= 0 ? '#ffffff' : '#fbf6e8';
+    ctx.beginPath();
+    if (M.croc) { ctx.moveTo(tt.x - tt.w / 2, tt.y - tt.row * tt.h / 2); ctx.lineTo(tt.x + tt.w / 2, tt.y - tt.row * tt.h / 2); ctx.lineTo(tt.x, tt.y + tt.row * tt.h / 2); }
+    else ctx.roundRect(tt.x - tt.w / 2, tt.y - tt.h / 2, tt.w, tt.h, 8);
+    ctx.fill();
+    if (done >= 0 && Math.sin(t * 6 + tt.x) > 0.7) drawEmoji(ctx, '✨', tt.x + tt.w * 0.2, tt.y - tt.h * 0.2, 20);
+  }
+  for (const g of germs) { const p = gpos(g), s = 34 * (0.6 + 0.4 * g.hp) * (1 + Math.sin(t * 8 + g.ph) * 0.08); ctx.save(); ctx.translate(p.x + (g.hit ? Math.sin(t * 60) * 4 : 0), p.y); ctx.rotate(Math.sin(t * 3 + g.ph) * 0.3); drawEmoji(ctx, '🦠', 0, 0, s); ctx.restore(); }
+  ctx.restore();
+  for (const f of fleeing) { ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.t * 8); drawEmoji(ctx, '🦠', 0, 0, 30); ctx.restore(); }
+  for (const f of foam) { ctx.fillStyle = `rgba(255,255,255,${Math.min(1, f.life)})`; ctx.strokeStyle = `rgba(160,210,255,${Math.min(1, f.life)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 7); ctx.fill(); ctx.stroke(); }
+  if (brush.on || brush.auto > 0) { ctx.save(); ctx.translate(brush.x + 18, brush.y - 18); ctx.rotate(Math.sin(t * 30) * 0.15); drawEmoji(ctx, '🪥', 0, 0, 60); ctx.restore(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

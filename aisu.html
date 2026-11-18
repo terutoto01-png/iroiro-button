@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>アイスやさん</title>
+<link rel="stylesheet" href="common.css?v=18">
+<style>
+  body { background: linear-gradient(#ffe3f0, #fff6dc); }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff8fb8; --c2: #c95a85; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🍨</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// アイスやさん: ボタンで アイスが うえから ぽとっと のる。どんどん たかく なって、ぐらぐら。
+// たかすぎたり かたむきすぎると たおれて、🐶 が ぺろぺろ たべに くる。アイスを さわると ぺろっ。ときどき にじいろ アイス。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const FLAVORS = ['#fff3d6', '#ffb3c7', '#8a5a34', '#b8f0d8', '#c9f08a', '#c8b8ff', '#ffd08a'];
+let R, cone, stack = [], falling = [], ang = 0, angV = 0, state = 'play', splats = [], flyers = [], dog = null, coneDrop = 0, sparks = [];
+
+function layout() { R = Math.max(34, Math.min(56, Math.min(W, H) / 9)); cone = { x: W > 600 ? W / 2 : W * 0.42, base: H - 36, h: R * 2.6 }; }
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+const coneTop = () => cone.base - cone.h;
+const lean = () => stack.reduce((a, s) => a + s.dx, 0);
+// i ばんめの アイスの まんなか（かたむき こみ）
+function scoopPos(i) {
+  let x = cone.x, y = coneTop() - R * 0.35;
+  for (let k = 0; k <= i; k++) { if (k) y -= R * 1.35; x += stack[k].dx; }
+  const ox = x - cone.x, oy = y - coneTop(), c = Math.cos(ang), s = Math.sin(ang);
+  return { x: cone.x + ox * c - oy * s, y: coneTop() + ox * s + oy * c };
+}
+const topPos = () => stack.length ? scoopPos(stack.length - 1) : { x: cone.x, y: coneTop() + R * 0.9 };
+
+btn.addEventListener('pointerdown', () => {
+  if (state !== 'play' || falling.length > 2) return;
+  const rainbow = Math.random() < 0.08;
+  falling.push({ x: topPos().x + rand(-R * 0.45, R * 0.45), y: -R, vy: 0, color: pick(FLAVORS), rainbow });
+  Sfx.tone(900, 0.08, 'sine', 0.08, 0, 600);
+});
+cv.addEventListener('pointerdown', (e) => {
+  if (state !== 'play' || !stack.length) return;
+  const p = scoopPos(stack.length - 1);
+  if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < R * 1.4) {
+    const s = stack[stack.length - 1]; s.lick = (s.lick || 0) + 1;
+    Sfx.noise(0.15, 0.15, 2500, 0, 'bandpass'); popText('ぺろっ', p.x, p.y - R * 1.4, '#ff5a8a', 34);
+    if (s.lick >= 3) { stack.pop(); Sfx.tone(600, 0.15, 'sine', 0.1, 0, 900); }
+  }
+});
+
+function topple() {
+  if (state !== 'play') return;
+  state = 'fall'; Sfx.tone(400, 0.6, 'sawtooth', 0.06, 0, 120); Sfx.boing();
+  const dir = Math.sign(lean() || ang || 1);
+  stack.forEach((s, i) => { const p = scoopPos(i); flyers.push({ ...s, x: p.x, y: p.y, vx: dir * rand(60, 200) + rand(-60, 60), vy: rand(-260, -80), rot: 0 }); });
+  stack = []; ang = angV = 0;
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  // おちてくる アイス
+  for (const f of falling) {
+    f.vy += 1400 * dt; f.y += f.vy * dt;
+    const tp = topPos(), ty = tp.y - R * 1.35;
+    if (f.y >= ty && state === 'play') {
+      const below = stack.length ? tp.x : cone.x;
+      const dx = Math.max(-R * 0.6, Math.min(R * 0.6, f.x - below));
+      stack.push({ dx, color: f.color, rainbow: f.rainbow, squash: 1 });
+      angV += dx * 0.004 + (ang > 0 ? 0.03 : -0.03);
+      f.done = true;
+      Sfx.tone(220 + stack.length * 30, 0.15, 'sine', 0.2, 0, 120); Sfx.noise(0.08, 0.12, 900);
+      if (f.rainbow) { Sfx.chime(); for (let i = 0; i < 20; i++) sparks.push({ x: f.x, y: ty, vx: rand(-200, 200), vy: rand(-250, -50), life: 1, hue: rand(0, 360) }); }
+      const tooHigh = scoopPos(stack.length - 1).y < 100, tooLean = Math.abs(lean()) > R * 1.5 && stack.length >= 3;
+      if (tooHigh || tooLean) setTimeout(topple, 400);
+    }
+  }
+  falling = falling.filter(f => !f.done && f.y < H + 100);
+  // ぐらぐら
+  const k = 6 + stack.length * 0.3, target = lean() * 0.0025;
+  angV += (-(ang - target) * k - angV * 1.6) * dt; ang += angV * dt;
+  ang = Math.max(-0.35, Math.min(0.35, ang));
+  for (const s of stack) s.squash = Math.max(0, s.squash - dt * 4);
+  // たおれた アイス
+  for (const f of flyers) {
+    if (f.landed) continue;
+    f.vy += 1200 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vx * dt * 0.02;
+    if (f.y > H - 30) { f.y = H - 30; f.landed = true; splats.push({ x: f.x, color: f.color, rainbow: f.rainbow, a: 1 }); Sfx.noise(0.15, 0.2, 700); }
+  }
+  flyers = flyers.filter(f => !f.landed);
+  if (state === 'fall' && !flyers.length && !dog) { dog = { x: -80, phase: 'in', t: 0 }; Sfx.tone(500, 0.12, 'square', 0.06); Sfx.tone(500, 0.12, 'square', 0.06, 0.2); }
+  if (dog) {
+    dog.t += dt;
+    const targ = splats.find(s => s.a > 0.05);
+    if (targ) {
+      if (Math.abs(dog.x - targ.x) > 10) dog.x += Math.sign(targ.x - dog.x) * 320 * dt;
+      else { targ.a -= dt * 2.2; if (Math.random() < dt * 6) { Sfx.noise(0.08, 0.1, 2500, 0, 'bandpass'); } if (Math.random() < dt * 1.5) popText('ぺろぺろ', dog.x, H - 120, '#c47200', 28); }
+    } else {
+      dog.x += 260 * dt;
+      if (dog.x > W + 100) { dog = null; splats = []; state = 'play'; coneDrop = 1; }
+    }
+  }
+  coneDrop = Math.max(0, coneDrop - dt * 2.5);
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 500 * dt; s.life -= dt; }
+  sparks = sparks.filter(s => s.life > 0);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function scoop(x, y, color, rainbow, sq = 0, rot = 0, a = 1) {
+  ctx.save(); ctx.globalAlpha = a; ctx.translate(x, y); ctx.rotate(rot); ctx.scale(1 + sq * 0.25, 1 - sq * 0.2);
+  if (rainbow) { const g = ctx.createLinearGradient(-R, -R, R, R); ['#ff6b6b', '#ffd23f', '#6be36b', '#4fc3f7', '#b388ff'].forEach((c, i) => g.addColorStop(i / 4, c)); ctx.fillStyle = g; }
+  else ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(0, 0, R, Math.PI * 0.95, Math.PI * 0.05);
+  for (let i = 0; i <= 6; i++) { const x2 = R * Math.cos(Math.PI * 0.05) - (i / 6) * R * 2 * Math.cos(Math.PI * 0.05); ctx.lineTo(x2, R * 0.35 + (i % 2 ? R * 0.22 : 0)); }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.beginPath(); ctx.ellipse(-R * 0.35, -R * 0.4, R * 0.28, R * 0.16, -0.5, 0, 7); ctx.fill();
+  if (rainbow) for (let i = 0; i < 8; i++) { ctx.fillStyle = `hsl(${i * 45},90%,60%)`; ctx.fillRect(Math.cos(i * 2.3) * R * 0.6, Math.sin(i * 1.7) * R * 0.4 - R * 0.2, 8, 3); }
+  ctx.restore();
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#f6d9b0'; ctx.fillRect(0, H - 40, W, 40);
+  for (const s of splats) { ctx.globalAlpha = Math.max(0, s.a); ctx.fillStyle = s.rainbow ? '#ff9ec2' : s.color; ctx.beginPath(); ctx.ellipse(s.x, H - 30, R * 1.1 * s.a + 4, R * 0.35, 0, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+  // コーン と アイス（コーンの さきを じくに かたむく）
+  if (state === 'play') {
+    const yoff = -coneDrop * H;
+    ctx.save(); ctx.translate(0, yoff);
+    ctx.save(); ctx.translate(cone.x, coneTop()); ctx.rotate(ang); ctx.translate(-cone.x, -coneTop());
+    ctx.fillStyle = '#e0a458'; ctx.beginPath(); ctx.moveTo(cone.x - R * 0.95, coneTop()); ctx.lineTo(cone.x + R * 0.95, coneTop()); ctx.lineTo(cone.x, cone.base); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#b77a35'; ctx.lineWidth = 2; ctx.beginPath();
+    for (let i = -3; i <= 3; i++) { ctx.moveTo(cone.x + i * R * 0.3 - R * 0.4, coneTop()); ctx.lineTo(cone.x + i * R * 0.3 + R * 0.4, coneTop() + cone.h * 0.6); }
+    ctx.stroke(); ctx.restore();
+    stack.forEach((s, i) => { const p = scoopPos(i); scoop(p.x, p.y, s.color, s.rainbow, s.squash, ang, 1); if (s.lick) { ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.ellipse(p.x + R * 0.3, p.y - R * 0.5, R * 0.25 * s.lick, R * 0.12, 0, 0, 7); ctx.fill(); } });
+    if (stack.length && stack[stack.length - 1].rainbow) { const p = scoopPos(stack.length - 1); drawEmoji(ctx, '🍒', p.x, p.y - R * 1.05, R * 0.7); }
+    ctx.restore();
+  }
+  for (const f of falling) scoop(f.x, f.y, f.color, f.rainbow);
+  for (const f of flyers) scoop(f.x, f.y, f.color, f.rainbow, 0, f.rot);
+  for (const s of sparks) { ctx.fillStyle = `hsla(${s.hue},90%,60%,${s.life})`; ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, 7); ctx.fill(); }
+  if (dog) { ctx.save(); ctx.translate(dog.x, H - 70 + Math.abs(Math.sin(dog.t * 10)) * -6); ctx.scale(-1, 1); drawEmoji(ctx, '🐕', 0, 0, 80); ctx.restore(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
