@@ -74,7 +74,8 @@ cv.addEventListener('pointermove', (e) => {
   const d = Math.hypot(e.clientX - sponge.x, e.clientY - sponge.y); sponge.x = e.clientX; sponge.y = e.clientY;
   if (car.st !== 'wash') return;
   scrubAt(sponge.x, sponge.y, 30, Math.min(d, 40) * 0.025);
-  if (Math.random() < 0.5) foam.push({ x: sponge.x + rand(-20, 20), y: sponge.y + rand(-15, 15), r: rand(6, 14), stick: true, life: 1 });
+  const onCar = Math.abs(sponge.x - car.x) < C.cs * 0.5 && Math.abs(sponge.y - C.y) < C.cs * 0.35; // あわは くるまの うえ だけ
+  if (onCar && Math.random() < 0.5) foam.push({ x: sponge.x + rand(-20, 20), y: sponge.y + rand(-15, 15), r: rand(6, 14), stick: true, life: 1 });
   sponge.sT -= d; if (sponge.sT < 0) { sponge.sT = 60; Sfx.noise(0.12, 0.06, 2500, 0, 'bandpass'); }
 });
 const up = (e) => { if (sponge && sponge.id === e.pointerId) sponge = null; };
@@ -87,8 +88,9 @@ function loop(now) {
   if (car) {
     car.t += dt; car.hop = Math.max(0, car.hop - dt * 2);
     if (car.st === 'in') { car.x += (C.x - car.x) * Math.min(1, dt * 2.5); if (Math.abs(car.x - C.x) < 2) { car.x = C.x; car.st = 'wash'; trimMud(); } }
-    else if (car.st === 'wash' && dirt() < 0.04 && !pass) {
-      if (foam.some(f => f.stick)) { pass = { kind: 'water', t: 0 }; Sfx.noise(1.5, 0.15, 4000, 0, 'highpass'); }
+    // ほとんど きれいに なったら さいごの みずで のこりも ながして おわり
+    else if (car.st === 'wash' && dirt() < 0.08 && mud.every(m => m.a < 0.5) && !pass) {
+      if (foam.some(f => f.stick) || mud.some(m => m.a > 0)) { pass = { kind: 'water', t: 0, last: true }; Sfx.noise(1.5, 0.15, 4000, 0, 'highpass'); }
       else { car.st = 'happy'; car.t = 0; car.hop = 1; honk(); Sfx.chime(); popText('ぴかぴか！', C.x, C.y - C.cs * 0.6, '#29b6f6', 50); }
     }
     else if (car.st === 'happy') { if (Math.random() < dt * 8) sparkle.push({ x: car.x + rand(-0.4, 0.4) * C.cs, y: C.y + rand(-0.25, 0.2) * C.cs, life: 0.8 }); if (car.t > 2.6) { car.st = 'out'; Sfx.tone(140, 0.5, 'sawtooth', 0.05, 0, 300); } }
@@ -100,7 +102,7 @@ function loop(now) {
     const u = pass.t / 1.6, px = C.x - C.cs * 0.7 + u * C.cs * 1.4;
     if (pass.kind === 'brush') { scrubCol(px, C.cs * 0.14, dt * 2.4); if (Math.random() < dt * 30) foam.push({ x: px + rand(-20, 20), y: C.y + rand(-0.25, 0.25) * C.cs, r: rand(8, 18), stick: true, life: 1 }); }
     else { scrubCol(px, C.cs * 0.16, dt * 3); for (let i = 0; i < 3; i++) drops.push({ x: px + rand(-30, 30), y: C.y - C.cs * 0.55, vy: rand(300, 500), life: 1 }); for (const f of foam) if (f.stick && Math.abs(f.x - px) < C.cs * 0.15) { f.stick = false; f.vy = 0; } }
-    if (u >= 1) pass = null;
+    if (u >= 1) { if (pass.kind === 'water') { for (const f of foam) if (f.stick) { f.stick = false; f.vy = 0; } if (pass.last) for (const m of mud) m.a = 0; } pass = null; }
   }
   for (const f of foam) if (!f.stick) { f.vy = (f.vy || 0) + 500 * dt; f.y += f.vy * dt; f.life -= dt; }
   foam = foam.filter(f => f.life > 0 && f.y < H + 20);
