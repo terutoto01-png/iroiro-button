@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>しんごう</title>
+<link rel="stylesheet" href="common.css?v=19">
+<style>
+  body { background: #a6dc7c; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #2bb24c; --c2: #187a31; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚦</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// しんごう: ボタンで しんごうが かわる（あお → きいろ → あか、あかの ときに おすと あお）。
+// あかで くるまが とまると、どうぶつたちが おうだんほどうを わたる。ときどき 🚑 が ピーポーと くる。くるまや どうぶつを さわると ぷっぷー・ぴょん。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const CARS = ['🚗', '🚕', '🚙', '🚌', '🚓', '🛻', '🚚'], WALKERS = ['🐤', '🐻', '🐰', '🐶', '🐱', '🐼', '🦊', '🐧'];
+let R, light = 'green', lt = 0, cars = [], walkers = [], spawnT = [0.5, 1.5], sirenT = 0;
+function layout() { const rh = Math.min(150, H * 0.2); R = { y: H * 0.48, h: rh, cw: W * (W < 600 ? 0.5 : 0.55), cwW: Math.min(90, W * 0.2) }; }
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+const laneY = (d) => R.y + (d > 0 ? R.h * 0.25 : -R.h * 0.25);
+const stopX = (d) => d > 0 ? R.cw - 30 : R.cw + R.cwW + 30;
+
+btn.addEventListener('pointerdown', () => {
+  if (light === 'green') { light = 'yellow'; lt = 0; Sfx.tone(700, 0.15, 'sine', 0.1); }
+  else if (light === 'red') { light = 'green'; lt = 0; Sfx.tone(900, 0.15, 'sine', 0.1); Sfx.tone(1200, 0.2, 'sine', 0.1, 0.12); }
+});
+cv.addEventListener('pointerdown', (e) => {
+  for (const c of cars) if (Math.hypot(c.x - e.clientX, laneY(c.d) - 16 - e.clientY) < 40) { c.hop = 1; Sfx.tone(440, 0.12, 'square', 0.07); Sfx.tone(440, 0.15, 'square', 0.07, 0.16); return; }
+  for (const w of walkers) if (Math.hypot(w.x - e.clientX, w.y - e.clientY) < 34) { w.hop = 1; Sfx.tone(rand(700, 1000), 0.12, 'sine', 0.1, 0, 1300); return; }
+});
+
+function newCar(d) { const amb = Math.random() < 0.1; return { e: amb ? '🚑' : pick(CARS), amb, d, x: d > 0 ? -60 : W + 60, v: rand(140, 190), cur: 0, hop: 0 }; }
+function crossing() { return walkers.some(w => w.y > R.y - R.h / 2 - 8 && w.y < R.y + R.h / 2 + 8); }
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  lt += dt;
+  if (light === 'yellow' && lt > 1.3) {
+    light = 'red'; lt = 0; Sfx.tone(500, 0.2, 'sine', 0.1);
+    const n = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < n && walkers.length < 6; i++) { const down = Math.random() < 0.5; walkers.push({ e: pick(WALKERS), x: R.cw + R.cwW * (0.25 + 0.5 * Math.random()), y: down ? R.y - R.h / 2 - 34 - i * 28 : R.y + R.h / 2 + 34 + i * 28, dir: down ? 1 : -1, hop: 0, t: 0, wait: i * 0.6 }); }
+  }
+  // くるま
+  for (const d of [1, -1]) {
+    const k = d > 0 ? 0 : 1; spawnT[k] -= dt;
+    if (spawnT[k] < 0) { spawnT[k] = rand(1.6, 3.2); const lastCar = cars.filter(c => c.d === d).sort((a, b) => d > 0 ? a.x - b.x : b.x - a.x)[0]; if (!lastCar || Math.abs(lastCar.x - (d > 0 ? -60 : W + 60)) > 90) cars.push(newCar(d)); }
+  }
+  for (const c of cars) {
+    let target = c.v;
+    const ahead = cars.filter(o => o !== c && o.d === c.d && (o.x - c.x) * c.d > 0).sort((a, b) => Math.abs(a.x - c.x) - Math.abs(b.x - c.x))[0];
+    if (ahead && Math.abs(ahead.x - c.x) < 80) target = 0;
+    const sx = stopX(c.d), dist = (sx - c.x) * c.d;
+    const mustStop = (light !== 'green' && !(c.amb && !crossing())) || crossing();
+    if (mustStop && dist > -10 && dist < 140) target = Math.min(target, Math.max(0, dist - 34) * 3);
+    c.cur += (target - c.cur) * Math.min(1, dt * 4);
+    c.x += c.cur * c.d * dt; c.hop = Math.max(0, c.hop - dt * 2.5);
+    if (c.amb) { c.sir = (c.sir || 0) - dt; if (c.sir < 0) { c.sir = 0.8; Sfx.tone(960, 0.35, 'triangle', 0.06); Sfx.tone(770, 0.35, 'triangle', 0.06, 0.4); } }
+  }
+  cars = cars.filter(c => c.x > -100 && c.x < W + 100);
+  // どうぶつ
+  for (const w of walkers) {
+    w.t += dt; w.hop = Math.max(0, w.hop - dt * 2.5);
+    if (w.t < w.wait) continue;
+    const onRoad = w.y > R.y - R.h / 2 - 10 && w.y < R.y + R.h / 2 + 10;
+    if (light === 'red' || onRoad || w.started) { w.started = true; w.y += w.dir * 70 * dt; }
+    if (Math.random() < dt * 2) Sfx.tone(rand(1200, 1600), 0.04, 'sine', 0.03);
+  }
+  walkers = walkers.filter(w => w.y > R.y - R.h / 2 - 140 && w.y < R.y + R.h / 2 + 140);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const top = R.y - R.h / 2;
+  ctx.fillStyle = '#c9ccd2'; ctx.fillRect(0, top - 50, W, R.h + 100);
+  ctx.fillStyle = '#4a4d55'; ctx.fillRect(0, top, W, R.h);
+  ctx.fillStyle = '#ffd400'; for (let x = 0; x < W; x += 40) ctx.fillRect(x, R.y - 2, 22, 4);
+  // おうだんほどう と とまれ の せん
+  ctx.fillStyle = '#fff'; for (let y = top + 6; y < top + R.h - 6; y += 18) ctx.fillRect(R.cw, y, R.cwW, 10);
+  ctx.fillRect(stopX(1) - 2, R.y, 5, R.h / 2); ctx.fillRect(stopX(-1) - 2, top, 5, R.h / 2);
+  // き と いえ
+  for (let x = 30; x < W; x += 110) drawEmoji(ctx, x % 220 < 110 ? '🌳' : '🏠', x, top - 80, 44);
+  // しんごう
+  const px = R.cw - 40, py = top - 70;
+  ctx.fillStyle = '#555'; ctx.fillRect(px - 3, py, 6, 70);
+  ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.roundRect(px - 52, py - 30, 104, 36, 12); ctx.fill();
+  [['green', '#2ee86a', -32], ['yellow', '#ffd23f', 0], ['red', '#ff3b3b', 32]].forEach(([k, c, dx]) => { ctx.fillStyle = light === k ? c : '#555'; ctx.beginPath(); ctx.arc(px + dx, py - 12, 12, 0, 7); ctx.fill(); if (light === k) { ctx.fillStyle = c + '55'; ctx.beginPath(); ctx.arc(px + dx, py - 12, 20, 0, 7); ctx.fill(); } });
+  for (const c of cars) {
+    ctx.save(); ctx.translate(c.x, laneY(c.d) - 14 - Math.sin(c.hop * Math.PI) * 26); if (c.d > 0) ctx.scale(-1, 1);
+    drawEmoji(ctx, c.e, 0, 0, 58); ctx.restore();
+    if (c.amb && Math.sin(t * 16) > 0) { ctx.fillStyle = 'rgba(255,60,60,.5)'; ctx.beginPath(); ctx.arc(c.x, laneY(c.d) - 40, 12, 0, 7); ctx.fill(); }
+  }
+  for (const w of walkers) { ctx.save(); ctx.translate(w.x, w.y - Math.sin(w.hop * Math.PI) * 24 - Math.abs(Math.sin(w.t * 8)) * 3); drawEmoji(ctx, w.e, 0, 0, 40); ctx.restore(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>かんらんしゃ</title>
+<link rel="stylesheet" href="common.css?v=19">
+<style>
+  body { background: #9fdcff; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff7ab8; --c2: #c94585; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🎡</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// かんらんしゃ: ゆっくり まわる。ボタンで くるくる はやく（おんがく つき）。ゴンドラの どうぶつを さわると てを ふる。
+// からっぽの ゴンドラを さわると、したで まっている どうぶつが のりこむ。なんしゅうか まわると よるに なって ライトが ぴかぴか。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const N = 8, COLORS = ['#ff4f7b', '#ffd23f', '#4fc3f7', '#66bb44', '#ff9f1c', '#9b5cff', '#ff7ab8', '#2bb2a0'];
+const ANIMALS = ['🐶', '🐱', '🐰', '🐻', '🐼', '🐨', '🐷', '🐸', '🐵', '🦊', '🐯', '🐹'];
+let Wh, rot = 0, spin = 0.15, boost = 0, night = 0, nightTo = 0, laps = 0, lapAcc = 0, noteT = 0, noteI = 0;
+let gond = [], queue = [], flyers = [], stars = [];
+for (let i = 0; i < N; i++) gond.push({ rider: i % 3 === 2 ? null : ANIMALS[i % ANIMALS.length], hop: 0, wave: 0, sway: 0 });
+for (let i = 0; i < 3; i++) queue.push(ANIMALS[(i + 8) % ANIMALS.length]);
+function layout() { const R = Math.min(W * 0.38, H * 0.3, 260); Wh = { x: W > 600 ? W / 2 : W * 0.47, y: Math.max(110 + R, H * 0.42), R }; stars = []; for (let i = 0; i < 40; i++) stars.push({ x: Math.random() * W, y: Math.random() * H * 0.6, p: rand(0, 6) }); }
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+const gpos = (i) => { const a = rot + i * Math.PI * 2 / N; return { x: Wh.x + Math.cos(a) * Wh.R, y: Wh.y + Math.sin(a) * Wh.R }; };
+const ground = () => Wh.y + Wh.R + 70;
+const qx = (k) => Math.max(26, Wh.x - Wh.R * 0.45 - 34) - k * 44 + (Wh.x - Wh.R * 0.45 - 34 < 26 + 88 ? 88 : 0); // のりばの れつ（ひだりへ ならぶ）
+const MELODY = [523, 659, 784, 1047, 784, 659, 587, 698, 880, 698, 587, 523];
+
+btn.addEventListener('pointerdown', () => { boost = Math.min(3, boost + 1.2); Sfx.tone(MELODY[noteI++ % MELODY.length], 0.2, 'triangle', 0.08); });
+cv.addEventListener('pointerdown', (e) => {
+  for (let i = 0; i < N; i++) {
+    const p = gpos(i), g = gond[i];
+    if (Math.hypot(p.x - e.clientX, p.y + 34 - e.clientY) < 40) {
+      if (g.rider) { g.hop = 1; g.wave = 1.5; Sfx.tone(rand(600, 900), 0.15, 'sine', 0.12, 0, 1200); }
+      else if (queue.length && !flyers.some(f => f.gi === i)) { flyers.push({ e: queue.shift(), gi: i, t: 0, sx: qx(0), sy: ground() - 20 }); Sfx.boing(); }
+      return;
+    }
+  }
+  for (let k = 0; k < queue.length; k++) { const x = qx(k); if (Math.hypot(x - e.clientX, ground() - 20 - e.clientY) < 30) { Sfx.tone(700, 0.1, 'sine', 0.1); popText('のせて！', x, ground() - 70, '#c94585', 26); } }
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  boost = Math.max(0, boost - dt * 0.5);
+  const w = spin + boost * 0.6, prev = rot;
+  rot += w * dt;
+  lapAcc += w * dt;
+  if (lapAcc > Math.PI * 2) { lapAcc -= Math.PI * 2; laps++; if (laps % 3 === 0) { nightTo = nightTo ? 0 : 1; Sfx.chime(); popText(nightTo ? 'よるだよ' : 'あさだよ', W / 2, 90, '#fff', 36); } }
+  night += (nightTo - night) * Math.min(1, dt * 0.8);
+  if (boost > 0.3) { noteT -= dt; if (noteT < 0) { noteT = 0.22; Sfx.tone(MELODY[noteI++ % MELODY.length], 0.18, 'triangle', 0.05); } }
+  for (let i = 0; i < N; i++) {
+    const g = gond[i]; g.hop = Math.max(0, g.hop - dt * 2.5); g.wave = Math.max(0, g.wave - dt);
+    g.sway += (-g.sway * 6 - (w - spin) * 0.5) * dt;
+    // いちばん したに きたら ときどき おりる
+    const p = gpos(i);
+    if (g.rider && p.y > Wh.y + Wh.R * 0.98 && Math.random() < dt * 0.6 && queue.length < 3) { queue.push(g.rider); g.rider = null; Sfx.tone(500, 0.1, 'sine', 0.08, 0, 300); }
+  }
+  for (const f of flyers) {
+    f.t += dt; const u = Math.min(1, f.t / 0.8), p = gpos(f.gi);
+    f.x = f.sx + (p.x - f.sx) * u; f.y = f.sy + (p.y + 34 - f.sy) * u - Math.sin(u * Math.PI) * 80;
+    if (u >= 1) { f.done = true; gond[f.gi].rider = f.e; gond[f.gi].hop = 1; Sfx.tone(800, 0.12, 'sine', 0.1, 0, 1100); }
+  }
+  flyers = flyers.filter(f => !f.done);
+  if (queue.length < 2 && Math.random() < dt * 0.3) queue.push(pick(ANIMALS));
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const n = night, mix = (a, b) => Math.round(a + (b - a) * n);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, `rgb(${mix(143, 18)},${mix(211, 24)},${mix(255, 70)})`); g.addColorStop(1, `rgb(${mix(220, 50)},${mix(240, 40)},${mix(255, 110)})`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (n > 0.05) { for (const s of stars) { ctx.fillStyle = `rgba(255,255,220,${n * (0.5 + 0.5 * Math.sin(t * 2 + s.p))})`; ctx.fillRect(s.x, s.y, 2.5, 2.5); } ctx.globalAlpha = n; drawEmoji(ctx, '🌙', W - 80, 120, 50); ctx.globalAlpha = 1; }
+  else drawEmoji(ctx, '☀️', W - 80, 120, 56);
+  ctx.fillStyle = n > 0.5 ? '#2f5a2a' : '#7fcf6a'; ctx.fillRect(0, ground(), W, H);
+  // あし
+  ctx.strokeStyle = '#8a96a3'; ctx.lineWidth = 10; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(Wh.x - Wh.R * 0.45, ground()); ctx.lineTo(Wh.x, Wh.y); ctx.lineTo(Wh.x + Wh.R * 0.45, ground()); ctx.stroke();
+  // わ と スポーク
+  ctx.strokeStyle = '#c9d3df'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(Wh.x, Wh.y, Wh.R, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(Wh.x, Wh.y, Wh.R * 0.6, 0, 7); ctx.stroke();
+  for (let i = 0; i < N; i++) { const p = gpos(i); ctx.beginPath(); ctx.moveTo(Wh.x, Wh.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  // よるの ライト
+  if (n > 0.05) for (let i = 0; i < N * 4; i++) { const a = rot + i * Math.PI * 2 / (N * 4), on = (Math.floor(t * 6) + i) % 3 === 0; ctx.fillStyle = `hsla(${(i * 40 + t * 80) % 360},100%,${on ? 70 : 45}%,${n})`; ctx.beginPath(); ctx.arc(Wh.x + Math.cos(a) * Wh.R, Wh.y + Math.sin(a) * Wh.R, on ? 6 : 4, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#ff4f7b'; ctx.beginPath(); ctx.arc(Wh.x, Wh.y, 16, 0, 7); ctx.fill();
+  // ゴンドラ（いつも まっすぐ さがる）
+  for (let i = 0; i < N; i++) {
+    const p = gpos(i), gd = gond[i], s = Math.min(64, Wh.R * 0.36);
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(gd.sway);
+    ctx.strokeStyle = '#666'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 10); ctx.stroke();
+    ctx.fillStyle = COLORS[i]; ctx.beginPath(); ctx.roundRect(-s / 2, 10, s, s * 0.85, 12); ctx.fill();
+    ctx.fillStyle = n > 0.5 ? '#ffe9a8' : '#e8f7ff'; ctx.beginPath(); ctx.roundRect(-s * 0.38, 16, s * 0.76, s * 0.45, 8); ctx.fill();
+    if (gd.rider) drawEmoji(ctx, gd.rider, 0, 10 + s * 0.38 - Math.sin(gd.hop * Math.PI) * 14, s * 0.55);
+    if (gd.wave > 0) drawEmoji(ctx, '👋', s * 0.45, 4 + Math.sin(t * 16) * 4, s * 0.4);
+    ctx.restore();
+  }
+  // のりば で まつ どうぶつ
+  queue.forEach((e, k) => drawEmoji(ctx, e, qx(k), ground() - 20 + Math.sin(t * 4 + k) * 2, 40));
+  for (const f of flyers) drawEmoji(ctx, f.e, f.x, f.y, 40);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

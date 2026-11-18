@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>サッカー</title>
+<link rel="stylesheet" href="common.css?v=19">
+<style>
+  body { background: #4caf50; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #2e86ff; --c2: #1655b8; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">⚽</span></button></div>
+<script src="common.js?v=15"></script>
+<script>
+// サッカー: ボールを ゆびで ゴールの ほうへ はじいて シュート（ボタンでも けれる）。キーパーが よこに うごいて とめることも。
+// ゴールすると かみふぶき。ポストに あたると カーン。3かい いれると キーパーが こうたい。キーパーを さわると ジャンプ。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const KEEPERS = ['🐻', '🐼', '🦁', '🐸', '🐧', '🐷', '🐵', '🐨'];
+let G, ball, keeper = { e: KEEPERS[0], x: 0, ph: 0, hold: 0, jump: 0, sad: 0 }, state = 'ready', st = 0, goals = 0, conf = [], net = 0, flick = null, ki = 0;
+const BR = 18, KR = 30;
+function layout() { const gw = Math.min(W * 0.56, 280); G = { x: W / 2, y: 120, w: gw }; G.start = { x: W / 2, y: H - Math.max(190, H * 0.24) }; if (!ball) resetBall(); }
+function resetBall() { ball = { x: G.start.x, y: G.start.y, vx: 0, vy: 0, spin: 0 }; state = 'ready'; }
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); resetBall(); });
+
+function kick(vx, vy) { if (state !== 'ready') return; ball.vx = vx; ball.vy = vy; state = 'fly'; st = 0; Sfx.tone(150, 0.12, 'sine', 0.3); Sfx.noise(0.08, 0.2, 900); }
+btn.addEventListener('pointerdown', () => { const tx = G.x + rand(-0.36, 0.36) * G.w, ty = G.y - 10, d = Math.hypot(tx - ball.x, ty - ball.y); kick((tx - ball.x) / d * 700, (ty - ball.y) / d * 700); });
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  if (Math.hypot(x - keeper.x, y - G.y - 10) < 45) { keeper.jump = 1; Sfx.boing(); return; }
+  if (state === 'ready' && Math.hypot(x - ball.x, y - ball.y) < BR + 60) { try { cv.setPointerCapture(e.pointerId); } catch (err) {} flick = { id: e.pointerId, hist: [{ x, y, t: performance.now() }] }; }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!flick || flick.id !== e.pointerId) return;
+  flick.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (flick.hist.length > 8) flick.hist.shift();
+});
+const release = (e) => {
+  if (!flick || flick.id !== e.pointerId) return;
+  const h = flick.hist, a = h[0], b = h[h.length - 1], dtm = Math.max(16, b.t - a.t) / 1000; flick = null;
+  let vx = (b.x - a.x) / dtm, vy = (b.y - a.y) / dtm;
+  if (vy > -120) { ball.hop = 1; Sfx.tone(300, 0.08, 'sine', 0.1); return; } // ちょんと さわった だけ
+  const sp = Math.hypot(vx, vy), k = Math.max(450, Math.min(1000, sp)) / sp; kick(vx * k, vy * k);
+};
+cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+
+function goal() {
+  state = 'goal'; st = 0; goals++; net = 1; keeper.sad = 1.5;
+  Sfx.yay(); setTimeout(() => Sfx.chime(), 250); Sfx.noise(1.5, 0.12, 1200, 0.1, 'bandpass');
+  popText('ゴール！', W / 2, H * 0.4, '#ffd23f', 60);
+  for (let i = 0; i < 70; i++) conf.push({ x: rand(0, W), y: rand(-200, 0), vx: rand(-40, 40), vy: rand(80, 200), r: rand(0, 6), c: `hsl(${rand(0, 360)},90%,60%)`, life: 3 });
+  if (goals % 3 === 0) setTimeout(() => { keeper.e = KEEPERS[++ki % KEEPERS.length]; popText('こうたい！', W / 2, G.y + 80, '#fff', 34); Sfx.tone(600, 0.2, 'sine', 0.1, 0, 900); }, 1800);
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.02, (now - last) / 1000), t = now / 1000; last = now;
+  st += dt;
+  keeper.jump = Math.max(0, keeper.jump - dt * 2); keeper.sad = Math.max(0, keeper.sad - dt); net = Math.max(0, net - dt * 1.5);
+  ball.hop = Math.max(0, (ball.hop || 0) - dt * 3);
+  if (state !== 'catch') { keeper.ph += dt * 1.3; keeper.x = G.x + Math.sin(keeper.ph) * G.w * 0.32; }
+  if (state === 'fly') {
+    ball.x += ball.vx * dt; ball.y += ball.vy * dt; ball.spin += dt * 10; ball.vx *= Math.pow(0.7, dt); ball.vy *= Math.pow(0.7, dt);
+    // キーパー
+    if (Math.hypot(ball.x - keeper.x, ball.y - (G.y + 14)) < BR + KR * 0.4 && !keeper.jump) { state = 'catch'; st = 0; Sfx.tone(300, 0.15, 'square', 0.08); popText('キャッチ！', keeper.x, G.y + 70, '#fff', 34); }
+    // ポスト
+    for (const px of [G.x - G.w / 2, G.x + G.w / 2]) if (Math.abs(ball.y - G.y) < BR && Math.abs(ball.x - px) < BR + 4) { ball.vx = -ball.vx * 0.8 + (ball.x < px ? -60 : 60); ball.vy = Math.abs(ball.vy) * 0.6; Sfx.tone(1400, 0.4, 'triangle', 0.12); popText('カーン', px, G.y + 40, '#fff', 30); }
+    if (ball.y < G.y - 6 && Math.abs(ball.x - G.x) < G.w / 2 - 4 && state === 'fly') goal();
+    if (state === 'fly' && (ball.y < 40 || ball.x < -40 || ball.x > W + 40 || ball.y > H + 40 || Math.hypot(ball.vx, ball.vy) < 40)) { state = 'miss'; st = 0; Sfx.tone(300, 0.3, 'sine', 0.08, 0, 200); }
+  }
+  if (state === 'goal') { if (ball.y > G.y - 40) { ball.y -= 120 * dt; } if (st > 2.2) resetBall(); }
+  if (state === 'catch') { ball.x = keeper.x; ball.y = G.y + 26; if (st > 1.2) { state = 'throw'; st = 0; } }
+  if (state === 'throw') { const u = Math.min(1, st / 0.8); ball.x = keeper.x + (G.start.x - keeper.x) * u; ball.y = G.y + 26 + (G.start.y - G.y - 26) * u - Math.sin(u * Math.PI) * 120; if (u >= 1) resetBall(); }
+  if (state === 'miss' && st > 0.8) resetBall();
+  for (const c of conf) { c.x += c.vx * dt; c.y += c.vy * dt; c.r += dt * 6; c.life -= dt; }
+  conf = conf.filter(c => c.life > 0 && c.y < H + 20);
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (let y = 0; y < H; y += 60) { ctx.fillStyle = (y / 60) % 2 ? '#4caf50' : '#58b85c'; ctx.fillRect(0, y, W, 60); }
+  ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 4;
+  ctx.strokeRect(G.x - G.w * 0.9, G.y, G.w * 1.8, Math.min(220, H * 0.28));
+  ctx.beginPath(); ctx.moveTo(0, G.y); ctx.lineTo(W, G.y); ctx.stroke();
+  ctx.beginPath(); ctx.arc(W / 2, H - 40, Math.min(W * 0.3, 140), Math.PI, 0); ctx.stroke();
+  // ゴール と あみ
+  const bul = Math.sin(net * Math.PI) * 18;
+  ctx.fillStyle = 'rgba(255,255,255,.25)'; ctx.fillRect(G.x - G.w / 2, G.y - 44 - bul, G.w, 44 + bul);
+  ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1;
+  for (let x = G.x - G.w / 2; x <= G.x + G.w / 2; x += 14) { ctx.beginPath(); ctx.moveTo(x, G.y); ctx.lineTo(x, G.y - 44 - bul); ctx.stroke(); }
+  for (let y = G.y; y >= G.y - 44 - bul; y -= 12) { ctx.beginPath(); ctx.moveTo(G.x - G.w / 2, y); ctx.lineTo(G.x + G.w / 2, y); ctx.stroke(); }
+  ctx.fillStyle = '#fff'; ctx.fillRect(G.x - G.w / 2 - 5, G.y - 46, 8, 50); ctx.fillRect(G.x + G.w / 2 - 3, G.y - 46, 8, 50); ctx.fillRect(G.x - G.w / 2 - 5, G.y - 50, G.w + 10, 8);
+  // キーパー
+  const ky = G.y + 14 - Math.sin(keeper.jump * Math.PI) * 50;
+  ctx.save(); ctx.translate(keeper.x, ky); ctx.rotate(Math.sin(keeper.jump * Math.PI) * 0.6);
+  drawEmoji(ctx, keeper.e, 0, 0, KR * 2); ctx.restore();
+  ctx.fillStyle = '#ff9f1c'; ctx.beginPath(); ctx.arc(keeper.x - KR, ky + 8, 9, 0, 7); ctx.arc(keeper.x + KR, ky + 8, 9, 0, 7); ctx.fill();
+  if (keeper.sad > 0) drawEmoji(ctx, '💦', keeper.x + KR, ky - KR, 24);
+  // ボール
+  const by = ball.y - Math.sin(ball.hop * Math.PI) * 20;
+  ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(ball.x + 4, ball.y + BR * 0.8, BR, BR * 0.4, 0, 0, 7); ctx.fill();
+  ctx.save(); ctx.translate(ball.x, by); ctx.rotate(ball.spin); drawEmoji(ctx, '⚽', 0, 0, BR * 2.2); ctx.restore();
+  if (state === 'ready' && !flick) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 4); drawEmoji(ctx, '👆', ball.x + 40, ball.y + 20, 34); ctx.globalAlpha = 1; }
+  for (const c of conf) { ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.r); ctx.fillStyle = c.c; ctx.fillRect(-5, -3, 10, 6); ctx.restore(); }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

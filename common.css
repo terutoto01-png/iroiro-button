@@ -14,7 +14,7 @@ html, body {
 }
 /* Android: えもじは Google の フォントで。すうじ・にほんごは さきの ふつうの フォントで でる ように、えもじフォントは いちばん うしろ
    （きしゅの ふるい えもじは この リストの あとで つかわれるので、それより さきに Google の えもじが つかわれる） */
-@font-face { font-family: 'IroEmoji'; src: url('fonts/iroemoji.woff2?v=3') format('woff2'); font-display: swap; } /* Noto Color Emoji の きりだし（fonts/OFL.txt） */
+@font-face { font-family: 'IroEmoji'; src: url('fonts/iroemoji.woff2?v=4') format('woff2'); font-display: swap; } /* Noto Color Emoji の きりだし（fonts/OFL.txt） */
 html.emoji-font, html.emoji-font body { font-family: system-ui, sans-serif, "IroEmoji"; }
 canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
 
