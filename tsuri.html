@@ -111,7 +111,7 @@ function loop(now) {
   // つれた ものは バケツへ とんでいく
   for (const f of flyers) {
     f.t += dt;
-    if (f.t > 1.2 && !f.done) { f.done = true; bucket.push(f.e); if (bucket.length >= 5) releaseT = 0; }
+    if (f.t > 1.2 && !f.done && !f.back) { f.done = true; bucket.push(f.e); if (bucket.length >= 5) releaseT = 0; }
   }
   flyers = flyers.filter(f => f.t < 1.25);
   // 5ひき → みんな うみへ かえす
