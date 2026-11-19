@@ -1,9 +1,9 @@
 // いろいろボタン 共通ヘルパー（file:// でも動くようにクラシックスクリプト）
 
-// ---- Android: きしゅの ふるい えもじ（ドコモ ふう など）に ならない ように、Google の えもじフォントを つかう ----
+// ---- えもじは どの きかいでも Google の えもじフォントで おなじ みためにする ----
 // フォントは この サイトの fonts/iroemoji.woff2（Noto Color Emoji から つかう えもじ だけ きりだした もの。OFL）
-const EMOJI_FONT = /Android/i.test(navigator.userAgent) ? 'IroEmoji' : '';
-if (EMOJI_FONT) document.documentElement.classList.add('emoji-font');
+// Chrome・Android は COLRv1、Safari（iPad）・Firefox は いっしょに いれた SVG の えもじで でる
+const EMOJI_FONT = 'IroEmoji';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -283,7 +283,7 @@ const EmojiSprite = (() => {
   const cache = new Map();
   const BASE = 128; // この大きさで 1かい 描いておき、あとは のびちぢみ
   window.clearEmojiCache = () => cache.clear();
-  if (EMOJI_FONT && document.fonts) document.fonts.addEventListener('loadingdone', () => cache.clear());
+  if (document.fonts) document.fonts.addEventListener('loadingdone', () => cache.clear());
   return function (e) {
     let c = cache.get(e);
     if (!c) {
@@ -291,10 +291,10 @@ const EmojiSprite = (() => {
       c.width = c.height = BASE;
       const x = c.getContext('2d');
       x.textAlign = 'center'; x.textBaseline = 'middle';
-      const font = EMOJI_FONT ? `${BASE * 0.8}px "${EMOJI_FONT}"` : `${BASE * 0.8}px serif`;
+      const font = `${BASE * 0.8}px "${EMOJI_FONT}"`;
       x.font = font;
       // まだ フォントが とどいていない えもじは、とどいてから もういちど つくる
-      if (EMOJI_FONT && document.fonts && !document.fonts.check(font, e)) {
+      if (document.fonts && !document.fonts.check(font, e)) {
         document.fonts.load(font, e).then(() => cache.delete(e)).catch(() => {});
       }
       x.fillStyle = '#000';

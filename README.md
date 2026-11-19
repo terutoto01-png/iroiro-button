@@ -26,4 +26,4 @@ Service Worker のキャッシュを正しく更新するため、共通ファ�
 
 ## つかっている ほかの ひとの もの
 - `lib/matter.min.js` … [Matter.js](https://brm.io/matter-js/) 0.19.0（MIT License）。どうぶつつみき の ぶつり けいさん。
-- `fonts/iroemoji.woff2` … [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) から、この サイトで つかう えもじ だけを きりだした もの（SIL Open Font License 1.1、`fonts/OFL.txt`）。Android で きしゅの ふるい えもじに ならない ように つかう。
+- `fonts/iroemoji.woff2` … [Noto Color Emoji](https://github.com/googlefonts/noto-emoji) から、この サイトで つかう えもじ だけを きりだした もの（SIL Open Font License 1.1、`fonts/OFL.txt`）。どの きかいでも えもじが おなじ みためになる ように つかう（Chrome・Android は COLRv1、Safari・Firefox は nanoemoji の maximum_color で たした SVG）。
