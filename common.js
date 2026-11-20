@@ -345,21 +345,43 @@ function drawEmoji(ctx, e, cx, cy, size) {
     requestAnimationFrame(() => updateToast.classList.add('show'));
   }
 
+  // メニュー（あそんでいる とちゅうで ない ところ）では 🔄 を おさなくても じどうで よみなおす。
+  // あそびの ページでは とちゅうで きえると こまるので、いままで どおり 🔄 を だす だけ。
+  const onMenu = document.body && document.body.hasAttribute('data-scroll');
+  function reloadMenu() {
+    let lastR = 0;
+    try { lastR = +sessionStorage.getItem('iroiro-autoreload') || 0; } catch (e) {}
+    if (Date.now() - lastR < 30000) return false; // つづけて なんども よみなおさない
+    try { sessionStorage.setItem('iroiro-autoreload', String(Date.now())); } catch (e) {}
+    if (typeof window.saveScroll === 'function') window.saveScroll();
+    location.reload();
+    return true;
+  }
+  function onUpdate() { if (!(onMenu && reloadMenu())) showUpdateToast(); }
+
   navigator.serviceWorker.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'UPDATE_READY') showUpdateToast();
+    if (e.data && e.data.type === 'UPDATE_READY') onUpdate();
+  });
+  // ホームがめんの アプリは ひらきっぱなしに なりやすい。もどってきた ときに あたらしい ばんが ないか しらべる。
+  // メニューは しばらく（10ぷん いじょう）かくれていたら、ページも よみなおして あたらしい ボタンを だす。
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+    navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
+    if (onMenu && hiddenAt && Date.now() - hiddenAt > 10 * 60 * 1000) reloadMenu();
   });
 
   navigator.serviceWorker.register('sw.js', { scope: './' })
     .then(reg => {
       console.log('[pwa] sw registered:', reg.scope, 'controller:', !!navigator.serviceWorker.controller);
       // すでに待機中の更新があれば即座に反映を促す
-      if (reg.waiting) showUpdateToast();
+      if (reg.waiting) onUpdate();
       reg.addEventListener('updatefound', () => {
         const newSw = reg.installing;
         if (!newSw) return;
         newSw.addEventListener('statechange', () => {
           if (newSw.state === 'installed' && navigator.serviceWorker.controller) {
-            showUpdateToast();
+            onUpdate();
           }
         });
       });
