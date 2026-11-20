@@ -38,7 +38,7 @@ age = Math.max(0, Math.min(9, Math.floor(age) || 0));
 const CANDLES = age || 4;
 
 let phase = 'gift', pt = 0, shake = 0, flash = 0;
-let parts = [], rockets = [], conf = [], balloons = [], parade = [], flyers = [], poppers = [], dancers = [], paradeT = 4.5, popT = 2.2, flyT = 6, jumpAll = 0, letters = [], candles = [], fwT = 0, cake = null, finaleT = -1, spoke = false, hint = 0;
+let parts = [], rockets = [], conf = [], balloons = [], parade = [], flyers = [], poppers = [], dancers = [], paradeT = 4.5, popT = 2.2, flyT = 6, jumpAll = 0, hits = [], numPoke = 0, letters = [], candles = [], fwT = 0, cake = null, finaleT = -1, spoke = false, hint = 0;
 const LINE1 = 'おたんじょうび', LINE2 = 'おめでとう！';
 
 // ---- はなび ----
@@ -97,13 +97,15 @@ cv.addEventListener('pointerdown', (e) => {
   if (cake && cake.y < H) {
     let best = null, bd = 1e9;
     for (const c of candles) if (c.lit) { const d = Math.hypot(c.x - x, c.y - y); if (d < bd) { bd = d; best = c; } }
-    if (best && bd < Math.max(70, cake.w * 0.25)) {
+    if (best && bd < 60) {
       best.lit = false; best.smoke = 1; Sfx.noise(0.5, 0.25, 1800, 0, 'bandpass'); popText('ふーっ', best.x, best.y - 50, '#fff', 34);
       if (candles.every(c => !c.lit)) setTimeout(finale, 500);
       return;
     }
     if (finaleT >= 0 && Math.abs(x - cake.x) < cake.w / 2 && y > cake.top && y < cake.top + cake.h) { candles.forEach(c => c.lit = true); Sfx.tone(800, 0.2, 'sine', 0.1, 0, 1200); finaleT = -1; return; } // もういちど ふける
   }
+  // さわれる もの（いちばん うえに かいた もの から）
+  for (let i = hits.length - 1; i >= 0; i--) { const h = hits[i]; if (Math.hypot(h.x - x, h.y - y) < h.r) { h.fn(); return; } }
   if (phase === 'show') launch(x, y);
 });
 
@@ -149,7 +151,8 @@ function loop(now) {
   poppers = poppers.filter(p => p.t < 2.2);
   for (const f of flyers) { f.t += dt; f.x += f.dir * 230 * dt; if (Math.random() < dt * 14) parts.push({ x: f.x - f.dir * 30, y: f.y + rand(-6, 6), px: f.x, py: f.y, vx: -f.dir * 40, vy: rand(-20, 20), life: 1, max: 1, hue: rand(0, 360), g: 20 }); }
   flyers = flyers.filter(f => f.x > -120 && f.x < W + 120);
-  jumpAll = Math.max(0, jumpAll - dt);
+  jumpAll = Math.max(0, jumpAll - dt); numPoke = Math.max(0, numPoke - dt * 1.5);
+  for (const o of [...parade, ...dancers, ...flyers, ...letters]) if (o.poke) o.poke = Math.max(0, o.poke - dt * 1.6);
   draw(t);
   requestAnimationFrame(loop);
 }
@@ -170,6 +173,22 @@ function flyBy() {
   const k = pick(['🚀', '✈️', '🦄']), dir = Math.random() < 0.5 ? 1 : -1;
   flyers.push({ e: k, dir, x: dir > 0 ? -80 : W + 80, y: rand(H * 0.08, H * 0.3), t: 0 });
   Sfx.tone(k === '🚀' ? 200 : 500, 1.2, 'sawtooth', 0.03, 0, k === '🚀' ? 900 : 300);
+}
+// さわった ときの はんのう
+const VOICE = { '🐶': [600, 500], '🐱': [800, 1000], '🐰': [900, 1200], '🐻': [200, 160], '🐼': [300, 250], '🐘': [250, 600], '🦁': [150, 110], '🐸': [180, 140], '🐧': [700, 900], '🐵': [700, 1100], '🦖': [140, 90] };
+function voice(e) { const v = VOICE[e] || [rand(500, 900), rand(500, 1100)]; Sfx.tone(v[0], 0.18, 'triangle', 0.14, 0, v[1]); Sfx.tone(v[1], 0.15, 'sine', 0.08, 0.15, v[0]); }
+function sparkle(x, y, n = 12) { for (let i = 0; i < n; i++) { const a = rand(0, 7), v = rand(80, 240); parts.push({ x, y, px: x, py: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.5, 0.9), max: 0.9, hue: rand(0, 360), g: 100 }); } }
+function popBalloon(b) {
+  balloons = balloons.filter(q => q !== b);
+  Sfx.noise(0.12, 0.35, 3000, 0, 'highpass'); Sfx.tone(1200, 0.06, 'square', 0.06);
+  for (let i = 0; i < 24; i++) conf.push({ x: b.x, y: b.y, vx: rand(-300, 300), vy: rand(-350, 50), rot: rand(0, 6), vr: rand(-8, 8), c: `hsl(${b.hue + rand(-30, 30)},90%,60%)`, w: rand(6, 11), h: rand(4, 7) });
+  popText('ぱん！', b.x, b.y - 30, '#fff', 30);
+}
+function instrument(d) {
+  if (d.inst === '🥁') { Sfx.tone(90, 0.25, 'sine', 0.35, 0, 50); Sfx.noise(0.15, 0.2, 400); Sfx.tone(90, 0.2, 'sine', 0.3, 0.18, 50); }
+  else if (d.inst === '🎺') { [523, 659, 784].forEach((f, i) => Sfx.tone(f, 0.18, 'sawtooth', 0.06, i * 0.1)); }
+  else if (d.inst === '🎵') { [784, 988, 1175, 1568].forEach((f, i) => Sfx.tone(f, 0.12, 'triangle', 0.08, i * 0.07)); }
+  else voice(d.e);
 }
 function makeCandles() { candles = []; for (let i = 0; i < CANDLES; i++) candles.push({ lit: true, smoke: 0, hue: (i * 70) % 360, x: 0, y: 0 }); }
 
@@ -210,7 +229,9 @@ function drawText(t) {
   if (age && pt > 0.3) {
     const u = Math.min(1, (pt - 0.3) / 0.8), drop = 1 - Math.pow(1 - u, 3), bounce = Math.sin(Math.min(1, (pt - 0.3) / 1.2) * Math.PI * 3) * (1 - Math.min(1, (pt - 0.3) / 1.2)) * 30;
     const sz = Math.min(W * 0.4, H * (cake ? 0.16 : 0.24)), ay = (y1 - sz * 0.75) * drop - bounce + Math.sin(t * 2) * 6;
-    ctx.save(); ctx.translate(W / 2 - sz * 0.25, ay); ctx.rotate(Math.sin(t * 1.5) * 0.05);
+    const np = 1 + Math.sin(numPoke * Math.PI * 2) * numPoke * 0.25;
+    hits.push({ x: W / 2, y: ay, r: sz * 0.6, fn: () => { numPoke = 1; Sfx.chime(); sparkle(W / 2, ay, 30); } });
+    ctx.save(); ctx.translate(W / 2 - sz * 0.25, ay); ctx.scale(np, np); ctx.rotate(Math.sin(t * 1.5) * 0.05 + numPoke * Math.PI * 2);
     const g = ctx.createLinearGradient(0, -sz / 2, 0, sz / 2); ['#ff4f7b', '#ffd23f', '#4fc3f7', '#9b5cff'].forEach((c, i) => g.addColorStop(i / 3, c));
     ctx.font = `900 ${sz}px ${FONT}`; ctx.lineWidth = sz * 0.08; ctx.strokeStyle = '#fff'; ctx.strokeText(String(age), 0, 0); ctx.fillStyle = g; ctx.fillText(String(age), 0, 0);
     ctx.font = `900 ${sz * 0.35}px ${FONT}`; ctx.lineWidth = sz * 0.04; ctx.strokeText('さい', sz * 0.55, sz * 0.18); ctx.fillStyle = '#ffd23f'; ctx.fillText('さい', sz * 0.55, sz * 0.18);
@@ -222,14 +243,16 @@ function drawText(t) {
     const u = pt - l.at; if (u < 0) continue;
     const pop = u < 0.35 ? Math.sin(u / 0.35 * Math.PI / 2) * (1 + Math.sin(u / 0.35 * Math.PI) * 0.4) : 1;
     if (!l.snd) { l.snd = true; Sfx.tone(523.3 * Math.pow(2, (l.line * 7 + l.i) / 12), 0.12, 'triangle', 0.08); }
-    const step = big * 0.98, x = W / 2 + (l.i - (l.n - 1) / 2) * step, y = (l.line ? y2 : y1) + Math.sin(t * 4 + l.i * 0.6) * 5;
-    ctx.save(); ctx.translate(x, y); ctx.scale(pop, pop); ctx.rotate(Math.sin(t * 3 + l.i) * 0.08);
+    const step = big * 0.98, x = W / 2 + (l.i - (l.n - 1) / 2) * step, y = (l.line ? y2 : y1) + Math.sin(t * 4 + l.i * 0.6) * 5 - Math.sin((l.poke || 0) * Math.PI) * big * 0.8;
+    hits.push({ x, y, r: big * 0.55, fn: () => { l.poke = 1; Sfx.tone(523.3 * Math.pow(2, (l.line * 7 + l.i) / 12), 0.2, 'triangle', 0.12); } });
+    ctx.save(); ctx.translate(x, y); ctx.scale(pop, pop); ctx.rotate(Math.sin(t * 3 + l.i) * 0.08 + (l.poke || 0) * Math.PI * 2);
     ctx.font = `900 ${big}px ${FONT}`; ctx.lineWidth = big * 0.16; ctx.strokeStyle = '#fff'; ctx.lineJoin = 'round'; ctx.strokeText(l.ch, 0, 0);
     ctx.fillStyle = `hsl(${(l.hue + t * 60) % 360},85%,55%)`; ctx.fillText(l.ch, 0, 0); ctx.restore();
   }
 }
 
 function draw(t) {
+  hits = [];
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#1a0f3a'); g.addColorStop(1, phase === 'gift' ? '#3a1f6b' : '#5a2a8a');
@@ -245,6 +268,7 @@ function draw(t) {
     ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(b.x, b.y + b.r); ctx.quadraticCurveTo(b.x + 8, b.y + b.r + 30, b.x, b.y + b.r + 60); ctx.stroke();
     ctx.fillStyle = `hsl(${b.hue},85%,60%)`; ctx.beginPath(); ctx.ellipse(b.x, b.y, b.r * 0.85, b.r, 0, 0, 7); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.beginPath(); ctx.ellipse(b.x - b.r * 0.3, b.y - b.r * 0.35, b.r * 0.2, b.r * 0.3, -0.5, 0, 7); ctx.fill();
+    hits.push({ x: b.x, y: b.y, r: b.r + 8, fn: () => popBalloon(b) });
   }
   // はなび（ひかる ように かさねがき）
   ctx.globalCompositeOperation = 'lighter';
@@ -255,13 +279,14 @@ function draw(t) {
   if (cake) drawCake(t);
   if (phase === 'show') drawText(t);
   // パレード
-  for (const a of parade.filter(a => a.row === 1)) { const y = H - 108 - Math.abs(Math.sin(t * 9 + a.ph)) * 4 - Math.sin(a.beep / 0.4 * Math.PI) * 14; ctx.save(); ctx.translate(a.x, y); ctx.scale(-1, 1); drawEmoji(ctx, a.e, 0, 0, 70); ctx.restore(); if (a.beep) drawEmoji(ctx, '🎵', a.x + 30, y - 46, 26); }
-  for (const a of parade.filter(a => a.row === 0)) { const hop = Math.abs(Math.sin(t * 7 + a.ph)) * 18 + (jumpAll ? Math.abs(Math.sin(t * 9)) * 30 : 0), y = H - 46 - hop; ctx.save(); ctx.translate(a.x, y); ctx.scale(-1, 1); ctx.rotate(Math.sin(t * 7 + a.ph) * 0.15); drawEmoji(ctx, a.e, 0, 0, 56); ctx.restore(); drawEmoji(ctx, a.carry, a.x + 26, y - 30, 28); }
+  for (const a of parade.filter(a => a.row === 1)) { const y = H - 108 - Math.abs(Math.sin(t * 9 + a.ph)) * 4 - Math.sin(a.beep / 0.4 * Math.PI) * 14 - Math.sin((a.poke || 0) * Math.PI) * 50; hits.push({ x: a.x, y, r: 42, fn: () => { a.poke = 1; a.beep = 0.4; Sfx.tone(440, 0.15, 'square', 0.08); Sfx.tone(440, 0.2, 'square', 0.08, 0.2); popText('ぷっぷー', a.x, y - 60, '#fff', 28); } }); ctx.save(); ctx.translate(a.x, y); ctx.scale(-1, 1); drawEmoji(ctx, a.e, 0, 0, 70); ctx.restore(); if (a.beep) drawEmoji(ctx, '🎵', a.x + 30, y - 46, 26); }
+  for (const a of parade.filter(a => a.row === 0)) { const hop = Math.abs(Math.sin(t * 7 + a.ph)) * 18 + (jumpAll ? Math.abs(Math.sin(t * 9)) * 30 : 0), y = H - 46 - hop - Math.sin((a.poke || 0) * Math.PI) * 80; hits.push({ x: a.x, y, r: 36, fn: () => { a.poke = 1; voice(a.e); sparkle(a.x, y - 20); } }); ctx.save(); ctx.translate(a.x, y); ctx.scale(-1, 1); ctx.rotate(Math.sin(t * 7 + a.ph) * 0.15 + (a.poke || 0) * Math.PI * 2); drawEmoji(ctx, a.e, 0, 0, 56); ctx.restore(); drawEmoji(ctx, a.carry, a.x + 26, y - 30, 28); }
   // ケーキの まわりで おどる
   if (cake) dancers.forEach(d => {
     const side = d.i % 2 ? 1 : -1, k = Math.floor(d.i / 2), x = cake.x + side * (cake.w * 0.5 + 30 + k * 46), base = cake.top + cake.h - 20 - k * 6;
     if (x < 20 || x > W - 20) return;
-    const j = Math.abs(Math.sin(t * 5 + d.ph)) * 22 + (jumpAll ? Math.abs(Math.sin(t * 8 + d.ph)) * 60 : 0);
+    const j = Math.abs(Math.sin(t * 5 + d.ph)) * 22 + (jumpAll ? Math.abs(Math.sin(t * 8 + d.ph)) * 60 : 0) + Math.sin((d.poke || 0) * Math.PI) * 70;
+    hits.push({ x, y: base - j, r: 34, fn: () => { d.poke = 1; instrument(d); sparkle(x, base - j - 20); } });
     ctx.save(); ctx.translate(x, base - j); ctx.rotate(jumpAll ? t * 6 * side : Math.sin(t * 5 + d.ph) * 0.2); if (side < 0) ctx.scale(-1, 1); drawEmoji(ctx, d.e, 0, 0, 50); ctx.restore();
     drawEmoji(ctx, d.inst, x - side * 26, base - j - 26 + Math.sin(t * 10 + d.ph) * 4, 26);
   });
@@ -270,8 +295,9 @@ function draw(t) {
     const u = p.t < 0.4 ? p.t / 0.4 : p.t > 1.8 ? Math.max(0, (2.2 - p.t) / 0.4) : 1, x = p.side > 0 ? -40 + u * 70 : W + 40 - u * 70;
     ctx.save(); ctx.translate(x, p.y); if (p.side > 0) ctx.scale(-1, 1); ctx.rotate(p.popped ? Math.sin(p.t * 20) * 0.1 : 0); drawEmoji(ctx, p.e, 0, 0, 60); ctx.restore();
     drawEmoji(ctx, '🎉', x + p.side * 34, p.y - 22, 34);
+    if (u > 0.5) hits.push({ x: x + p.side * 10, y: p.y, r: 40, fn: () => { p.popped = false; p.t = Math.min(p.t, 0.55); voice(p.e); } });
   }
-  for (const f of flyers) { ctx.save(); ctx.translate(f.x, f.y + Math.sin(f.t * 3) * 10); if (f.e === '🚀') ctx.rotate(f.dir > 0 ? Math.PI / 4 : -Math.PI / 4 - Math.PI / 2); else if (f.dir > 0) ctx.scale(-1, 1); drawEmoji(ctx, f.e, 0, 0, 64); ctx.restore(); if (f.e === '✈️') { for (let k = 1; k <= 5; k++) drawEmoji(ctx, '💖', f.x - f.dir * (40 + k * 34), f.y + 6 + Math.sin(f.t * 4 + k) * 6, 26); } }
+  for (const f of flyers) { const fy = f.y + Math.sin(f.t * 3) * 10; hits.push({ x: f.x, y: fy, r: 44, fn: () => { f.poke = 1; Sfx.tone(400, 0.5, 'sine', 0.1, 0, 1600); sparkle(f.x, fy, 20); } }); ctx.save(); ctx.translate(f.x, fy); ctx.rotate((f.poke || 0) * Math.PI * 2); if (f.e === '🚀') ctx.rotate(f.dir > 0 ? Math.PI / 4 : -Math.PI / 4 - Math.PI / 2); else if (f.dir > 0) ctx.scale(-1, 1); drawEmoji(ctx, f.e, 0, 0, 64); ctx.restore(); if (f.e === '✈️') { for (let k = 1; k <= 5; k++) drawEmoji(ctx, '💖', f.x - f.dir * (40 + k * 34), f.y + 6 + Math.sin(f.t * 4 + k) * 6, 26); } }
   for (const c of conf) { ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot); ctx.fillStyle = c.c; ctx.fillRect(-c.w / 2, -c.h / 2, c.w, c.h); ctx.restore(); }
   if (cake && candles.some(c => c.lit) && cake.y < H * 0.95 && Math.sin(hint * 3) > -0.3) { const c = candles.find(c => c.lit); drawEmoji(ctx, '👆', c.x + 26, c.y + 52 + Math.sin(hint * 4) * 6, 44); }
   if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash * 0.8})`; ctx.fillRect(0, 0, W, H); }
