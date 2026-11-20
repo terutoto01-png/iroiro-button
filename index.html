@@ -47,6 +47,11 @@
   /* まだ ひらいていない ボタン: かどで ✨ が きらきら */
   .grid a.new::after { content: '✨'; position: absolute; right: -10%; top: -10%; font-size: .9em; pointer-events: none;
                        animation: twinkle 1.4s ease-in-out infinite; filter: drop-shadow(0 0 6px #fff6a8); }
+  /* たんじょうびの ひだけ いちばん うえに でる 🎂 */
+  .grid a.bday { grid-column: 1 / -1; aspect-ratio: auto; height: min(36vw, 180px); border-radius: 999px; font-size: min(12vw, 60px);
+                 --c1: #ff6fae; --c2: #c23c7a; background: radial-gradient(circle at 35% 30%, #fff8 0 8%, transparent 9%), linear-gradient(90deg, #ff6fae, #ffd23f, #4fc3f7, #9b5cff, #ff6fae);
+                 background-size: 100% 100%, 300% 100%; animation: bdayGlow 3s linear infinite, bob 2.4s ease-in-out infinite !important; }
+  @keyframes bdayGlow { to { background-position: 0 0, 300% 0; } }
   @keyframes twinkle { 0%, 100% { scale: .8; rotate: -10deg; opacity: .75; } 50% { scale: 1.15; rotate: 12deg; opacity: 1; } }
 </style>
 </head>
@@ -154,6 +159,31 @@ if (!Array.isArray(seen)) { seen = PAGES.map(p => p[0]).filter(f => !NEWEST.incl
 seen = new Set(seen);
 function saveSeen() { try { localStorage.setItem('iroiro-seen', JSON.stringify([...seen])); } catch (e) {} }
 
+// ---- おたんじょうび ----
+// おとなが いちど だけ index.html#tanjoubi=4（4 は きょうで なるとし）を ひらくと、この きかいに「きょうが たんじょうび」と おぼえる。
+// ひづけは この きかいの なかだけ（# の うしろは サーバーに おくられない）。#tanjoubi-off で けす。
+// たんじょうびの ひは、その としに はじめて ひらいた とき だけ じどうで おいわいの ページへ。その ひの あいだは いちばん うえに 🎂。
+const today = new Date(), md = `${today.getMonth() + 1}-${today.getDate()}`;
+let bday = null;
+try {
+  const m = location.hash.match(/^#tanjoubi(?:=(\d+))?$/);
+  if (location.hash === '#tanjoubi-off') { localStorage.removeItem('iroiro-bday'); localStorage.removeItem('iroiro-bday-shown'); }
+  else if (m) { localStorage.setItem('iroiro-bday', JSON.stringify({ md, by: m[1] ? today.getFullYear() - +m[1] : 0 })); localStorage.removeItem('iroiro-bday-shown'); }
+  if (location.hash.startsWith('#tanjoubi')) history.replaceState(null, '', location.pathname + location.search);
+  bday = JSON.parse(localStorage.getItem('iroiro-bday') || 'null');
+} catch (e) {}
+const isBday = !!(bday && bday.md === md);
+if (isBday) {
+  let shown = null; try { shown = localStorage.getItem('iroiro-bday-shown'); } catch (e) {}
+  if (shown !== String(today.getFullYear())) { location.replace('tanjoubi.html'); return; }
+  const a = document.createElement('a');
+  a.href = 'tanjoubi.html'; a.className = 'big-btn bday';
+  a.innerHTML = '<span class="emoji">🎂</span>';
+  a.addEventListener('pointerdown', () => Sfx.pop());
+  onTap(a, () => { saveScroll(); location.href = 'tanjoubi.html'; });
+  grid.appendChild(a);
+}
+
 // うごかないと わかっているボタンは ださない。なかま ごとに みだしを つけて ならべる
 const byFile = Object.fromEntries(PAGES.map(p => [p[0], p]));
 const placed = new Set(GROUPS.flatMap(g => g.items));
@@ -166,6 +196,7 @@ GROUPS.forEach((g, gi) => {
   h.className = 'sec-h'; h.style.setProperty('--bg', g.bg); h.style.setProperty('--bd', g.bd);
   h.innerHTML = `<b>${g.e}</b><i></i>`;
   grid.appendChild(h); heads.push(h);
+  if (gi === 0) adminHold(h);
   const j = document.createElement('button');
   j.textContent = g.e; j.style.setProperty('--bg', g.bg); j.style.setProperty('--bd', g.bd);
   onTap(j, () => { Sfx.pop(); glideTo(h.getBoundingClientRect().top + scrollY - 16); });
@@ -200,6 +231,27 @@ updateMore();
 
 // ---- スクロールした いちを おぼえておく（このタブの あいだだけ） ----
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+// おとな むけ: さいしょの みだしを 4びょう おしつづけると、きょうを たんじょうびに する（ホームがめんの アプリでは # の リンクが つかえないため）
+function adminHold(el) {
+  let tm = null;
+  const stop = () => { clearTimeout(tm); tm = null; };
+  el.addEventListener('pointerdown', () => {
+    stop();
+    tm = setTimeout(() => {
+      tm = null;
+      const v = prompt('きょう なる とし（すうじ）。0 で けす', '4');
+      if (v === null) return;
+      try {
+        const n = parseInt(v, 10), d = new Date();
+        if (!n) { localStorage.removeItem('iroiro-bday'); localStorage.removeItem('iroiro-bday-shown'); }
+        else { localStorage.setItem('iroiro-bday', JSON.stringify({ md: `${d.getMonth() + 1}-${d.getDate()}`, by: d.getFullYear() - n })); localStorage.removeItem('iroiro-bday-shown'); }
+      } catch (e) {}
+      location.reload();
+    }, 4000);
+  });
+  for (const t of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(t, stop);
+  addEventListener('scroll', stop, { passive: true });
+}
 function saveScroll() {
   try { sessionStorage.setItem('menu-scroll', String(Math.round(scrollY))); } catch (e) {}
 }
