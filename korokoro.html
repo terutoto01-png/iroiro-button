@@ -1,0 +1,910 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ころころミュージック</title>
+<link rel="stylesheet" href="common.css?v=21">
+<style>
+  body { background: #101338; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #4fd2ff; --c2: #1b6dc4; }
+  #world {
+    position: fixed; left: max(18px, env(safe-area-inset-left)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 30;
+    width: min(18vw, 84px); height: min(18vw, 84px); font-size: min(5.5vw, 26px);
+    --c1: #ff9f1c; --c2: #b86600;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<button id="world" class="big-btn" aria-label="せかいをかえる"><span class="emoji" id="worldIcon">☀️</span></button>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">💎</span></button></div>
+<script src="common.js?v=18"></script>
+<script>
+// ころころミュージック:
+// ・💎 ボタンで キラキラの ビーだま が ころがりおちて、もっきん・みずぐるま・バンパー・ハープを かなでる！
+// ・れんだ すると フィーバー！ にじいろの ビーだま が いっぱい ふってくる。
+// ・がめんを ゆびで ちょん → そこに ビーだま、なぞって 線を ひく → じぶんだけの にじの もっきんバー が できる！
+// ・うえの ほしを さわると 3つに われる きんの ビーだま。ひだりしたの ボタンで 3つの せかい（ほしぞら・もりのき・キャンディ）へ へんしん！
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn'), worldBtn = document.getElementById('world'), worldIcon = document.getElementById('worldIcon');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+
+// ---- おんがくエンジン（エコーつき・いつも きれいに ハモる コードしんこう） ----
+const Music = (() => {
+  // 4つの やさしい コード (Cmaj9 -> Am9 -> Fmaj9 -> G6/9) を 3オクターブ ぶん
+  const CHORDS = [
+    [261.63, 293.66, 329.63, 392.00, 493.88, 523.25, 587.33, 659.25, 783.99, 987.77, 1046.5, 1174.7, 1318.5],
+    [220.00, 246.94, 261.63, 329.63, 392.00, 440.00, 493.88, 523.25, 659.25, 783.99, 880.00, 987.77, 1046.5],
+    [174.61, 196.00, 220.00, 261.63, 329.63, 349.23, 392.00, 440.00, 523.25, 659.25, 698.46, 783.99, 880.00],
+    [196.00, 220.00, 246.94, 293.66, 329.63, 392.00, 440.00, 493.88, 587.33, 659.25, 783.99, 880.00, 987.77],
+  ];
+  let bus = null, chordIdx = 0, hitCount = 0, lastNoteAt = 0;
+
+  function ensureBus() {
+    if (bus) return bus;
+    const c = Sfx.ac(), out = Sfx.out();
+    const dry = c.createGain(); dry.gain.value = 0.85;
+    const wet = c.createGain(); wet.gain.value = 0.42;
+    const delay = c.createDelay(1.0); delay.delayTime.value = 0.27;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2600;
+    const fb = c.createGain(); fb.gain.value = 0.34;
+    dry.connect(out);
+    wet.connect(delay); delay.connect(lp); lp.connect(fb); fb.connect(delay); lp.connect(out);
+    bus = { c, dry, wet };
+    return bus;
+  }
+
+  function noteFreq(norm01) {
+    const sc = CHORDS[chordIdx];
+    const i = Math.max(0, Math.min(sc.length - 1, Math.round(norm01 * (sc.length - 1))));
+    return sc[i];
+  }
+
+  function advance() {
+    hitCount++;
+    if (hitCount % 14 === 0) { chordIdx = (chordIdx + 1) % CHORDS.length; chordPulse = 1; }
+  }
+
+  function playBar(norm01, vel = 1, world = 0) {
+    const nowMs = performance.now();
+    if (nowMs - lastNoteAt < 26) return;
+    lastNoteAt = nowMs;
+    advance();
+    const { c, dry, wet } = ensureBus();
+    const t = c.currentTime, f = noteFreq(norm01), v = Math.min(0.24, 0.08 + vel * 0.14);
+    const o1 = c.createOscillator(), o2 = c.createOscillator(), g = c.createGain(), g2 = c.createGain();
+    o1.type = world === 1 ? 'triangle' : 'sine';
+    o1.frequency.setValueAtTime(f, t);
+    o2.type = 'sine';
+    // ほしぞら=オルゴール(2.76倍音), もりのき=マリンバ(4倍音), キャンディ=チャイム(2倍音)
+    o2.frequency.setValueAtTime(f * (world === 0 ? 2.76 : world === 1 ? 4 : 2), t);
+    const dur = world === 1 ? 0.55 : 0.95;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(v, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    g2.gain.setValueAtTime(0.0001, t);
+    g2.gain.exponentialRampToValueAtTime(v * (world === 1 ? 0.25 : 0.32), t + 0.005);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.35);
+    o1.connect(g); o2.connect(g2); g2.connect(g);
+    g.connect(dry); g.connect(wet);
+    o1.start(t); o2.start(t); o1.stop(t + dur + 0.04); o2.stop(t + dur * 0.4 + 0.04);
+  }
+
+  function playBumper(norm01) {
+    const { c, dry, wet } = ensureBus();
+    const t = c.currentTime, f = noteFreq(norm01 * 0.45) * 0.5;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(f * 1.4, t);
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.12);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.24, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+    o.connect(g); g.connect(dry); g.connect(wet);
+    o.start(t); o.stop(t + 0.46);
+  }
+
+  function playHarp(norm01) {
+    const { c, dry, wet } = ensureBus();
+    const t = c.currentTime, f = noteFreq(0.35 + norm01 * 0.65);
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'triangle'; o.frequency.setValueAtTime(f, t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.14, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.15);
+    o.connect(g); g.connect(dry); g.connect(wet);
+    o.start(t); o.stop(t + 1.2);
+  }
+
+  function playWarp() {
+    const { c, dry, wet } = ensureBus();
+    const sc = CHORDS[chordIdx], t = c.currentTime;
+    [5, 7, 9, 12].forEach((idx, k) => {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(sc[idx], t + k * 0.045);
+      g.gain.setValueAtTime(0.0001, t + k * 0.045);
+      g.gain.exponentialRampToValueAtTime(0.12, t + k * 0.045 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + k * 0.045 + 0.45);
+      o.connect(g); g.connect(dry); g.connect(wet);
+      o.start(t + k * 0.045); o.stop(t + k * 0.045 + 0.5);
+    });
+  }
+
+  function playFever() {
+    const { c, dry, wet } = ensureBus();
+    const sc = CHORDS[chordIdx], t = c.currentTime;
+    [0, 2, 4, 5, 7, 9, 10, 12].forEach((idx, k) => {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(sc[idx], t + k * 0.055);
+      g.gain.setValueAtTime(0.0001, t + k * 0.055);
+      g.gain.exponentialRampToValueAtTime(0.13, t + k * 0.055 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + k * 0.055 + 0.7);
+      o.connect(g); g.connect(dry); g.connect(wet);
+      o.start(t + k * 0.055); o.stop(t + k * 0.055 + 0.75);
+    });
+  }
+
+  return { playBar, playBumper, playHarp, playWarp, playFever, get chordIdx() { return chordIdx; } };
+})();
+
+// ---- 3つの せかい ----
+const WORLDS = [
+  {
+    name: 'ほしぞら', icon: '🌙', nextIcon: '☀️', btnC: ['#4fd2ff', '#1b6dc4'], wBtnC: ['#5ec8ff', '#1c86cc'],
+    bg: ['#0b0f2e', '#1c1f57', '#2f2066'], dark: true, barRest: 0.78,
+  },
+  {
+    name: 'もりのき', icon: '☀️', nextIcon: '🍬', btnC: ['#ff9f1c', '#b86600'], wBtnC: ['#ff7ab8', '#c23c7a'],
+    bg: ['#fff6e4', '#fde7c8', '#f6d7b0'], dark: false, barRest: 0.74,
+  },
+  {
+    name: 'キャンディ', icon: '🍬', nextIcon: '🌙', btnC: ['#ff6fae', '#c23c7a'], wBtnC: ['#6c5ce7', '#3b2d9e'],
+    bg: ['#ffe8f5', '#e4f6ff', '#e7ffe9'], dark: false, barRest: 0.88,
+  },
+];
+
+let worldIdx = 0, chordPulse = 0, feverT = 0, feverCount = 0, feverRain = 0, emitterPhase = 0;
+let bars = [], userBars = [], wheels = [], bumpers = [], harp = [], portals = null, cannon = null, tramp = null;
+let marbles = [], sparks = [], rings = [], floatNotes = [], bgDots = [];
+let drag = null, hitCool = new Map();
+let playTop = 64, playBot = H - 110, playH = H - 174, marbleR = 14;
+
+function updateSafeBounds() {
+  const bRect = btn.getBoundingClientRect();
+  const backEl = document.querySelector('.back');
+  const topEdge = backEl ? backEl.getBoundingClientRect().bottom : 58;
+  playTop = Math.max(58, topEdge + 12);
+  // せまい スマホでは したの 2つの ボタンと かさならない ように うえに おさめる
+  const tight = W < 580;
+  playBot = Math.max(playTop + 260, (bRect.top > 0 ? bRect.top : H - 120) - (tight ? 14 : -26));
+  playBot = Math.min(H - 28, playBot);
+  playH = playBot - playTop;
+  marbleR = Math.max(10, Math.min(15, Math.min(W, playH) * 0.028));
+}
+function sx(u) { return W * u; }
+function sy(v) { return playTop + playH * v; }
+
+function buildWorld() {
+  updateSafeBounds();
+  const w = WORLDS[worldIdx];
+  worldIcon.textContent = w.nextIcon;
+  btn.style.setProperty('--c1', w.btnC[0]); btn.style.setProperty('--c2', w.btnC[1]);
+  worldBtn.style.setProperty('--c1', w.wBtnC[0]); worldBtn.style.setProperty('--c2', w.wBtnC[1]);
+
+  const wide = W > 640, narrow = W < 500;
+  const xL = wide ? 0.14 : 0.07, xR = wide ? 0.86 : 0.93;
+  const rScale = Math.min(W, playH);
+  const bumpR = Math.max(16, Math.min(32, rScale * (narrow ? 0.044 : 0.048)));
+  const wheelR = Math.max(32, Math.min(68, rScale * (narrow ? 0.09 : 0.105)));
+
+  bars = []; wheels = []; bumpers = []; harp = []; portals = null; cannon = null; tramp = null;
+  const mkBar = (u1, v1, u2, v2, hue, pitch) => ({
+    x1: sx(u1), y1: sy(v1), x2: sx(u2), y2: sy(v2),
+    r: narrow ? 6.5 : 8, hue, pitch, vib: 0, vibPh: 0, glow: 0, hitU: 0.5, user: false,
+  });
+
+  if (worldIdx === 0) {
+    // ほしぞら オルゴール: ちゅうおうを ひろく あけた ジグザグもっきん + みずぐるま + ツインスター・ポータル + ハープ
+    bars.push(
+      mkBar(xL, 0.20, 0.37, 0.30, 195, 0.84),
+      mkBar(xR, 0.20, 0.63, 0.30, 265, 0.74),
+      mkBar(xL + 0.02, 0.54, 0.36, 0.44, 320, 0.58),
+      mkBar(xR - 0.02, 0.54, 0.64, 0.44, 45, 0.48),
+      mkBar(xL, 0.66, 0.35, 0.76, 155, 0.28),
+      mkBar(xR, 0.66, 0.65, 0.76, 210, 0.36),
+    );
+    wheels.push({ x: sx(0.50), y: sy(0.46), r: wheelR, ang: 0, omega: 2.4, target: 2.4, glow: 0 });
+    bumpers.push(
+      { x: sx(0.50), y: sy(0.28), r: bumpR * 0.92, hue: 335, pitch: 0.55, hit: 0 },
+      { x: sx(wide ? 0.22 : 0.18), y: sy(0.40), r: bumpR * 0.9, hue: 175, pitch: 0.35, hit: 0 },
+      { x: sx(wide ? 0.78 : 0.82), y: sy(0.40), r: bumpR * 0.9, hue: 50, pitch: 0.65, hit: 0 },
+      { x: sx(0.50), y: sy(0.66), r: bumpR * 1.0, hue: 280, pitch: 0.18, hit: 0 },
+    );
+    portals = {
+      in:  { x: sx(0.50), y: sy(0.91), r: Math.max(24, Math.min(38, rScale * 0.056)), pulse: 0 },
+      out: { x: sx(0.50), y: sy(0.16), r: Math.max(19, Math.min(30, rScale * 0.042)), pulse: 0 },
+    };
+  } else if (worldIdx === 1) {
+    // もりの きのおもちゃ: ひろびろ 木のスロープ + ダブル風車 + したから ポンッと うちあげる キャノン
+    bars.push(
+      mkBar(xL, 0.18, 0.37, 0.29, 30, 0.85),
+      mkBar(xR, 0.18, 0.63, 0.29, 42, 0.75),
+      mkBar(xL + 0.03, 0.48, 0.34, 0.56, 18, 0.56),
+      mkBar(xR - 0.03, 0.48, 0.66, 0.56, 28, 0.46),
+      mkBar(xL + 0.01, 0.65, 0.36, 0.76, 105, 0.35),
+      mkBar(xR - 0.01, 0.65, 0.64, 0.76, 145, 0.22),
+    );
+    wheels.push(
+      { x: sx(wide ? 0.25 : 0.20), y: sy(0.38), r: wheelR * 0.82, ang: 0.4, omega: 2.6, target: 2.6, glow: 0 },
+      { x: sx(wide ? 0.75 : 0.80), y: sy(0.38), r: wheelR * 0.82, ang: 0, omega: -2.6, target: -2.6, glow: 0 },
+    );
+    bumpers.push(
+      { x: sx(0.50), y: sy(0.34), r: bumpR * 1.05, hue: 12, pitch: 0.25, hit: 0 },
+      { x: sx(0.50), y: sy(0.61), r: bumpR * 1.0, hue: 48, pitch: 0.55, hit: 0 },
+    );
+    cannon = { x: sx(0.50), y: sy(0.90), r: narrow ? 28 : 34, held: null, t: 0, recoil: 0, aim: -Math.PI / 2 };
+  } else {
+    // キャンディ こうじょう: はねるバンパー天国 + ペパーミント水車 + びよーん ゼリー・トランポリン
+    bars.push(
+      mkBar(xL, 0.19, 0.37, 0.31, 330, 0.86),
+      mkBar(xR, 0.19, 0.63, 0.31, 190, 0.78),
+      mkBar(xL + 0.02, 0.56, 0.35, 0.68, 285, 0.45),
+      mkBar(xR - 0.02, 0.56, 0.65, 0.68, 45, 0.55),
+    );
+    wheels.push({ x: sx(0.50), y: sy(0.50), r: wheelR, ang: 0, omega: 3.0, target: 3.0, glow: 0 });
+    bumpers.push(
+      { x: sx(0.50), y: sy(0.25), r: bumpR * 1.1, hue: 340, pitch: 0.6, hit: 0 },
+      { x: sx(wide ? 0.25 : 0.19), y: sy(0.43), r: bumpR, hue: 165, pitch: 0.35, hit: 0 },
+      { x: sx(wide ? 0.75 : 0.81), y: sy(0.43), r: bumpR, hue: 48, pitch: 0.45, hit: 0 },
+      { x: sx(wide ? 0.30 : 0.24), y: sy(0.75), r: bumpR * 0.88, hue: 280, pitch: 0.2, hit: 0 },
+      { x: sx(wide ? 0.70 : 0.76), y: sy(0.75), r: bumpR * 0.88, hue: 195, pitch: 0.7, hit: 0 },
+    );
+    tramp = { x1: sx(narrow ? 0.14 : 0.22), x2: sx(narrow ? 0.86 : 0.78), y: sy(0.91), bend: 0, bendV: 0, bendX: sx(0.50), hue: 330 };
+  }
+
+  // したの キラキラ ハープげん（したの バーより したに すっきり おさめる）
+  const hy1 = sy(0.81), hy2 = sy(0.97);
+  const hu0 = narrow ? 0.18 : 0.24, hu1 = narrow ? 0.82 : 0.76;
+  for (let i = 0; i < 6; i++) {
+    const u = hu0 + (i / 5) * (hu1 - hu0);
+    harp.push({ x: sx(u), y1: hy1, y2: hy2, amp: 0, ph: 0, glow: 0, pitch: i / 5, hue: (i * 55 + 180) % 360 });
+  }
+
+  bgDots = Array.from({ length: 48 }, () => ({
+    x: Math.random() * W, y: Math.random() * H, r: rand(1.2, 3.0), p: rand(0, 6), sp: rand(4, 14),
+  }));
+}
+buildWorld();
+// DOMContentLoaded で 🏠 ボタンが つくられた あとに もういちど あんぜん ゾーンを そろえる
+window.addEventListener('DOMContentLoaded', () => requestAnimationFrame(buildWorld));
+const onResize = () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; userBars = []; buildWorld(); };
+addEventListener('resize', onResize);
+addEventListener('orientationchange', () => setTimeout(onResize, 120));
+
+// ---- ビーだま せいせい ----
+function dispenserPos() {
+  const span = Math.min(W * 0.28, 220);
+  return { x: W * 0.5 + Math.sin(emitterPhase) * span, y: sy(0.05) };
+}
+
+function spawnMarble(x, y, opt = {}) {
+  const golden = !!opt.golden;
+  const r = golden ? marbleR * 1.38 : (opt.r || rand(marbleR * 0.86, marbleR * 1.12));
+  const m = {
+    x, y,
+    vx: opt.vx ?? rand(-65, 65),
+    vy: opt.vy ?? rand(20, 80),
+    r,
+    hue: golden ? 48 : (opt.hue ?? rand(0, 360)),
+    rot: rand(0, 6),
+    omega: rand(-4, 4),
+    golden,
+    split: false,
+    warps: 0,
+    stillT: 0,
+    trail: [],
+    id: Math.random(),
+  };
+  marbles.push(m);
+  if (marbles.length > 36) {
+    const old = marbles.shift();
+    burst(old.x, old.y, old.hue, 6);
+  }
+  burst(x, y, m.hue, golden ? 14 : 6);
+  return m;
+}
+
+function burst(x, y, hue, n = 10) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), sp = rand(60, 220);
+    sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 30, hue: (hue + rand(-30, 30) + 360) % 360, r: rand(2.5, 5.5), life: rand(0.45, 0.85) });
+  }
+}
+
+function addRing(x, y, hue, maxR = 68) {
+  rings.push({ x, y, hue, r: 10, maxR, life: 1 });
+}
+
+function addFloatNote(x, y, hue) {
+  if (floatNotes.length > 26) floatNotes.shift();
+  floatNotes.push({ e: pick(['♪', '♫', '✨']), x, y, vx: rand(-20, 20), vy: rand(-75, -45), hue, life: 1.1 });
+}
+
+function triggerFever() {
+  feverT = 3.2; feverRain = 10;
+  Music.playFever();
+  popText('フィーバー！', W / 2, H * 0.22, '#ffd23f', 52);
+  addRing(W / 2, H * 0.14, 48, 160);
+  wheels.forEach(w => { w.omega = (w.target >= 0 ? 1 : -1) * 7.5; w.glow = 1; });
+}
+
+// ---- ボタン操作 ----
+btn.addEventListener('pointerdown', () => {
+  const dp = dispenserPos();
+  feverCount++;
+  const golden = feverCount % 7 === 0;
+  spawnMarble(dp.x, dp.y + 18, { golden, vx: rand(-90, 90), vy: rand(40, 110) });
+  Music.playBar(golden ? 1 : Math.random(), 0.7, worldIdx);
+  if (feverCount % 10 === 0) triggerFever();
+});
+
+worldBtn.addEventListener('pointerdown', () => {
+  worldIdx = (worldIdx + 1) % WORLDS.length;
+  userBars = [];
+  marbles = [];
+  buildWorld();
+  Music.playWarp();
+  popText(WORLDS[worldIdx].name + '！', W / 2, H * 0.24, WORLDS[worldIdx].dark ? '#7effd4' : '#ff6fae', 44);
+  const dp = dispenserPos();
+  for (let i = 0; i < 3; i++) spawnMarble(dp.x + (i - 1) * 44, dp.y + 20, { vx: (i - 1) * 60 });
+});
+
+// ---- がめんタッチ（ちょん＝ビーだま、なぞり＝にじのもっきんバー、おもちゃタップ＝はんのう） ----
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  // うえの ディスペンサー（⭐）→ きんの スーパービーだま
+  const dp = dispenserPos();
+  if (Math.hypot(x - dp.x, y - dp.y) < 48) {
+    spawnMarble(dp.x, dp.y + 20, { golden: true, vx: rand(-60, 60), vy: 70 });
+    Music.playWarp();
+    popText('きらーん！', dp.x, dp.y + 58, '#ffd23f', 34);
+    return;
+  }
+  // バンパー
+  for (const b of bumpers) {
+    if (Math.hypot(x - b.x, y - b.y) < b.r + 18) {
+      b.hit = 1; Music.playBumper(b.pitch); addRing(b.x, b.y, b.hue, b.r * 2.8); burst(b.x, b.y, b.hue, 12);
+      for (const m of marbles) {
+        const dx = m.x - b.x, dy = m.y - b.y, d = Math.hypot(dx, dy);
+        if (d < b.r * 3.5 && d > 1) { m.vx += dx / d * 420; m.vy += dy / d * 420; }
+      }
+      return;
+    }
+  }
+  // みずぐるま
+  for (const w of wheels) {
+    if (Math.hypot(x - w.x, y - w.y) < w.r + 12) {
+      w.omega += (w.target >= 0 ? 1 : -1) * 7; w.glow = 1;
+      Music.playBar(0.75, 0.9, worldIdx); addRing(w.x, w.y, 48, w.r * 1.4);
+      return;
+    }
+  }
+  // バーの上からのタップも ドラッグなら新しいバーを引けるように記録だけする
+  const tappedBar = [...userBars, ...bars].find(b => distToSeg(x, y, b.x1, b.y1, b.x2, b.y2).d < 18) || null;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  drag = { id: e.pointerId, x0: x, y0: y, x1: x, y1: y, lastX: x, moved: false, tappedBar };
+});
+
+cv.addEventListener('pointermove', (e) => {
+  if (!drag || drag.id !== e.pointerId) return;
+  const x = e.clientX, y = e.clientY;
+  // ハープげんを ゆびで かなでる
+  for (const h of harp) {
+    if (y >= h.y1 && y <= h.y2 && ((drag.lastX < h.x && x >= h.x) || (drag.lastX > h.x && x <= h.x))) {
+      h.amp = (x > drag.lastX ? 1 : -1) * 18; h.ph = 0; h.glow = 1;
+      Music.playHarp(h.pitch); addFloatNote(h.x, y, h.hue);
+    }
+  }
+  drag.lastX = x;
+  drag.x1 = x; drag.y1 = y;
+  if (Math.hypot(x - drag.x0, y - drag.y0) > 26) drag.moved = true;
+});
+
+const endDrag = (e) => {
+  if (!drag || drag.id !== e.pointerId) return;
+  const d = drag; drag = null;
+  const len = Math.hypot(d.x1 - d.x0, d.y1 - d.y0);
+  if (d.moved && len >= 36) {
+    // ながさで おんていが かわる（みじかい＝たかい、ながい＝ひくい）
+    const pitch = Math.max(0.05, Math.min(0.98, 1 - (len - 40) / 260));
+    const hue = (pitch * 300 + 20) % 360;
+    userBars.push({ x1: d.x0, y1: d.y0, x2: d.x1, y2: d.y1, r: 8, hue, pitch, vib: 10, vibPh: 0, glow: 1, hitU: 0.5, user: true });
+    if (userBars.length > 10) {
+      const rm = userBars.shift();
+      burst((rm.x1 + rm.x2) / 2, (rm.y1 + rm.y2) / 2, rm.hue, 8);
+    }
+    Music.playBar(pitch, 0.85, worldIdx);
+    addFloatNote((d.x0 + d.x1) / 2, (d.y0 + d.y1) / 2, hue);
+  } else if (d.tappedBar) {
+    const b = d.tappedBar;
+    b.vib = 14; b.vibPh = 0; b.glow = 1; b.hitU = 0.5;
+    Music.playBar(b.pitch, 0.9, worldIdx);
+    burst(d.x0, d.y0, b.hue, 8); addFloatNote(d.x0, d.y0 - 12, b.hue);
+  } else if (d.y0 > 62) {
+    // ちょんと さわった ばしょに ビーだま！
+    spawnMarble(d.x0, d.y0, { vx: rand(-80, 80), vy: rand(-60, 20) });
+    Music.playBar(Math.max(0, Math.min(1, 1 - d.y0 / H)), 0.65, worldIdx);
+  }
+};
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+
+// ---- ぶつり ヘルパー ----
+function distToSeg(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy || 1;
+  const u = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / l2));
+  const cx = x1 + dx * u, cy = y1 + dy * u;
+  return { cx, cy, u, d: Math.hypot(px - cx, py - cy) };
+}
+
+function canTrigger(key, now, gap = 90) {
+  const prev = hitCool.get(key) || 0;
+  if (now - prev < gap) return false;
+  hitCool.set(key, now);
+  if (hitCool.size > 300) hitCool.clear();
+  return true;
+}
+
+// ---- メインループ ----
+let last = performance.now(), feverDropT = 0;
+// さいしょに 1つ ころがして おでむかえ
+setTimeout(() => { if (!marbles.length) { const dp = dispenserPos(); spawnMarble(dp.x, dp.y + 18); } }, 350);
+
+function loop(now) {
+  const dt = Math.min(0.03, (now - last) / 1000), t = now / 1000; last = now;
+  emitterPhase += dt * (feverT > 0 ? 3.2 : 0.9);
+  chordPulse = Math.max(0, chordPulse - dt * 1.4);
+  feverT = Math.max(0, feverT - dt);
+
+  if (feverRain > 0) {
+    feverDropT -= dt;
+    if (feverDropT <= 0) {
+      feverDropT = 0.14; feverRain--;
+      const dp = dispenserPos();
+      spawnMarble(dp.x + rand(-24, 24), dp.y + 16, { vx: rand(-130, 130), vy: rand(40, 120), hue: (feverRain * 38) % 360 });
+    }
+  }
+
+  const allBars = [...bars, ...userBars];
+  for (const b of allBars) { b.vib *= Math.pow(0.04, dt); b.vibPh += dt * 48; b.glow = Math.max(0, b.glow - dt * 2.4); }
+  for (const b of bumpers) b.hit = Math.max(0, b.hit - dt * 3.5);
+  for (const w of wheels) {
+    w.omega += (w.target - w.omega) * Math.min(1, dt * 1.6);
+    w.ang += w.omega * dt;
+    w.glow = Math.max(0, w.glow - dt * 2);
+  }
+  for (const h of harp) { h.amp *= Math.pow(0.08, dt); h.ph += dt * 42; h.glow = Math.max(0, h.glow - dt * 2); }
+  if (portals) { portals.in.pulse = Math.max(0, portals.in.pulse - dt * 2); portals.out.pulse = Math.max(0, portals.out.pulse - dt * 2); }
+  if (tramp) { tramp.bendV += (-tramp.bend * 85 - tramp.bendV * 6) * dt; tramp.bend += tramp.bendV * dt; }
+
+  const grav = Math.max(1250, playH * 2.1);
+
+  // キャノン（もりのき）
+  if (cannon) {
+    cannon.recoil = Math.max(0, cannon.recoil - dt * 4);
+    if (cannon.held) {
+      cannon.t += dt;
+      cannon.aim = -Math.PI / 2 + Math.sin(t * 5) * 0.42;
+      cannon.held.x = cannon.x; cannon.held.y = cannon.y - 6 + Math.min(1, cannon.t / 0.2) * 14;
+      if (cannon.t >= 0.22) {
+        const m = cannon.held; cannon.held = null; cannon.recoil = 1;
+        const sp = Math.sqrt(2 * grav * playH * 0.88);
+        m.vx = Math.cos(cannon.aim) * sp; m.vy = Math.sin(cannon.aim) * sp;
+        m.warps++;
+        Sfx.tone(240, 0.16, 'sine', 0.24, 0, 560); Sfx.noise(0.14, 0.14, 1400);
+        addRing(cannon.x, cannon.y - 24, 38, 72); burst(cannon.x, cannon.y - 24, m.hue, 12);
+      }
+    }
+  }
+
+  // 4x サブステップ ぶつり
+  const SUB = 4, sdt = dt / SUB, rest = WORLDS[worldIdx].barRest;
+  for (let step = 0; step < SUB; step++) {
+    for (const m of marbles) {
+      if (cannon && cannon.held === m) continue;
+      const px = m.x, py = m.y;
+      m.vy += grav * sdt;
+      m.x += m.vx * sdt; m.y += m.vy * sdt;
+      m.rot += m.omega * sdt;
+
+      // さゆうの かべ
+      if (m.x < m.r + 6) { m.x = m.r + 6; m.vx = Math.abs(m.vx) * 0.86; }
+      if (m.x > W - m.r - 6) { m.x = W - m.r - 6; m.vx = -Math.abs(m.vx) * 0.86; }
+      if (m.y < m.r + 6) { m.y = m.r + 6; m.vy = Math.abs(m.vy) * 0.75; }
+
+      // もっきんバー
+      for (let bi = 0; bi < allBars.length; bi++) {
+        const b = allBars[bi];
+        const hit = distToSeg(m.x, m.y, b.x1, b.y1, b.x2, b.y2);
+        const minD = m.r + b.r;
+        if (hit.d < minD && hit.d > 0.001) {
+          const nx = (m.x - hit.cx) / hit.d, ny = (m.y - hit.cy) / hit.d;
+          m.x = hit.cx + nx * minD; m.y = hit.cy + ny * minD;
+          const vn = m.vx * nx + m.vy * ny;
+          if (vn < 0) {
+            const tx = -ny, ty = nx, vt = m.vx * tx + m.vy * ty;
+            const bounce = Math.abs(vn) > 95 ? rest : 0.25;
+            // ころがり まさつ を ほぼ ゼロにして スイスイ ころがる（240Hz でも げんそく しない）
+            m.vx = tx * vt * 0.9996 - nx * vn * bounce;
+            m.vy = ty * vt * 0.9996 - ny * vn * bounce;
+            m.omega = vt / m.r;
+            if (Math.abs(vn) > 85 && canTrigger(m.id + 'b' + bi, now, 95)) {
+              const str = Math.min(1, Math.abs(vn) / 620);
+              b.vib = Math.max(b.vib, 5 + str * 13); b.vibPh = 0; b.glow = 1; b.hitU = hit.u;
+              Music.playBar(b.pitch, str, worldIdx);
+              burst(hit.cx, hit.cy, b.hue, 5);
+              if (str > 0.35) addFloatNote(hit.cx, hit.cy - 10, b.hue);
+            }
+          }
+        }
+      }
+
+      // みずぐるま（4まいの はね）
+      for (let wi = 0; wi < wheels.length; wi++) {
+        const w = wheels[wi];
+        if (Math.hypot(m.x - w.x, m.y - w.y) > w.r + m.r + 12) continue;
+        for (let k = 0; k < 4; k++) {
+          const a = w.ang + k * Math.PI / 2;
+          const x2 = w.x + Math.cos(a) * w.r, y2 = w.y + Math.sin(a) * w.r;
+          const hit = distToSeg(m.x, m.y, w.x, w.y, x2, y2);
+          const minD = m.r + 6;
+          if (hit.d < minD && hit.d > 0.001) {
+            const nx = (m.x - hit.cx) / hit.d, ny = (m.y - hit.cy) / hit.d;
+            m.x = hit.cx + nx * minD; m.y = hit.cy + ny * minD;
+            const rad = hit.u * w.r;
+            const pvx = -Math.sin(a) * rad * w.omega, pvy = Math.cos(a) * rad * w.omega;
+            const rvx = m.vx - pvx, rvy = m.vy - pvy;
+            const vn = rvx * nx + rvy * ny;
+            if (vn < 0) {
+              m.vx -= 1.65 * vn * nx; m.vy -= 1.65 * vn * ny;
+              w.omega += Math.max(-1.2, Math.min(1.2, (-vn * 0.0025) * (nx * -Math.sin(a) + ny * Math.cos(a))));
+              w.glow = 1;
+              if (Math.abs(vn) > 70 && canTrigger(m.id + 'w' + wi, now, 130)) {
+                Music.playBar(0.55 + k * 0.1, 0.7, worldIdx);
+                burst(hit.cx, hit.cy, m.hue, 4);
+              }
+            }
+          }
+        }
+      }
+
+      // バンパー
+      for (let bi = 0; bi < bumpers.length; bi++) {
+        const b = bumpers[bi];
+        const dx = m.x - b.x, dy = m.y - b.y, d = Math.hypot(dx, dy), minD = m.r + b.r;
+        if (d < minD && d > 0.001) {
+          const nx = dx / d, ny = dy / d;
+          m.x = b.x + nx * minD; m.y = b.y + ny * minD;
+          const sp = Math.max(620, Math.min(960, Math.hypot(m.vx, m.vy) * 1.18));
+          m.vx = nx * sp; m.vy = ny * sp;
+          b.hit = 1;
+          if (canTrigger(m.id + 'p' + bi, now, 90)) {
+            Music.playBumper(b.pitch);
+            addRing(b.x, b.y, b.hue, b.r * 2.6);
+            burst(b.x + nx * b.r, b.y + ny * b.r, b.hue, 10);
+            // きんの スーパービーだま → 3つに ぶんしん！
+            if (m.golden && !m.split) {
+              m.split = true; m.golden = false; m.r = 14; m.hue = 340;
+              Music.playWarp();
+              popText('ぶんしん！', b.x, b.y - 45, '#ffd23f', 36);
+              spawnMarble(m.x, m.y, { vx: m.vx * 0.8 + 140, vy: -320, hue: 185, r: 13 });
+              spawnMarble(m.x, m.y, { vx: m.vx * 0.8 - 140, vy: -320, hue: 55, r: 13 });
+            }
+          }
+        }
+      }
+
+      // ハープげん（すりぬけて かなでる）
+      for (let hi = 0; hi < harp.length; hi++) {
+        const h = harp[hi];
+        if (m.y >= h.y1 && m.y <= h.y2 && ((px < h.x && m.x >= h.x) || (px > h.x && m.x <= h.x))) {
+          if (canTrigger(m.id + 'h' + hi, now, 180)) {
+            h.amp = (m.vx >= 0 ? 1 : -1) * Math.min(20, Math.max(9, Math.abs(m.vx) * 0.05));
+            h.ph = 0; h.glow = 1;
+            Music.playHarp(h.pitch);
+            addFloatNote(h.x, m.y, h.hue);
+          }
+        }
+      }
+
+      // ポータル（ほしぞら）
+      if (portals && m.warps < 3 && Math.hypot(m.x - portals.in.x, m.y - portals.in.y) < portals.in.r + m.r * 0.5) {
+        m.warps++;
+        m.x = portals.out.x + rand(-18, 18); m.y = portals.out.y + 20;
+        m.vx = rand(-150, 150); m.vy = rand(60, 140);
+        m.hue = (m.hue + 95) % 360; m.trail = [];
+        portals.in.pulse = 1; portals.out.pulse = 1;
+        Music.playWarp();
+        addRing(portals.in.x, portals.in.y, 195, 76); addRing(portals.out.x, portals.out.y, 48, 76);
+        burst(portals.out.x, portals.out.y, m.hue, 12);
+      }
+
+      // キャノンキャッチ（もりのき）
+      if (cannon && !cannon.held && m.warps < 3 && Math.hypot(m.x - cannon.x, m.y - cannon.y) < cannon.r) {
+        cannon.held = m; cannon.t = 0; m.vx = 0; m.vy = 0;
+        Sfx.tone(440, 0.08, 'sine', 0.12, 0, 320);
+      }
+
+      // ゼリー・トランポリン（キャンディ）
+      if (tramp && m.warps < 3 && m.vy > 0 && m.x >= tramp.x1 && m.x <= tramp.x2 && py <= tramp.y + 8 && m.y + m.r >= tramp.y) {
+        m.y = tramp.y - m.r;
+        m.vy = -Math.sqrt(2 * grav * playH * 0.85);
+        m.vx = (m.vx + rand(-120, 120)) * 0.85;
+        m.warps++;
+        tramp.bend = 34; tramp.bendV = 120; tramp.bendX = m.x;
+        Music.playBumper(0.8); Sfx.boing();
+        burst(m.x, tramp.y, tramp.hue, 12); addRing(m.x, tramp.y, tramp.hue, 70);
+      }
+    }
+
+    // ビーだま どうしの ぶつかり
+    for (let i = 0; i < marbles.length; i++) {
+      for (let j = i + 1; j < marbles.length; j++) {
+        const a = marbles[i], b = marbles[j];
+        if ((cannon && (cannon.held === a || cannon.held === b))) continue;
+        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), minD = a.r + b.r;
+        if (d < minD && d > 0.001) {
+          const nx = dx / d, ny = dy / d, ov = (minD - d) * 0.5;
+          a.x -= nx * ov; a.y -= ny * ov; b.x += nx * ov; b.y += ny * ov;
+          const dv = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+          if (dv > 0) {
+            a.vx -= dv * nx * 0.9; a.vy -= dv * ny * 0.9;
+            b.vx += dv * nx * 0.9; b.vy += dv * ny * 0.9;
+            if (dv > 130 && canTrigger('cc' + i + '_' + j, now, 110)) {
+              Sfx.tone(rand(1900, 2900), 0.045, 'sine', Math.min(0.12, dv / 2800));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // トレイル と 寿命
+  for (const m of marbles) {
+    m.trail.push({ x: m.x, y: m.y });
+    if (m.trail.length > 14) m.trail.shift();
+    if (Math.hypot(m.vx, m.vy) < 28 && !(cannon && cannon.held === m)) m.stillT += dt;
+    else m.stillT = 0;
+  }
+  marbles = marbles.filter(m => {
+    if (m.y > H + 50 || m.stillT > 2.6) {
+      if (m.stillT > 2.6) burst(m.x, m.y, m.hue, 8);
+      return false;
+    }
+    return true;
+  });
+
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 260 * dt; s.life -= dt; }
+  sparks = sparks.filter(s => s.life > 0);
+  for (const r of rings) { r.r += (r.maxR - r.r) * Math.min(1, dt * 7); r.life -= dt * 2.2; }
+  rings = rings.filter(r => r.life > 0);
+  for (const n of floatNotes) { n.x += n.vx * dt; n.y += n.vy * dt; n.life -= dt; }
+  floatNotes = floatNotes.filter(n => n.life > 0);
+
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+// ---- びょうが ----
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = WORLDS[worldIdx];
+
+  // はいけい
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, w.bg[0]); bg.addColorStop(0.55, w.bg[1]); bg.addColorStop(1, w.bg[2]);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  // コードへんか・フィーバーの ふんわり オーロラ（さかいめ が でない やわらかい ひかり）
+  if (w.dark) {
+    for (let k = 0; k < 2; k++) {
+      const h0 = (Music.chordIdx * 65 + k * 90 + t * 18) % 360;
+      const cx = W * (0.32 + k * 0.36) + Math.sin(t * (0.7 + k * 0.3)) * W * 0.12;
+      const cy = H * (0.34 + k * 0.16);
+      const rad = Math.max(W, H) * 0.45;
+      const ag = ctx.createRadialGradient(cx, cy, 10, cx, cy, rad);
+      ag.addColorStop(0, `hsla(${h0},90%,60%,${0.16 + chordPulse * 0.08 + (feverT > 0 ? 0.1 : 0)})`);
+      ag.addColorStop(1, `hsla(${(h0 + 60) % 360},90%,50%,0)`);
+      ctx.fillStyle = ag;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+  for (const d of bgDots) {
+    const a = 0.22 + 0.45 * Math.sin(t * 2 + d.p);
+    ctx.fillStyle = w.dark ? `rgba(255,250,220,${a})` : `rgba(255,255,255,${a * 0.9})`;
+    ctx.beginPath(); ctx.arc(d.x, (d.y + (w.dark ? 0 : -t * d.sp) % H + H) % H, d.r, 0, 7); ctx.fill();
+  }
+
+  // ハープげん
+  for (const h of harp) {
+    const midY = (h.y1 + h.y2) / 2;
+    const bx = h.x + Math.sin(h.ph) * h.amp;
+    ctx.strokeStyle = h.glow > 0 ? `hsl(${h.hue},100%,72%)` : (w.dark ? 'rgba(200,220,255,.32)' : 'rgba(180,130,80,.35)');
+    ctx.lineWidth = 2 + h.glow * 3;
+    ctx.beginPath(); ctx.moveTo(h.x, h.y1); ctx.quadraticCurveTo(bx, midY, h.x, h.y2); ctx.stroke();
+    ctx.fillStyle = `hsl(${h.hue},85%,62%)`;
+    ctx.beginPath(); ctx.arc(h.x, h.y1, 4.5, 0, 7); ctx.arc(h.x, h.y2, 4.5, 0, 7); ctx.fill();
+  }
+
+  // ポータル（ほしぞら）
+  if (portals) {
+    for (const [p, col] of [[portals.in, 195], [portals.out, 48]]) {
+      ctx.save(); ctx.translate(p.x, p.y);
+      const pr = p.r * (1 + p.pulse * 0.25);
+      const pg = ctx.createRadialGradient(0, 0, 4, 0, 0, pr * 1.4);
+      pg.addColorStop(0, `hsla(${col},100%,85%,.85)`); pg.addColorStop(0.6, `hsla(${col},95%,60%,.35)`); pg.addColorStop(1, `hsla(${col},95%,50%,0)`);
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(0, 0, pr * 1.4, 0, 7); ctx.fill();
+      ctx.rotate(t * 2.4 * (col === 48 ? -1 : 1));
+      ctx.strokeStyle = `hsl(${col},100%,75%)`; ctx.lineWidth = 3.5; ctx.setLineDash([12, 8]);
+      ctx.beginPath(); ctx.arc(0, 0, pr, 0, 7); ctx.stroke();
+      ctx.setLineDash([]);
+      drawEmoji(ctx, '✨', 0, 0, pr * 0.9);
+      ctx.restore();
+    }
+  }
+
+  // キャノン（もりのき）
+  if (cannon) {
+    ctx.save(); ctx.translate(cannon.x, cannon.y); ctx.rotate(cannon.aim + Math.PI / 2);
+    const rec = cannon.recoil * 12;
+    ctx.fillStyle = '#c47b2c'; ctx.beginPath(); ctx.roundRect(-24, -22 + rec, 48, 46, 14); ctx.fill();
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(-26, -24 + rec, 52, 10);
+    ctx.fillStyle = '#5c3310'; ctx.beginPath(); ctx.arc(0, -14 + rec, 16, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  // ゼリー・トランポリン（キャンディ）
+  if (tramp) {
+    ctx.save();
+    ctx.strokeStyle = '#ff5ca8'; ctx.lineWidth = 14; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(tramp.x1, tramp.y); ctx.quadraticCurveTo(tramp.bendX, tramp.y + tramp.bend * 1.6, tramp.x2, tramp.y); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(tramp.x1 + 12, tramp.y - 3); ctx.quadraticCurveTo(tramp.bendX, tramp.y + tramp.bend * 1.6 - 3, tramp.x2 - 12, tramp.y - 3); ctx.stroke();
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath(); ctx.arc(tramp.x1, tramp.y, 11, 0, 7); ctx.arc(tramp.x2, tramp.y, 11, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  // もっきんバー（じぶんが かいたもの も いっしょに）
+  const allBars = [...bars, ...userBars];
+  for (const b of allBars) {
+    const dx = b.x2 - b.x1, dy = b.y2 - b.y1, len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    const off = Math.sin(b.vibPh) * b.vib;
+    const mx = b.x1 + dx * b.hitU + nx * off, my = b.y1 + dy * b.hitU + ny * off;
+    ctx.save();
+    if (b.glow > 0.05) {
+      ctx.shadowColor = `hsl(${b.hue},95%,62%)`;
+      ctx.shadowBlur = b.glow * 18;
+    }
+    ctx.strokeStyle = worldIdx === 1 && !b.user ? `hsl(${b.hue},58%,${46 + b.glow * 18}%)` : `hsl(${b.hue},90%,${(w.dark ? 62 : 58) + b.glow * 18}%)`;
+    ctx.lineWidth = b.r * 2; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.quadraticCurveTo(mx, my, b.x2, b.y2); ctx.stroke();
+    // つや ライン
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(255,255,255,${0.45 + b.glow * 0.4})`; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.quadraticCurveTo(mx, my, b.x2, b.y2); ctx.stroke();
+    // りょうはしの ビョウ
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(b.x1, b.y1, 4, 0, 7); ctx.arc(b.x2, b.y2, 4, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  // かいている とちゅうの バー プレビュー
+  if (drag && drag.moved) {
+    const len = Math.hypot(drag.x1 - drag.x0, drag.y1 - drag.y0);
+    const pitch = Math.max(0.05, Math.min(0.98, 1 - (len - 40) / 260));
+    ctx.save();
+    ctx.strokeStyle = `hsla(${(pitch * 300 + 20) % 360},95%,65%,.75)`;
+    ctx.lineWidth = 14; ctx.lineCap = 'round'; ctx.setLineDash([12, 10]);
+    ctx.beginPath(); ctx.moveTo(drag.x0, drag.y0); ctx.lineTo(drag.x1, drag.y1); ctx.stroke();
+    ctx.restore();
+  }
+
+  // みずぐるま
+  for (const wh of wheels) {
+    ctx.save(); ctx.translate(wh.x, wh.y); ctx.rotate(wh.ang);
+    for (let k = 0; k < 4; k++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.fillStyle = worldIdx === 1 ? '#d98f43' : worldIdx === 2 ? (k % 2 ? '#ff6fae' : '#fff') : `hsl(${(k * 90 + 190) % 360},85%,66%)`;
+      ctx.beginPath(); ctx.roundRect(-6, -6, wh.r, 12, 6); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    ctx.fillStyle = wh.glow > 0 ? '#ffd23f' : '#fff';
+    ctx.beginPath(); ctx.arc(0, 0, 12, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+
+  // バンパー
+  for (const b of bumpers) {
+    const sc = 1 + Math.sin(b.hit * Math.PI) * 0.28;
+    ctx.save(); ctx.translate(b.x, b.y); ctx.scale(sc, sc);
+    if (b.hit > 0.05) { ctx.shadowColor = `hsl(${b.hue},95%,62%)`; ctx.shadowBlur = b.hit * 22; }
+    const bg2 = ctx.createRadialGradient(-b.r * 0.3, -b.r * 0.3, 3, 0, 0, b.r);
+    bg2.addColorStop(0, '#fff'); bg2.addColorStop(0.35, `hsl(${b.hue},95%,68%)`); bg2.addColorStop(1, `hsl(${b.hue},85%,42%)`);
+    ctx.fillStyle = bg2; ctx.beginPath(); ctx.arc(0, 0, b.r, 0, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.restore();
+  }
+
+  // うえの ビーだま ディスペンサー（⭐ を さわると きんの ビーだま）
+  const dp = dispenserPos();
+  ctx.save(); ctx.translate(dp.x, dp.y);
+  ctx.fillStyle = feverT > 0 ? '#ffd23f' : (w.dark ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.78)');
+  ctx.beginPath(); ctx.arc(0, 0, 28, 0, 7); ctx.fill();
+  ctx.strokeStyle = feverT > 0 ? '#fff' : `hsl(${(t * 80) % 360},90%,68%)`; ctx.lineWidth = 4; ctx.stroke();
+  drawEmoji(ctx, feverT > 0 ? '🌈' : '⭐', 0, 0, 36);
+  ctx.restore();
+
+  // ひろがる わっか
+  for (const r of rings) {
+    ctx.strokeStyle = `hsla(${r.hue},100%,72%,${r.life * 0.85})`; ctx.lineWidth = 4 * r.life;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 7); ctx.stroke();
+  }
+
+  // ビーだま と ひかりの リボン
+  for (const m of marbles) {
+    for (let i = 1; i < m.trail.length; i++) {
+      const a = m.trail[i - 1], b = m.trail[i], u = i / m.trail.length;
+      ctx.strokeStyle = `hsla(${m.hue},95%,${m.golden ? 72 : 66}%,${u * 0.55})`;
+      ctx.lineWidth = m.r * 1.15 * u; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    ctx.save(); ctx.translate(m.x, m.y);
+    // スマホ・iPad でも かるく 60fps で ひかる やわらかい ハロー
+    if (w.dark || m.golden) {
+      ctx.fillStyle = `hsla(${m.hue},100%,68%,${m.golden ? 0.32 : 0.2})`;
+      ctx.beginPath(); ctx.arc(0, 0, m.r * (m.golden ? 1.7 : 1.45), 0, 7); ctx.fill();
+    }
+    const mg = ctx.createRadialGradient(-m.r * 0.35, -m.r * 0.35, m.r * 0.1, 0, 0, m.r);
+    mg.addColorStop(0, '#fff');
+    mg.addColorStop(0.35, `hsl(${m.hue},95%,${m.golden ? 75 : 68}%)`);
+    mg.addColorStop(1, `hsl(${m.hue},85%,${m.golden ? 45 : 38}%)`);
+    ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(0, 0, m.r, 0, 7); ctx.fill();
+    // なかの うずまき・⭐
+    ctx.rotate(m.rot);
+    if (m.golden) {
+      drawEmoji(ctx, '⭐', 0, 0, m.r * 1.45);
+    } else {
+      ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(0, 0, m.r * 0.45, 0, Math.PI * 1.1); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  for (const s of sparks) {
+    ctx.fillStyle = `hsla(${s.hue},100%,70%,${Math.min(1, s.life * 1.4)})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r * Math.min(1, s.life * 1.5), 0, 7); ctx.fill();
+  }
+  for (const n of floatNotes) {
+    ctx.globalAlpha = Math.min(1, n.life);
+    if (n.e === '✨') {
+      drawEmoji(ctx, n.e, n.x, n.y, 26);
+    } else {
+      ctx.font = 'bold 26px system-ui, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = `hsl(${n.hue},92%,${w.dark ? 74 : 52}%)`;
+      ctx.fillText(n.e, n.x, n.y);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

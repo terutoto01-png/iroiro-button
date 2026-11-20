@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ユーフォー</title>
+<link rel="stylesheet" href="common.css?v=21">
+<style>
+  body { background: #141a46; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #2fd6a0; --c2: #148a64; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🛸</span></button></div>
+<script src="common.js?v=18"></script>
+<script>
+// ユーフォー: ボタンで ビームを だして、したの どうぶつを ふわふわ すいあげる！べつの ばしょへ うつして ぱらぱら おろすよ。
+// 5かい すると UFO ダンスパーティー！ そらを さわると UFO が うごく、どうぶつを さわると そのこを ビーム、🌙 で ながれぼし。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const CRITTERS = ['🐄', '🐑', '🐰', '🐷', '🐥', '🚜'];
+const GIFTS = ['⭐', '💎', '🍎', '🥕', '🌈'];
+let groundY, ufo, friends = [], stars = [], meteors = [], sparks = [], drops = [], beams = 0, partyT = 0, drag = null;
+
+function layout() {
+  groundY = Math.min(H - 125, H * 0.78);
+  if (!ufo) ufo = { x: W * 0.48, y: Math.max(150, H * 0.28), tx: W * 0.48, ty: Math.max(150, H * 0.28), beam: 0, state: 'idle', target: null, carry: null, t: 0, wave: 0 };
+  else { ufo.tx = Math.min(W - 60, Math.max(60, ufo.tx)); ufo.ty = Math.min(groundY - 150, Math.max(110, ufo.ty)); }
+  stars = Array.from({ length: 55 }, () => ({ x: Math.random() * W, y: Math.random() * (groundY - 40), p: rand(0, 6), r: rand(1.2, 2.6) }));
+  if (!friends.length) {
+    const n = W < 540 ? 5 : 6;
+    for (let i = 0; i < n; i++) {
+      friends.push({ e: CRITTERS[i % CRITTERS.length], x: W * (i + 0.7) / (n + 0.5), y: groundY - 22, dir: i % 2 ? 1 : -1, sp: rand(18, 36), hop: 0, rot: 0, lifted: false });
+    }
+  } else {
+    friends.forEach(f => { if (!f.lifted) f.y = groundY - 22; f.x = Math.min(W - 40, Math.max(40, f.x)); });
+  }
+}
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+
+function beamSound() {
+  const c = Sfx.ac(), t = c.currentTime;
+  const o = c.createOscillator(), lfo = c.createOscillator(), lg = c.createGain(), g = c.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(340, t); o.frequency.exponentialRampToValueAtTime(760, t + 0.8);
+  lfo.frequency.value = 11; lg.gain.value = 55;
+  lfo.connect(lg).connect(o.frequency);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.08); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+  o.connect(g).connect(Sfx.out());
+  o.start(t); lfo.start(t); o.stop(t + 0.9); lfo.stop(t + 0.9);
+}
+
+function startBeam(target) {
+  if (ufo.state !== 'idle') return;
+  const f = target || friends.filter(q => !q.lifted).sort((a, b) => Math.abs(a.x - ufo.x) - Math.abs(b.x - ufo.x))[0];
+  if (!f) return;
+  ufo.target = f; ufo.tx = f.x; ufo.ty = Math.max(125, groundY - Math.min(260, H * 0.38));
+  ufo.state = 'approach'; ufo.t = 0;
+  Sfx.tone(520, 0.12, 'triangle', 0.1, 0, 820);
+}
+
+btn.addEventListener('pointerdown', () => {
+  if (ufo.state === 'idle') startBeam();
+  else { ufo.wave = 1.2; Sfx.tone(rand(700, 1100), 0.1, 'square', 0.05, 0, 1400); }
+});
+
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  // つき → ながれぼし
+  if (Math.hypot(x - (W - 76), y - 115) < 46) {
+    meteors.push({ x: rand(W * 0.2, W * 0.9), y: rand(60, 160), vx: -380, vy: 180, life: 1 });
+    Sfx.chime();
+    return;
+  }
+  // UFO を さわると うちゅうじんが ぴぴぴ
+  if (Math.hypot(x - ufo.x, y - ufo.y) < 60) {
+    ufo.wave = 1.5;
+    [880, 1175, 988, 1319].forEach((f, i) => Sfx.tone(f, 0.07, 'sine', 0.1, i * 0.06));
+    popText('ぴぴぴ！', ufo.x, ufo.y - 58, '#7effd4', 32);
+    return;
+  }
+  // どうぶつを さわると そのこを ビーム（ちゅうなら ジャンプ）
+  for (const f of friends) {
+    if (!f.lifted && Math.hypot(x - f.x, y - f.y) < 42) {
+      f.hop = 1; Sfx.boing();
+      if (ufo.state === 'idle') startBeam(f);
+      return;
+    }
+  }
+  // そらを さわる・なぞる → UFO いどう
+  if (ufo.state === 'idle' && y < groundY - 60) {
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+    drag = { id: e.pointerId };
+    ufo.tx = Math.max(55, Math.min(W - 55, x));
+    ufo.ty = Math.max(110, Math.min(groundY - 140, y));
+  }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!drag || drag.id !== e.pointerId || ufo.state !== 'idle') return;
+  ufo.tx = Math.max(55, Math.min(W - 55, e.clientX));
+  ufo.ty = Math.max(110, Math.min(groundY - 140, e.clientY));
+});
+const up = (e) => { if (drag && drag.id === e.pointerId) drag = null; };
+cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  ufo.wave = Math.max(0, ufo.wave - dt);
+  partyT = Math.max(0, partyT - dt);
+  ufo.x += (ufo.tx - ufo.x) * Math.min(1, dt * 6);
+  ufo.y += (ufo.ty - ufo.y) * Math.min(1, dt * 6);
+
+  if (ufo.state === 'approach') {
+    if (ufo.target && !ufo.target.lifted) ufo.tx = ufo.target.x;
+    if (Math.abs(ufo.x - ufo.tx) < 12 && Math.abs(ufo.y - ufo.ty) < 12) {
+      ufo.state = 'suck'; ufo.t = 0; ufo.target.lifted = true;
+      beamSound(); popText('ふわふわ', ufo.x, ufo.y + 85, '#7effd4', 32);
+    }
+  } else if (ufo.state === 'suck') {
+    ufo.beam = Math.min(1, ufo.beam + dt * 5);
+    ufo.t += dt;
+    const f = ufo.target;
+    f.x += (ufo.x - f.x) * Math.min(1, dt * 8);
+    f.y -= 200 * dt; f.rot += dt * 4;
+    if (f.y <= ufo.y + 18) {
+      ufo.carry = f; ufo.target = null; ufo.state = 'move'; ufo.t = 0; ufo.beam = 0;
+      ufo.tx = rand(75, W - 75); ufo.ty = Math.max(125, groundY - Math.min(260, H * 0.36));
+      Sfx.pop();
+      for (let i = 0; i < 10; i++) sparks.push({ x: ufo.x, y: ufo.y + 10, vx: rand(-140, 140), vy: rand(-120, 120), life: 0.7, c: `hsl(${rand(140, 320)},95%,68%)` });
+    }
+  } else if (ufo.state === 'move') {
+    ufo.t += dt;
+    if (Math.abs(ufo.x - ufo.tx) < 14 && ufo.t > 0.45) {
+      ufo.state = 'drop'; ufo.t = 0;
+      const f = ufo.carry; f.x = ufo.x; f.y = ufo.y + 24; f.rot = 0;
+      Sfx.tone(760, 0.4, 'sine', 0.14, 0, 340);
+      // おまけの おくりもの
+      drops.push({ e: pick(GIFTS), x: ufo.x + rand(-24, 24), y: ufo.y + 20, vx: rand(-50, 50), vy: -40, life: 2.2 });
+    }
+  } else if (ufo.state === 'drop') {
+    ufo.beam = Math.min(1, ufo.beam + dt * 5);
+    const f = ufo.carry;
+    f.y += 170 * dt;
+    f.x = ufo.x + Math.sin(t * 7) * 10;
+    if (f.y >= groundY - 22) {
+      f.y = groundY - 22; f.lifted = false; f.hop = 1;
+      ufo.carry = null; ufo.state = 'idle'; beams++;
+      Sfx.boing();
+      if (beams % 5 === 0) {
+        partyT = 3.5; Sfx.yay(); setTimeout(() => Sfx.chime(), 260);
+        popText('パーティー！', W / 2, H * 0.2, '#ffd23f', 48);
+        friends.forEach(q => q.hop = 1);
+      }
+    }
+  } else {
+    ufo.beam = Math.max(0, ufo.beam - dt * 4);
+  }
+
+  for (const f of friends) {
+    f.hop = Math.max(0, f.hop - dt * 2.5);
+    if (f.lifted) continue;
+    if (partyT > 0 && f.hop <= 0.05) f.hop = 1;
+    f.x += f.dir * f.sp * dt;
+    if (f.x < 36) f.dir = 1;
+    if (f.x > W - 36) f.dir = -1;
+  }
+  for (const m of meteors) { m.x += m.vx * dt; m.y += m.vy * dt; m.life -= dt; }
+  meteors = meteors.filter(m => m.life > 0);
+  for (const d of drops) { d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 260 * dt; d.life -= dt; if (d.y > groundY - 14) { d.y = groundY - 14; d.vy = -Math.abs(d.vy) * 0.45; } }
+  drops = drops.filter(d => d.life > 0);
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt; }
+  sparks = sparks.filter(s => s.life > 0);
+
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const g = ctx.createLinearGradient(0, 0, 0, groundY);
+  g.addColorStop(0, '#0f143a'); g.addColorStop(1, '#2a377c');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  for (const s of stars) {
+    ctx.fillStyle = `rgba(255,255,220,${0.35 + 0.65 * Math.sin(t * 2.5 + s.p)})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+  }
+  for (const m of meteors) {
+    ctx.strokeStyle = `rgba(255,245,160,${m.life})`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(m.x - m.vx * 0.16, m.y - m.vy * 0.16); ctx.stroke();
+    drawEmoji(ctx, '⭐', m.x, m.y, 24);
+  }
+  drawEmoji(ctx, '🌙', W - 76, 115, 52);
+
+  // パーティーの ライト
+  if (partyT > 0) {
+    for (let i = 0; i < 4; i++) {
+      const a = Math.sin(t * 4 + i * 1.6) * 0.45;
+      ctx.save(); ctx.translate(W * (i + 0.5) / 4, 0); ctx.rotate(a);
+      ctx.fillStyle = `hsla(${(i * 90 + t * 140) % 360},95%,65%,.22)`;
+      ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(14, 0); ctx.lineTo(95, H); ctx.lineTo(-95, H); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // まきば と いえ・き
+  ctx.fillStyle = '#2e6b40';
+  ctx.beginPath(); ctx.moveTo(0, H);
+  for (let x = 0; x <= W + 20; x += 24) ctx.lineTo(x, groundY + Math.sin(x / 110) * 10);
+  ctx.lineTo(W + 20, H); ctx.fill();
+  drawEmoji(ctx, '🏠', 58, groundY - 22, 46);
+  drawEmoji(ctx, '🌲', 112, groundY - 24, 42);
+  drawEmoji(ctx, '🌲', Math.max(170, W - 155), groundY - 24, 42);
+
+  // ビーム
+  const hoverY = ufo.y + Math.sin(t * 3.5) * 6;
+  if (ufo.beam > 0.02) {
+    const bw = 72 * ufo.beam;
+    const bg = ctx.createLinearGradient(ufo.x, hoverY + 12, ufo.x, groundY + 10);
+    bg.addColorStop(0, `hsla(${(t * 160) % 360},100%,70%,.68)`);
+    bg.addColorStop(1, `hsla(${(t * 160 + 80) % 360},100%,65%,.15)`);
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.moveTo(ufo.x - 18, hoverY + 14); ctx.lineTo(ufo.x + 18, hoverY + 14);
+    ctx.lineTo(ufo.x + bw, groundY + 12); ctx.lineTo(ufo.x - bw, groundY + 12); ctx.fill();
+    // うきあがる わっか
+    ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+      const u = ((k / 4) - (t * (ufo.state === 'drop' ? -0.9 : 0.9)) % 1 + 1) % 1;
+      const ry = hoverY + 24 + u * (groundY - hoverY - 26);
+      const rw = 20 + u * (bw - 20);
+      ctx.beginPath(); ctx.ellipse(ufo.x, ry, rw, rw * 0.24, 0, 0, 7); ctx.stroke();
+    }
+  }
+
+  // どうぶつ
+  for (const f of friends) {
+    if (f === ufo.carry && ufo.state === 'move') continue;
+    const y = f.y - Math.sin(f.hop * Math.PI) * 26;
+    ctx.save(); ctx.translate(f.x, y); ctx.rotate(f.rot);
+    if (!f.lifted && f.dir > 0) ctx.scale(-1, 1);
+    drawEmoji(ctx, f.e, 0, 0, 48); ctx.restore();
+  }
+  for (const d of drops) { ctx.globalAlpha = Math.min(1, d.life); drawEmoji(ctx, d.e, d.x, d.y, 32); ctx.globalAlpha = 1; }
+
+  // UFO ほんたい（なかの 👾 が みえる）
+  ctx.save(); ctx.translate(ufo.x, hoverY); ctx.rotate(Math.sin(t * 3) * 0.06 + (ufo.tx - ufo.x) * 0.0015);
+  // ガラスドーム
+  ctx.fillStyle = 'rgba(150,245,255,.45)';
+  ctx.beginPath(); ctx.arc(0, -10, 34, Math.PI, 0); ctx.fill();
+  drawEmoji(ctx, '👾', 0, -20 - (ufo.wave > 0 ? Math.abs(Math.sin(t * 16)) * 8 : 0), 34);
+  // えんばん
+  ctx.fillStyle = '#aeb8c9';
+  ctx.beginPath(); ctx.ellipse(0, 0, 62, 20, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#7e8899';
+  ctx.beginPath(); ctx.ellipse(0, 5, 50, 13, 0, 0, 7); ctx.fill();
+  // ピカピカ ライト
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI + 0.25;
+    const on = (Math.floor(t * 8) + i) % 2 === 0;
+    ctx.fillStyle = `hsl(${(i * 60 + t * 180) % 360},100%,${on ? 72 : 45}%)`;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * 46, Math.sin(a) * 10 - 2, on ? 6 : 4, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+
+  for (const s of sparks) { ctx.fillStyle = s.c; ctx.globalAlpha = Math.min(1, s.life); ctx.beginPath(); ctx.arc(s.x, s.y, 4.5, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

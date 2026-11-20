@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>ドーナツやさん</title>
+<link rel="stylesheet" href="common.css?v=21">
+<style>
+  body { background: #fff2e2; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #e68a3e; --c2: #a35518; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🍩</span></button></div>
+<script src="common.js?v=18"></script>
+<script>
+// ドーナツやさん: ボタンを おすと クリーム → チョコスプレー → トッピング の じゅんで どんどん できあがる！
+// 5こ はこに はいると リボンを かけて どうぶつが うれしそうに もっていく。ドーナツや マシン、どうぶつを さわっても はんのうする。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+const GLAZES = ['#ff6fae', '#6b3e26', '#7cc45e', '#ffd23f', '#5ec8ff', '#b388ff'];
+const TOPS = ['🍓', '🍒', '⭐', '🍪', '🍬'];
+const CUSTOMERS = ['🐻', '🐰', '🐼', '🐱', '🐶'];
+let L, donuts = [], boxCount = 0, boxPhase = 'open', boxT = 0, cust = { e: '🐻', x: 0, hop: 0 };
+let beltOff = 0, boost = 0, nozzleAnim = [0, 0, 0], drops = [], sparks = [], hearts = [], ci = 0;
+
+function layout() {
+  const by = Math.max(195, Math.min(H * 0.56, H - 165));
+  const bw = Math.min(W * 0.72, 620);
+  const bx0 = Math.max(16, (W - bw) / 2 - 42);
+  L = {
+    by, bx0, bx1: Math.min(W - 115, bx0 + bw),
+    st: [bx0 + bw * 0.22, bx0 + bw * 0.52, bx0 + bw * 0.80],
+    boxX: Math.min(W - 62, bx0 + bw + 44),
+    r: Math.min(34, Math.max(24, W * 0.055)),
+  };
+  L.st = [L.bx0 + (L.bx1 - L.bx0) * 0.22, L.bx0 + (L.bx1 - L.bx0) * 0.52, L.bx0 + (L.bx1 - L.bx0) * 0.82];
+  if (!cust.x || boxPhase === 'open') cust.x = L.boxX;
+  for (const d of donuts) d.y = L.by - 28;
+}
+layout();
+addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
+
+function makeDonut(x) {
+  return { x, y: L.by - 28, glaze: null, sprinkles: [], top: null, hop: 1, wobble: 0 };
+}
+donuts.push(makeDonut(L.st[0] - 20));
+
+function addGlaze(d) {
+  d.glaze = pick(GLAZES); d.hop = 1; nozzleAnim[0] = 1;
+  Sfx.tone(360, 0.14, 'sine', 0.2, 0, 580);
+  for (let i = 0; i < 10; i++) drops.push({ x: d.x + rand(-18, 18), y: d.y - 45, vx: rand(-60, 60), vy: rand(40, 160), c: d.glaze, life: 0.55 });
+}
+function addSprinkles(d) {
+  d.sprinkles = Array.from({ length: 14 }, () => {
+    const a = rand(0, Math.PI * 2), r = rand(L.r * 0.48, L.r * 0.82);
+    return { dx: Math.cos(a) * r, dy: Math.sin(a) * r * 0.72, ang: rand(0, Math.PI), c: `hsl(${rand(0, 360)},95%,60%)` };
+  });
+  d.hop = 1; nozzleAnim[1] = 1;
+  [784, 988, 1175].forEach((f, i) => Sfx.tone(f, 0.08, 'triangle', 0.1, i * 0.04));
+  for (let i = 0; i < 14; i++) drops.push({ x: d.x + rand(-24, 24), y: d.y - 50, vx: rand(-70, 70), vy: rand(60, 180), c: `hsl(${rand(0, 360)},95%,60%)`, life: 0.5 });
+}
+function addTop(d) {
+  d.top = pick(TOPS); d.hop = 1; nozzleAnim[2] = 1;
+  Sfx.tone(660, 0.1, 'sine', 0.16, 0, 1100);
+  for (let i = 0; i < 10; i++) sparks.push({ x: d.x, y: d.y - 12, vx: rand(-140, 140), vy: rand(-160, -40), life: 0.7, c: '#ffd23f' });
+}
+
+btn.addEventListener('pointerdown', () => {
+  boost = Math.min(2.2, boost + 1.1);
+  // まだ しあがっていない ドーナツを 1だんかい すめる
+  const needTop = donuts.find(d => d.glaze && d.sprinkles.length && !d.top);
+  const needSpr = donuts.find(d => d.glaze && !d.sprinkles.length);
+  const needGlz = donuts.find(d => !d.glaze);
+  if (needGlz) addGlaze(needGlz);
+  else if (needSpr) addSprinkles(needSpr);
+  else if (needTop) addTop(needTop);
+  else {
+    const leftMost = donuts.reduce((m, d) => Math.min(m, d.x), 9999);
+    if (leftMost > L.bx0 + L.r * 2.3 && donuts.length < 5) {
+      const nd = makeDonut(L.bx0 + 18);
+      donuts.push(nd);
+      Sfx.boing();
+    } else {
+      Sfx.tone(523, 0.1, 'triangle', 0.12, 0, 784);
+    }
+  }
+});
+
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  // どうぶつ
+  if (Math.hypot(x - cust.x, y - (L.by - 88)) < 54) {
+    cust.hop = 1; Sfx.tone(rand(700, 1000), 0.14, 'sine', 0.12, 0, 1300);
+    for (let i = 0; i < 4; i++) hearts.push({ x: cust.x + rand(-24, 24), y: L.by - 120, vy: rand(-80, -45), life: 1.1 });
+    return;
+  }
+  // ノズル
+  for (let i = 0; i < 3; i++) {
+    if (Math.hypot(x - L.st[i], y - (L.by - 120)) < 44) {
+      nozzleAnim[i] = 1;
+      const target = donuts.slice().sort((a, b) => Math.abs(a.x - L.st[i]) - Math.abs(b.x - L.st[i]))[0];
+      if (target) {
+        if (i === 0) addGlaze(target);
+        else if (i === 1) addSprinkles(target);
+        else addTop(target);
+      } else Sfx.pop();
+      return;
+    }
+  }
+  // ドーナツ
+  for (const d of donuts) {
+    if (Math.hypot(x - d.x, y - d.y) < L.r + 14) {
+      if (!d.glaze) addGlaze(d);
+      else if (!d.sprinkles.length) addSprinkles(d);
+      else if (!d.top) addTop(d);
+      else {
+        d.hop = 1; Sfx.pop();
+        for (let k = 0; k < 8; k++) sparks.push({ x: d.x, y: d.y, vx: rand(-140, 140), vy: rand(-160, -40), life: 0.7, c: `hsl(${rand(0, 360)},95%,60%)` });
+      }
+      return;
+    }
+  }
+});
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
+  boost = Math.max(0, boost - dt * 1.4);
+  const speed = boxPhase === 'open' ? 52 + boost * 95 : 18;
+  beltOff = (beltOff + speed * dt) % 32;
+  for (let i = 0; i < 3; i++) nozzleAnim[i] = Math.max(0, nozzleAnim[i] - dt * 3);
+  cust.hop = Math.max(0, cust.hop - dt * 2.5);
+
+  // あたらしい ドーナツを じどうで だす
+  const leftMost = donuts.reduce((m, d) => Math.min(m, d.x), 9999);
+  if (boxPhase === 'open' && donuts.length < 4 && leftMost > L.bx0 + L.r * 2.8) {
+    donuts.push(makeDonut(L.bx0 + 16));
+  }
+
+  for (let i = donuts.length - 1; i >= 0; i--) {
+    const d = donuts[i];
+    d.hop = Math.max(0, d.hop - dt * 3);
+    d.x += speed * dt;
+    // ステーションを とおると じどうでも しあがる（こどもの ペースで たのしい）
+    if (!d.glaze && d.x >= L.st[0]) addGlaze(d);
+    if (d.glaze && !d.sprinkles.length && d.x >= L.st[1]) addSprinkles(d);
+    if (d.sprinkles.length && !d.top && d.x >= L.st[2]) addTop(d);
+    if (d.x > L.bx1) {
+      donuts.splice(i, 1);
+      if (boxPhase === 'open') {
+        boxCount++; cust.hop = 1;
+        Sfx.tone(523 + boxCount * 85, 0.14, 'triangle', 0.14);
+        if (boxCount >= 5) {
+          boxPhase = 'close'; boxT = 0;
+          Sfx.yay(); setTimeout(() => Sfx.chime(), 280);
+          popText('できた！', W / 2, L.by - 170, '#ff4f7b', 54);
+          for (let k = 0; k < 24; k++) sparks.push({ x: L.boxX, y: L.by - 40, vx: rand(-220, 220), vy: rand(-260, -40), life: 1.2, c: `hsl(${rand(0, 360)},90%,60%)` });
+        }
+      }
+    }
+  }
+
+  if (boxPhase !== 'open') {
+    boxT += dt;
+    if (boxPhase === 'close' && boxT > 1.1) { boxPhase = 'leave'; boxT = 0; }
+    else if (boxPhase === 'leave') {
+      cust.x += 260 * dt;
+      if (cust.x > W + 90) {
+        boxPhase = 'enter'; boxT = 0; boxCount = 0;
+        cust.e = CUSTOMERS[++ci % CUSTOMERS.length]; cust.x = W + 70;
+      }
+    } else if (boxPhase === 'enter') {
+      cust.x += (L.boxX - cust.x) * Math.min(1, dt * 5);
+      if (Math.abs(cust.x - L.boxX) < 3) { cust.x = L.boxX; boxPhase = 'open'; cust.hop = 1; Sfx.tone(740, 0.12, 'sine', 0.1); }
+    }
+  }
+
+  for (const d of drops) { d.x += d.vx * dt; d.y += d.vy * dt; d.vy += 450 * dt; d.life -= dt; }
+  drops = drops.filter(d => d.life > 0);
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 400 * dt; s.life -= dt; }
+  sparks = sparks.filter(s => s.life > 0);
+  for (const h of hearts) { h.y += h.vy * dt; h.life -= dt; }
+  hearts = hearts.filter(h => h.life > 0);
+
+  draw(t);
+  requestAnimationFrame(loop);
+}
+
+function drawDonut(d) {
+  const y = d.y - Math.sin(d.hop * Math.PI) * 20, r = L.r;
+  ctx.save(); ctx.translate(d.x, y);
+  // かげ
+  ctx.fillStyle = 'rgba(0,0,0,.15)';
+  ctx.beginPath(); ctx.ellipse(0, r * 0.58 + Math.sin(d.hop * Math.PI) * 14, r * 0.9, r * 0.32, 0, 0, 7); ctx.fill();
+  // きじ
+  ctx.fillStyle = '#e5a454';
+  ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.72, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#c47b2c'; ctx.lineWidth = 3; ctx.stroke();
+  // グレース（クリーム）
+  if (d.glaze) {
+    ctx.fillStyle = d.glaze;
+    ctx.beginPath(); ctx.ellipse(0, -3, r * 0.88, r * 0.6, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.35)';
+    ctx.beginPath(); ctx.ellipse(-r * 0.3, -r * 0.25, r * 0.22, r * 0.1, -0.3, 0, 7); ctx.fill();
+  }
+  // あな
+  ctx.fillStyle = '#fff2e2';
+  ctx.beginPath(); ctx.ellipse(0, -1, r * 0.3, r * 0.2, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#c47b2c'; ctx.lineWidth = 2; ctx.stroke();
+  // スプレー
+  for (const sp of d.sprinkles) {
+    ctx.save(); ctx.translate(sp.dx, sp.dy - 3); ctx.rotate(sp.ang);
+    ctx.fillStyle = sp.c; ctx.fillRect(-4, -1.6, 8, 3.2); ctx.restore();
+  }
+  if (d.top) drawEmoji(ctx, d.top, 0, -r * 0.36, r * 0.95);
+  ctx.restore();
+}
+
+function draw(t) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // ストライプ かべがみ
+  for (let x = 0; x < W; x += 48) { ctx.fillStyle = (x / 48) % 2 ? '#fff2e2' : '#ffe4cc'; ctx.fillRect(x, 0, 48, H); }
+  // カウンター
+  ctx.fillStyle = '#f5d0a9'; ctx.fillRect(0, L.by + 36, W, H - L.by);
+
+  // 3つの マシン（うえから おりてくる）
+  const cols = ['#ff6fae', '#4fc3f7', '#ffd23f'];
+  const icons = ['💧', '✨', '🍓'];
+  for (let i = 0; i < 3; i++) {
+    const sx = L.st[i], push = Math.sin(nozzleAnim[i] * Math.PI) * 18;
+    ctx.fillStyle = '#9aa6b5'; ctx.fillRect(sx - 10, 0, 20, L.by - 145 + push);
+    ctx.fillStyle = cols[i];
+    ctx.beginPath(); ctx.roundRect(sx - 28, L.by - 155 + push, 56, 52, 14); ctx.fill();
+    ctx.fillStyle = '#6c7785'; ctx.fillRect(sx - 12, L.by - 103 + push, 24, 14);
+    drawEmoji(ctx, icons[i], sx, L.by - 128 + push, 30);
+  }
+
+  // ベルトコンベア
+  const bw = L.bx1 - L.bx0;
+  ctx.fillStyle = '#5c6673';
+  ctx.beginPath(); ctx.roundRect(L.bx0 - 12, L.by - 10, bw + 24, 48, 24); ctx.fill();
+  ctx.fillStyle = '#3f4752';
+  ctx.beginPath(); ctx.roundRect(L.bx0 - 4, L.by - 4, bw + 8, 36, 18); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 4;
+  for (let x = L.bx0 + beltOff; x < L.bx1; x += 32) {
+    ctx.beginPath(); ctx.moveTo(x - 6, L.by + 6); ctx.lineTo(x + 2, L.by + 14); ctx.lineTo(x - 6, L.by + 22); ctx.stroke();
+  }
+  // ローラー
+  for (let x = L.bx0 + 12; x <= L.bx1 - 12; x += Math.max(50, bw / 5)) {
+    ctx.fillStyle = '#cfd6df'; ctx.beginPath(); ctx.arc(x, L.by + 14, 10, 0, 7); ctx.fill();
+  }
+
+  for (const d of donuts) drawDonut(d);
+
+  // おきゃくさん と ドーナツばこ
+  const bx = cust.x;
+  const hop = Math.sin(cust.hop * Math.PI) * 22;
+  drawEmoji(ctx, cust.e, bx, L.by - 82 - hop, 76);
+  // はこ
+  ctx.fillStyle = '#ff8fb8';
+  ctx.beginPath(); ctx.roundRect(bx - 42, L.by - 32, 84, 64, 12); ctx.fill();
+  ctx.fillStyle = '#ffe6f0';
+  ctx.beginPath(); ctx.roundRect(bx - 36, L.by - 24, 72, 48, 8); ctx.fill();
+  for (let i = 0; i < boxCount; i++) {
+    const ox = bx - 22 + (i % 3) * 22, oy = L.by - 8 + Math.floor(i / 3) * 20;
+    drawEmoji(ctx, '🍩', ox, oy, 24);
+  }
+  if (boxPhase === 'close' || boxPhase === 'leave') {
+    ctx.fillStyle = '#ff5e99';
+    ctx.beginPath(); ctx.roundRect(bx - 44, L.by - 34, 88, 66, 12); ctx.fill();
+    ctx.fillStyle = '#ffd23f'; ctx.fillRect(bx - 7, L.by - 34, 14, 66); ctx.fillRect(bx - 44, L.by - 7, 88, 14);
+    drawEmoji(ctx, '🎀', bx, L.by - 2, 42);
+  }
+
+  for (const d of drops) { ctx.fillStyle = d.c; ctx.beginPath(); ctx.arc(d.x, d.y, 4.5, 0, 7); ctx.fill(); }
+  for (const s of sparks) { ctx.fillStyle = s.c; ctx.globalAlpha = Math.min(1, s.life); ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+  for (const h of hearts) drawEmoji(ctx, '💗', h.x, h.y, 26);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
