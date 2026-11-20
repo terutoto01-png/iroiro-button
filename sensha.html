@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>せんしゃ</title>
-<link rel="stylesheet" href="common.css?v=20">
+<link rel="stylesheet" href="common.css?v=21">
 <style>
   body { background: linear-gradient(#e6f4ff, #cfe8fb); }
   #cv { touch-action: none; }
@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚿</span></button></div>
-<script src="common.js?v=16"></script>
+<script src="common.js?v=17"></script>
 <script>
 // せんしゃ: どろんこの くるまが はいってくる。ボタンで ブラシ → みず が じゅんばんに うごいて あらう。ゆびで ごしごし しても おちる。
 // ぴかぴかに なると くるまが よろこんで ぷっぷー と でていき、つぎの どろんこ くるまが くる。
@@ -29,9 +29,9 @@ let C, car = null, mud = [], foam = [], drops = [], sparkle = [], pass = null, n
 function layout() { const cs = Math.min(W * 0.72, H * 0.42, 380); C = { x: W / 2, y: Math.min(H * 0.5, H - 150 - cs * 0.3), cs }; oc.width = oc.height = Math.ceil(cs * 1.3 * dpr); }
 layout();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
-const fontOf = (s) => `${s}px "${EMOJI_FONT}"`;
+const fontOf = (s) => EMOJI_FONT ? `${s}px "${EMOJI_FONT}"` : `${s}px "Apple Color Emoji", serif`;
 
-if (document.fonts) document.fonts.load(fontOf(40), CARS.join('')).catch(() => {});
+if (EMOJI_FONT && document.fonts) document.fonts.load(fontOf(40), CARS.join('')).catch(() => {});
 function newCar() {
   car = { e: pick(CARS), x: -C.cs, st: 'in', t: 0, hop: 0 };
   mud = [];
