@@ -175,9 +175,9 @@ const WORLDS = [
 let worldIdx = 0, chordPulse = 0, feverT = 0, feverCount = 0, feverRain = 0, emitterPhase = 0;
 let bars = [], userBars = [], wheels = [], bumpers = [], harp = [], portals = [], cannons = [], tramps = [];
 let PS = {}, tray = null; // ぶひんの おおきさ・つくる せかいの トレイ
-const TRAY = ['bar', 'bump', 'wheel', 'tramp', 'cannon', 'portal'];
-const PORTAL_HUES = [[195, 48], [300, 120], [20, 170]];
-const PART_MAX = { bar: 24, bump: 12, wheel: 6, tramp: 4, cannon: 4, portal: 3 };
+const TRAY = ['bar', 'bump', 'wheel', 'tramp', 'cannon', 'portal', 'clear']; // clear = 🧽 ぜんぶ けす
+const PORTAL_HUES = [[195, 48], [300, 120], [20, 170], [130, 270], [50, 225], [340, 95]];
+const PART_MAX = { bar: 60, bump: 30, wheel: 12, tramp: 10, cannon: 10, portal: 6 };
 const SAVE_KEY = 'korokoro-tsukuru';
 const isMake = () => !!WORLDS[worldIdx].make;
 let marbles = [], sparks = [], rings = [], floatNotes = [], bgDots = [];
@@ -581,6 +581,17 @@ function loadMake() {
   for (const tr of tramps) tr.bend = 0;
   for (const p of portals) { p.in.pulse = 0; p.out.pulse = 0; }
 }
+// 🧽: おいた ぶひんを ぜんぶ けす（ビーだまは そのまま）
+function clearMake() {
+  const all = [...userBars.map(o => ({ type: 'bar', o })), ...bumpers.map(o => ({ type: 'bump', o })), ...wheels.map(o => ({ type: 'wheel', o })),
+    ...tramps.map(o => ({ type: 'tramp', o })), ...cannons.map(o => ({ type: 'cannon', o })), ...portals.map(o => ({ type: 'portal', o }))];
+  if (!all.length) { Sfx.boing(); return; }
+  for (const h of all) { const c = partCenter(h); burst(c.x, c.y, rand(0, 360), 10); if (h.type === 'portal') burst(h.o.out.x, h.o.out.y, h.o.hue[1], 8); }
+  for (const c of cannons) if (c.held) c.held.heldBy = null;
+  userBars.length = 0; bumpers.length = 0; wheels.length = 0; tramps.length = 0; cannons.length = 0; portals.length = 0;
+  Sfx.noise(0.4, 0.4, 3000, 0, 'bandpass'); Sfx.tone(900, 0.25, 'sine', 0.08, 0, 1800); // きゅっきゅっ
+  saveMake();
+}
 function inTray(x, y) { return !!tray && x > tray.x - 16 && x < tray.x + tray.w + 16 && y > tray.y - 12; }
 function trayItemAt(x, y) { return tray ? tray.items.find(it => Math.abs(x - it.x) < tray.s / 2 + 4 && Math.abs(y - it.y) < tray.s / 2 + 8) : null; }
 
@@ -603,6 +614,7 @@ cv.addEventListener('pointerdown', (e) => {
       try { cv.setPointerCapture(e.pointerId); } catch (err) {}
       drag = { id: e.pointerId, mode: it ? 'new' : hit ? 'move' : 'none', part: it ? it.k : null, hit, x0: x, y0: y, x1: x, y1: y, px: x, py: y, lastX: x, moved: false };
       if (it) { it.pop = 1; Sfx.tone(760, 0.06, 'sine', 0.1); }
+      if (it && it.k === 'clear') drag.mode = 'clear';
       return;
     }
   } else {
@@ -625,7 +637,7 @@ cv.addEventListener('pointermove', (e) => {
     if (Math.hypot(x - drag.x0, y - drag.y0) > 10) drag.moved = true;
     if (drag.mode === 'move' && drag.moved) movePart(drag.hit, x - (was ? drag.px : drag.x0), y - (was ? drag.py : drag.y0), x, y);
     drag.px = x; drag.py = y; drag.x1 = x; drag.y1 = y;
-    if (drag.mode !== 'none' && drag.moved && inTray(x, y)) tray.glow = 1;
+    if ((drag.mode === 'new' || drag.mode === 'move') && drag.moved && inTray(x, y)) tray.glow = 1;
     return;
   }
   // ハープげんを ゆびで かなでる
@@ -643,6 +655,7 @@ cv.addEventListener('pointermove', (e) => {
 const endDrag = (e) => {
   if (!drag || drag.id !== e.pointerId) return;
   const d = drag; drag = null;
+  if (d.mode === 'clear') { if (inTray(d.x1, d.y1)) clearMake(); return; }
   if (d.mode === 'new') {
     if (!d.moved) addPart(d.part, rand(W * 0.2, W * 0.8), sy(rand(0.25, 0.75))); // ちょん → どこかに ぽんと でる
     else if (!inTray(d.x1, d.y1)) addPart(d.part, d.x1, d.y1);
@@ -727,7 +740,7 @@ function loop(now) {
   for (const tr of tramps) { tr.bendV += (-tr.bend * 85 - tr.bendV * 6) * dt; tr.bend += tr.bendV * dt; }
   if (tray) {
     tray.glow = Math.max(0, tray.glow - dt * 3); for (const it of tray.items) it.pop = Math.max(0, it.pop - dt * 4);
-    if (drag && drag.mode && drag.mode !== 'none' && drag.moved && inTray(drag.x1, drag.y1)) tray.glow = 1; // ここで はなすと きえる
+    if (drag && (drag.mode === 'new' || drag.mode === 'move') && drag.moved && inTray(drag.x1, drag.y1)) tray.glow = 1; // ここで はなすと きえる
   }
   const warpMax = WORLDS[worldIdx].make ? 8 : 3; // ワープ・はっしゃ の かいすう（ぐるぐる おわらない ように）
 
@@ -1195,6 +1208,7 @@ function drawTray(t) {
   for (const it of tray.items) {
     ctx.fillStyle = 'rgba(120,160,230,.12)';
     ctx.beginPath(); ctx.roundRect(it.x - tray.s / 2, it.y - tray.s / 2, tray.s, tray.s, 14); ctx.fill();
+    if (it.k === 'clear') { const z = tray.s * 0.6 * (1 + it.pop * 0.3); drawEmoji(ctx, '🧽', it.x, it.y, z); continue; }
     const sc = Math.min(1, tray.s * 0.8 / partExtent(it.k)) * (1 + it.pop * 0.3);
     drawPartIcon(it.k, it.x, it.y, sc, t, true);
   }
