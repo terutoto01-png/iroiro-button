@@ -162,13 +162,24 @@ const WORLDS = [
     bg: ['#fff6e4', '#fde7c8', '#f6d7b0'], dark: false, barRest: 0.74,
   },
   {
-    name: 'キャンディ', icon: '🍬', nextIcon: '🌙', btnC: ['#ff6fae', '#c23c7a'], wBtnC: ['#6c5ce7', '#3b2d9e'],
+    name: 'キャンディ', icon: '🍬', nextIcon: '🔨', btnC: ['#ff6fae', '#c23c7a'], wBtnC: ['#3ec9a7', '#1d8a6f'],
     bg: ['#ffe8f5', '#e4f6ff', '#e7ffe9'], dark: false, barRest: 0.88,
+  },
+  {
+    // じぶんで つくる: トレイから ぶひんを ひっぱって おく（コースは この きかいに のこる）
+    name: 'つくろう', icon: '🔨', nextIcon: '🌙', btnC: ['#3ec9a7', '#1d8a6f'], wBtnC: ['#6c5ce7', '#3b2d9e'],
+    bg: ['#f4fbff', '#e8f4ff', '#f1efff'], dark: false, barRest: 0.8, make: true,
   },
 ];
 
 let worldIdx = 0, chordPulse = 0, feverT = 0, feverCount = 0, feverRain = 0, emitterPhase = 0;
-let bars = [], userBars = [], wheels = [], bumpers = [], harp = [], portals = null, cannon = null, tramp = null;
+let bars = [], userBars = [], wheels = [], bumpers = [], harp = [], portals = [], cannons = [], tramps = [];
+let PS = {}, tray = null; // ぶひんの おおきさ・つくる せかいの トレイ
+const TRAY = ['bar', 'bump', 'wheel', 'tramp', 'cannon', 'portal'];
+const PORTAL_HUES = [[195, 48], [300, 120], [20, 170]];
+const PART_MAX = { bar: 24, bump: 12, wheel: 6, tramp: 4, cannon: 4, portal: 3 };
+const SAVE_KEY = 'korokoro-tsukuru';
+const isMake = () => !!WORLDS[worldIdx].make;
 let marbles = [], sparks = [], rings = [], floatNotes = [], bgDots = [];
 let drag = null, hitCool = new Map();
 let playTop = 64, playBot = H - 110, playH = H - 174, marbleR = 14;
@@ -183,6 +194,18 @@ function updateSafeBounds() {
   playBot = Math.max(playTop + 260, (bRect.top > 0 ? bRect.top : H - 120) - (tight ? 14 : -26));
   playBot = Math.min(H - 28, playBot);
   playH = playBot - playTop;
+  tray = null;
+  if (WORLDS[worldIdx].make) {
+    // トレイ: ひだりしたの ボタンと 💎 の あいだ。せまい ときは その うえに よこ いちれつ
+    const wr = worldBtn.getBoundingClientRect(), n = TRAY.length, gap = 8;
+    let x0 = wr.right + 14, x1 = (bRect.left > 0 ? bRect.left : W - 140) - 14;
+    let s = Math.min(72, (x1 - x0 - gap * (n - 1)) / n), ty;
+    if (s >= 52) ty = wr.top + wr.height / 2;
+    else { x0 = 12; x1 = W - 12; s = Math.min(64, (x1 - x0 - gap * (n - 1)) / n); ty = Math.min(wr.top, bRect.top) - 14 - s / 2; }
+    const tw = n * s + (n - 1) * gap, tx = (x0 + x1) / 2 - tw / 2;
+    tray = { x: tx - 10, y: ty - s / 2 - 10, w: tw + 20, h: s + 20, s, glow: 0, items: TRAY.map((k, i) => ({ k, x: tx + s / 2 + i * (s + gap), y: ty, pop: 0 })) };
+    playBot = Math.min(tray.y, bRect.top > 0 ? bRect.top : tray.y, wr.top) - 8; playH = playBot - playTop; // 💎 に かからない
+  }
   marbleR = Math.max(10, Math.min(15, Math.min(W, playH) * 0.028));
 }
 function sx(u) { return W * u; }
@@ -201,7 +224,11 @@ function buildWorld() {
   const bumpR = Math.max(16, Math.min(32, rScale * (narrow ? 0.044 : 0.048)));
   const wheelR = Math.max(32, Math.min(68, rScale * (narrow ? 0.09 : 0.105)));
 
-  bars = []; wheels = []; bumpers = []; harp = []; portals = null; cannon = null; tramp = null;
+  bars = []; wheels = []; bumpers = []; harp = []; portals = []; cannons = []; tramps = [];
+  PS = {
+    bumpR, wheelR: wheelR * 0.85, cannonR: narrow ? 28 : 34, trampHW: Math.max(60, Math.min(110, W * 0.13)),
+    pinR: Math.max(24, Math.min(38, rScale * 0.056)), poutR: Math.max(19, Math.min(30, rScale * 0.042)),
+  };
   const mkBar = (u1, v1, u2, v2, hue, pitch) => ({
     x1: sx(u1), y1: sy(v1), x2: sx(u2), y2: sy(v2),
     r: narrow ? 6.5 : 8, hue, pitch, vib: 0, vibPh: 0, glow: 0, hitU: 0.5, user: false,
@@ -224,10 +251,10 @@ function buildWorld() {
       { x: sx(wide ? 0.78 : 0.82), y: sy(0.40), r: bumpR * 0.9, hue: 50, pitch: 0.65, hit: 0 },
       { x: sx(0.50), y: sy(0.66), r: bumpR * 1.0, hue: 280, pitch: 0.18, hit: 0 },
     );
-    portals = {
-      in:  { x: sx(0.50), y: sy(0.91), r: Math.max(24, Math.min(38, rScale * 0.056)), pulse: 0 },
-      out: { x: sx(0.50), y: sy(0.16), r: Math.max(19, Math.min(30, rScale * 0.042)), pulse: 0 },
-    };
+    portals.push({
+      in:  { x: sx(0.50), y: sy(0.91), r: PS.pinR, pulse: 0 },
+      out: { x: sx(0.50), y: sy(0.16), r: PS.poutR, pulse: 0 }, hue: PORTAL_HUES[0],
+    });
   } else if (worldIdx === 1) {
     // もりの きのおもちゃ: ひろびろ 木のスロープ + ダブル風車 + したから ポンッと うちあげる キャノン
     bars.push(
@@ -246,8 +273,8 @@ function buildWorld() {
       { x: sx(0.50), y: sy(0.34), r: bumpR * 1.05, hue: 12, pitch: 0.25, hit: 0 },
       { x: sx(0.50), y: sy(0.61), r: bumpR * 1.0, hue: 48, pitch: 0.55, hit: 0 },
     );
-    cannon = { x: sx(0.50), y: sy(0.90), r: narrow ? 28 : 34, held: null, t: 0, recoil: 0, aim: -Math.PI / 2 };
-  } else {
+    cannons.push({ x: sx(0.50), y: sy(0.90), r: PS.cannonR, held: null, t: 0, recoil: 0, aim: -Math.PI / 2 });
+  } else if (worldIdx === 2) {
     // キャンディ こうじょう: はねるバンパー天国 + ペパーミント水車 + びよーん ゼリー・トランポリン
     bars.push(
       mkBar(xL, 0.19, 0.37, 0.31, 330, 0.86),
@@ -263,20 +290,25 @@ function buildWorld() {
       { x: sx(wide ? 0.30 : 0.24), y: sy(0.75), r: bumpR * 0.88, hue: 280, pitch: 0.2, hit: 0 },
       { x: sx(wide ? 0.70 : 0.76), y: sy(0.75), r: bumpR * 0.88, hue: 195, pitch: 0.7, hit: 0 },
     );
-    tramp = { x1: sx(narrow ? 0.14 : 0.22), x2: sx(narrow ? 0.86 : 0.78), y: sy(0.91), bend: 0, bendV: 0, bendX: sx(0.50), hue: 330 };
+    tramps.push({ x1: sx(narrow ? 0.14 : 0.22), x2: sx(narrow ? 0.86 : 0.78), y: sy(0.91), bend: 0, bendV: 0, bendX: sx(0.50), hue: 330 });
+  } else {
+    loadMake();
   }
 
-  // したの キラキラ ハープげん（したの バーより したに すっきり おさめる）
+  // したの キラキラ ハープげん（したの バーより したに すっきり おさめる）。つくる せかいは トレイが あるので なし
+  if (!WORLDS[worldIdx].make) harpInit();
+  bgDots = Array.from({ length: 48 }, () => ({
+    x: Math.random() * W, y: Math.random() * H, r: rand(1.2, 3.0), p: rand(0, 6), sp: rand(4, 14),
+  }));
+}
+function harpInit() {
+  const narrow = W < 500;
   const hy1 = sy(0.81), hy2 = sy(0.97);
   const hu0 = narrow ? 0.18 : 0.24, hu1 = narrow ? 0.82 : 0.76;
   for (let i = 0; i < 6; i++) {
     const u = hu0 + (i / 5) * (hu1 - hu0);
     harp.push({ x: sx(u), y1: hy1, y2: hy2, amp: 0, ph: 0, glow: 0, pitch: i / 5, hue: (i * 55 + 180) % 360 });
   }
-
-  bgDots = Array.from({ length: 48 }, () => ({
-    x: Math.random() * W, y: Math.random() * H, r: rand(1.2, 3.0), p: rand(0, 6), sp: rand(4, 14),
-  }));
 }
 buildWorld();
 // DOMContentLoaded で 🏠 ボタンが つくられた あとに もういちど あんぜん ゾーンを そろえる
@@ -354,6 +386,7 @@ btn.addEventListener('pointerdown', () => {
 
 worldBtn.addEventListener('pointerdown', () => {
   worldIdx = (worldIdx + 1) % WORLDS.length;
+  drag = null;
   userBars = [];
   marbles = [];
   buildWorld();
@@ -363,9 +396,198 @@ worldBtn.addEventListener('pointerdown', () => {
   for (let i = 0; i < 3; i++) spawnMarble(dp.x + (i - 1) * 44, dp.y + 20, { vx: (i - 1) * 60 });
 });
 
+// ---- つくる せかい: トレイから ぶひんを だす・うごかす・トレイに もどして けす・この きかいに のこす ----
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+function barTune(b) { // ながさで おんていと いろ（みじかい＝たかい）
+  const len = Math.hypot(b.x2 - b.x1, b.y2 - b.y1);
+  b.pitch = Math.max(0.05, Math.min(0.98, 1 - (len - 40) / 260)); b.hue = (b.pitch * 300 + 20) % 360;
+}
+function mkUserBar(x1, y1, x2, y2) { const b = { x1, y1, x2, y2, r: 8, hue: 0, pitch: 0.5, vib: 10, vibPh: 0, glow: 1, hitU: 0.5, user: true }; barTune(b); return b; }
+function bumpPitch(b) { b.pitch = Math.max(0.05, Math.min(0.95, 1 - (b.y - playTop) / playH)); }
+function trampSync(o) { o.x1 = o.cx - o.hw; o.x2 = o.cx + o.hw; }
+function listFor(type) {
+  return { bar: userBars, barEnd: userBars, bump: bumpers, wheel: wheels, tramp: tramps, cannon: cannons, pin: portals, pout: portals, portal: portals }[type];
+}
+function newPart(k, x, y) {
+  if (k === 'bar') { const sg = x < W / 2 ? 1 : -1, L = Math.min(150, W * 0.2); return { type: 'bar', o: mkUserBar(x - L / 2, y - 18 * sg, x + L / 2, y + 18 * sg) }; }
+  if (k === 'bump') return { type: 'bump', o: { x, y, r: PS.bumpR, hue: (bumpers.length * 67 + 335) % 360, pitch: 0.5, hit: 1 } };
+  if (k === 'wheel') return { type: 'wheel', o: { x, y, r: PS.wheelR, ang: 0, omega: 0, target: 2.6, glow: 1 } };
+  if (k === 'tramp') return { type: 'tramp', o: { cx: x, hw: PS.trampHW, y, bend: 24, bendV: 0, bendX: x, hue: (330 + tramps.length * 80) % 360 } };
+  if (k === 'cannon') return { type: 'cannon', o: { x, y, r: PS.cannonR, held: null, t: 0, recoil: 1, aim: -Math.PI / 2 } };
+  const used = portals.map(p => p.hue), hue = PORTAL_HUES.find(h => !used.includes(h)) || PORTAL_HUES[0];
+  return { type: 'portal', o: { in: { x, y, r: PS.pinR, pulse: 1 }, out: { x: W - x, y: sy(0.12), r: PS.poutR, pulse: 1 }, hue } };
+}
+function partCenter(h) {
+  const o = h.o;
+  if (h.type === 'bar') return { x: (o.x1 + o.x2) / 2, y: (o.y1 + o.y2) / 2 };
+  if (h.type === 'barEnd') return { x: o['x' + h.end], y: o['y' + h.end] };
+  if (h.type === 'tramp') return { x: o.cx, y: o.y };
+  if (h.type === 'pin' || h.type === 'portal') return o.in;
+  if (h.type === 'pout') return o.out;
+  return o;
+}
+function addPart(k, x, y, quiet) {
+  const h = newPart(k, x, y), list = listFor(h.type);
+  list.push(h.o);
+  if (list.length > PART_MAX[k]) { // おおすぎたら いちばん ふるい ものが きえる
+    const old = list.shift(), c = partCenter({ type: h.type, o: old });
+    if (old.held) old.held.heldBy = null;
+    burst(c.x, c.y, 200, 8);
+  }
+  settle(h);
+  if (!quiet) {
+    const c = partCenter(h);
+    Music.playBumper(0.7); burst(c.x, c.y, 50, 12); addRing(c.x, c.y, 50, 60);
+    saveMake();
+  }
+}
+function removePart(h) {
+  const list = listFor(h.type), i = list.indexOf(h.o), c = partCenter(h);
+  if (i >= 0) list.splice(i, 1);
+  if (h.o.held) h.o.held.heldBy = null;
+  burst(c.x, c.y, 0, 14);
+  Sfx.tone(820, 0.18, 'sine', 0.12, 0, 260); // ぽいっ
+  saveMake();
+}
+// ゆびの したの ぶひん（ちいさい もの・はしっこ が さき）
+function partAt(x, y) {
+  for (const p of portals) {
+    if (Math.hypot(x - p.out.x, y - p.out.y) < p.out.r + 10) return { type: 'pout', o: p };
+    if (Math.hypot(x - p.in.x, y - p.in.y) < p.in.r + 10) return { type: 'pin', o: p };
+  }
+  for (const c of cannons) if (Math.hypot(x - c.x, y - c.y) < c.r + 10) return { type: 'cannon', o: c };
+  for (const b of bumpers) if (Math.hypot(x - b.x, y - b.y) < b.r + 12) return { type: 'bump', o: b };
+  for (const tr of tramps) if (Math.abs(y - tr.y) < 24 && x > tr.x1 - 14 && x < tr.x2 + 14) return { type: 'tramp', o: tr };
+  for (let i = userBars.length - 1; i >= 0; i--) {
+    const b = userBars[i];
+    if (Math.hypot(x - b.x1, y - b.y1) < 22) return { type: 'barEnd', o: b, end: 1 };
+    if (Math.hypot(x - b.x2, y - b.y2) < 22) return { type: 'barEnd', o: b, end: 2 };
+  }
+  for (const w of wheels) if (Math.hypot(x - w.x, y - w.y) < 26) return { type: 'wheel', o: w };
+  for (let i = userBars.length - 1; i >= 0; i--) { const b = userBars[i]; if (distToSeg(x, y, b.x1, b.y1, b.x2, b.y2).d < 18) return { type: 'bar', o: b }; }
+  for (const w of wheels) if (Math.hypot(x - w.x, y - w.y) < w.r + 8) return { type: 'wheel', o: w };
+  return null;
+}
+function movePart(h, dx, dy, x, y) {
+  const o = h.o;
+  if (h.type === 'bar') { o.x1 += dx; o.y1 += dy; o.x2 += dx; o.y2 += dy; }
+  else if (h.type === 'barEnd') { o['x' + h.end] = x; o['y' + h.end] = y; barTune(o); }
+  else if (h.type === 'tramp') { o.cx += dx; o.y += dy; trampSync(o); }
+  else if (h.type === 'pin') { o.in.x += dx; o.in.y += dy; }
+  else if (h.type === 'pout') { o.out.x += dx; o.out.y += dy; }
+  else { o.x += dx; o.y += dy; }
+}
+// まるい ぶひん（かさならない ように すこし おしのける）
+function circles() {
+  const a = [];
+  for (const b of bumpers) a.push([b, b.r]);
+  for (const w of wheels) a.push([w, w.r]);
+  for (const c of cannons) a.push([c, c.r]);
+  for (const p of portals) { a.push([p.in, p.in.r]); a.push([p.out, p.out.r]); }
+  return a;
+}
+function settleCircle(o, r) {
+  const top = playTop + 10;
+  for (let it = 0; it < 6; it++) {
+    o.x = clampN(o.x, r + 6, W - r - 6); o.y = clampN(o.y, top + r, playBot - r);
+    let pushed = false;
+    for (const [c, cr] of circles()) {
+      if (c === o) continue;
+      let dx = o.x - c.x, dy = o.y - c.y, d = Math.hypot(dx, dy);
+      if (d < 0.5) { dx = o.x < W / 2 ? 1 : -1; dy = 0.3; d = Math.hypot(dx, dy); } // ぴったり かさなったら よこへ
+      const need = r + cr + 6;
+      if (d < need) { o.x += dx / d * (need - d); o.y += dy / d * (need - d); pushed = true; }
+    }
+    if (!pushed) break;
+  }
+  o.x = clampN(o.x, r + 6, W - r - 6); o.y = clampN(o.y, top + r, playBot - r);
+}
+function settle(h) {
+  const o = h.o, top = playTop + 10;
+  if (h.type === 'bar' || h.type === 'barEnd') {
+    o.x1 = clampN(o.x1, 10, W - 10); o.x2 = clampN(o.x2, 10, W - 10);
+    o.y1 = clampN(o.y1, top, playBot - 10); o.y2 = clampN(o.y2, top, playBot - 10);
+    const len = Math.hypot(o.x2 - o.x1, o.y2 - o.y1);
+    if (len < 40) { const a = len > 1 ? Math.atan2(o.y2 - o.y1, o.x2 - o.x1) : 0; o.x2 = o.x1 + Math.cos(a) * 40; o.y2 = o.y1 + Math.sin(a) * 40; }
+    barTune(o);
+  } else if (h.type === 'tramp') {
+    o.cx = clampN(o.cx, o.hw + 8, W - o.hw - 8); o.y = clampN(o.y, top + 60, playBot - 14); trampSync(o);
+  } else if (h.type === 'portal') { settleCircle(o.in, o.in.r); settleCircle(o.out, o.out.r); }
+  else if (h.type === 'pin') settleCircle(o.in, o.in.r);
+  else if (h.type === 'pout') settleCircle(o.out, o.out.r);
+  else {
+    settleCircle(o, o.r);
+    if (h.type === 'bump') bumpPitch(o);
+    if (h.type === 'wheel') { const dir = o.x < W / 2 ? 1 : -1; o.target = 2.6 * dir; } // まんなかへ ながす むき
+  }
+}
+function kickBumper(b) {
+  b.hit = 1; Music.playBumper(b.pitch); addRing(b.x, b.y, b.hue, b.r * 2.8); burst(b.x, b.y, b.hue, 12);
+  for (const m of marbles) {
+    const dx = m.x - b.x, dy = m.y - b.y, d = Math.hypot(dx, dy);
+    if (d < b.r * 3.5 && d > 1) { m.vx += dx / d * 420; m.vy += dy / d * 420; }
+  }
+}
+function spinWheel(w) {
+  w.omega += (w.target >= 0 ? 1 : -1) * 7; w.glow = 1;
+  Music.playBar(0.75, 0.9, worldIdx); addRing(w.x, w.y, 48, w.r * 1.4);
+}
+function ringBar(b, x, y) {
+  b.vib = 14; b.vibPh = 0; b.glow = 1; b.hitU = 0.5;
+  Music.playBar(b.pitch, 0.9, worldIdx);
+  burst(x, y, b.hue, 8); addFloatNote(x, y - 12, b.hue);
+}
+function warpMarble(m, p) {
+  m.warps++;
+  m.x = p.out.x + rand(-18, 18); m.y = p.out.y + 20;
+  m.vx = rand(-150, 150); m.vy = rand(60, 140);
+  m.hue = (m.hue + 95) % 360; m.trail = [];
+  p.in.pulse = 1; p.out.pulse = 1;
+  Music.playWarp();
+  addRing(p.in.x, p.in.y, p.hue[0], 76); addRing(p.out.x, p.out.y, p.hue[1], 76);
+  burst(p.out.x, p.out.y, m.hue, 12);
+}
+function tapPart(h, x, y) {
+  const o = h.o;
+  if (h.type === 'bump') kickBumper(o);
+  else if (h.type === 'wheel') spinWheel(o);
+  else if (h.type === 'bar' || h.type === 'barEnd') ringBar(o, x, y);
+  else if (h.type === 'tramp') { o.bend = 30; o.bendV = 120; o.bendX = x; Sfx.boing(); Music.playBumper(0.8); burst(x, o.y, o.hue, 10); }
+  else if (h.type === 'cannon') { if (!o.held) { const m = spawnMarble(o.x, o.y - 10, { vx: 0, vy: 0 }); o.held = m; m.heldBy = o; o.t = 0; } }
+  else { const m = spawnMarble(o.in.x, o.in.y, { vx: 0, vy: 0 }); warpMarble(m, o); }
+}
+// のこす: がめんの おおきさが かわっても おなじ ように ならぶ よう わりあいで
+function saveMake() {
+  if (!isMake()) return;
+  const U = x => +(x / W).toFixed(4), V = y => +((y - playTop) / playH).toFixed(4);
+  const d = {
+    l: userBars.map(b => [U(b.x1), V(b.y1), U(b.x2), V(b.y2)]), b: bumpers.map(b => [U(b.x), V(b.y)]), w: wheels.map(o => [U(o.x), V(o.y)]),
+    t: tramps.map(o => [U(o.cx), V(o.y)]), c: cannons.map(o => [U(o.x), V(o.y)]), p: portals.map(o => [U(o.in.x), V(o.in.y), U(o.out.x), V(o.out.y)]),
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch (e) {}
+}
+function loadMake() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) {}
+  if (!d) return;
+  const X = u => u * W, Y = v => playTop + v * playH, arr = a => (Array.isArray(a) ? a : []);
+  for (const [a, b, c, e] of arr(d.l)) { const o = mkUserBar(X(a), Y(b), X(c), Y(e)); o.vib = 0; o.glow = 0; userBars.push(o); settle({ type: 'bar', o }); }
+  for (const [a, b] of arr(d.b)) addPart('bump', X(a), Y(b), true);
+  for (const [a, b] of arr(d.w)) addPart('wheel', X(a), Y(b), true);
+  for (const [a, b] of arr(d.t)) addPart('tramp', X(a), Y(b), true);
+  for (const [a, b] of arr(d.c)) addPart('cannon', X(a), Y(b), true);
+  for (const [a, b, c, e] of arr(d.p)) { addPart('portal', X(a), Y(b), true); const o = portals[portals.length - 1]; o.out.x = X(c); o.out.y = Y(e); settle({ type: 'pout', o }); }
+  for (const b of bumpers) b.hit = 0;
+  for (const tr of tramps) tr.bend = 0;
+  for (const p of portals) { p.in.pulse = 0; p.out.pulse = 0; }
+}
+function inTray(x, y) { return !!tray && x > tray.x - 16 && x < tray.x + tray.w + 16 && y > tray.y - 12; }
+function trayItemAt(x, y) { return tray ? tray.items.find(it => Math.abs(x - it.x) < tray.s / 2 + 4 && Math.abs(y - it.y) < tray.s / 2 + 8) : null; }
+
 // ---- がめんタッチ（ちょん＝ビーだま、なぞり＝にじのもっきんバー、おもちゃタップ＝はんのう） ----
 cv.addEventListener('pointerdown', (e) => {
   const x = e.clientX, y = e.clientY;
+  if (drag && drag.mode) return; // ぶひんを もっている あいだは ほかの ゆびは つかわない
   // うえの ディスペンサー（⭐）→ きんの スーパービーだま
   const dp = dispenserPos();
   if (Math.hypot(x - dp.x, y - dp.y) < 48) {
@@ -374,24 +596,20 @@ cv.addEventListener('pointerdown', (e) => {
     popText('きらーん！', dp.x, dp.y + 58, '#ffd23f', 34);
     return;
   }
-  // バンパー
-  for (const b of bumpers) {
-    if (Math.hypot(x - b.x, y - b.y) < b.r + 18) {
-      b.hit = 1; Music.playBumper(b.pitch); addRing(b.x, b.y, b.hue, b.r * 2.8); burst(b.x, b.y, b.hue, 12);
-      for (const m of marbles) {
-        const dx = m.x - b.x, dy = m.y - b.y, d = Math.hypot(dx, dy);
-        if (d < b.r * 3.5 && d > 1) { m.vx += dx / d * 420; m.vy += dy / d * 420; }
-      }
+  if (isMake()) {
+    // トレイの ぶひん → ひっぱって おく / おいた ぶひん → うごかす（ちょん なら はんのう）
+    const it = trayItemAt(x, y), hit = it ? null : partAt(x, y);
+    if (it || hit || inTray(x, y)) {
+      try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+      drag = { id: e.pointerId, mode: it ? 'new' : hit ? 'move' : 'none', part: it ? it.k : null, hit, x0: x, y0: y, x1: x, y1: y, px: x, py: y, lastX: x, moved: false };
+      if (it) { it.pop = 1; Sfx.tone(760, 0.06, 'sine', 0.1); }
       return;
     }
-  }
-  // みずぐるま
-  for (const w of wheels) {
-    if (Math.hypot(x - w.x, y - w.y) < w.r + 12) {
-      w.omega += (w.target >= 0 ? 1 : -1) * 7; w.glow = 1;
-      Music.playBar(0.75, 0.9, worldIdx); addRing(w.x, w.y, 48, w.r * 1.4);
-      return;
-    }
+  } else {
+    // バンパー
+    for (const b of bumpers) if (Math.hypot(x - b.x, y - b.y) < b.r + 18) { kickBumper(b); return; }
+    // みずぐるま
+    for (const w of wheels) if (Math.hypot(x - w.x, y - w.y) < w.r + 12) { spinWheel(w); return; }
   }
   // バーの上からのタップも ドラッグなら新しいバーを引けるように記録だけする
   const tappedBar = [...userBars, ...bars].find(b => distToSeg(x, y, b.x1, b.y1, b.x2, b.y2).d < 18) || null;
@@ -402,6 +620,14 @@ cv.addEventListener('pointerdown', (e) => {
 cv.addEventListener('pointermove', (e) => {
   if (!drag || drag.id !== e.pointerId) return;
   const x = e.clientX, y = e.clientY;
+  if (drag.mode) {
+    const was = drag.moved;
+    if (Math.hypot(x - drag.x0, y - drag.y0) > 10) drag.moved = true;
+    if (drag.mode === 'move' && drag.moved) movePart(drag.hit, x - (was ? drag.px : drag.x0), y - (was ? drag.py : drag.y0), x, y);
+    drag.px = x; drag.py = y; drag.x1 = x; drag.y1 = y;
+    if (drag.mode !== 'none' && drag.moved && inTray(x, y)) tray.glow = 1;
+    return;
+  }
   // ハープげんを ゆびで かなでる
   for (const h of harp) {
     if (y >= h.y1 && y <= h.y2 && ((drag.lastX < h.x && x >= h.x) || (drag.lastX > h.x && x <= h.x))) {
@@ -417,23 +643,32 @@ cv.addEventListener('pointermove', (e) => {
 const endDrag = (e) => {
   if (!drag || drag.id !== e.pointerId) return;
   const d = drag; drag = null;
+  if (d.mode === 'new') {
+    if (!d.moved) addPart(d.part, rand(W * 0.2, W * 0.8), sy(rand(0.25, 0.75))); // ちょん → どこかに ぽんと でる
+    else if (!inTray(d.x1, d.y1)) addPart(d.part, d.x1, d.y1);
+    return;
+  }
+  if (d.mode === 'move') {
+    if (!d.moved) tapPart(d.hit, d.x0, d.y0);
+    else if (inTray(d.x1, d.y1)) removePart(d.hit);
+    else { settle(d.hit); Sfx.tone(620, 0.05, 'sine', 0.07); saveMake(); }
+    return;
+  }
+  if (d.mode) return;
   const len = Math.hypot(d.x1 - d.x0, d.y1 - d.y0);
   if (d.moved && len >= 36) {
-    // ながさで おんていが かわる（みじかい＝たかい、ながい＝ひくい）
-    const pitch = Math.max(0.05, Math.min(0.98, 1 - (len - 40) / 260));
-    const hue = (pitch * 300 + 20) % 360;
-    userBars.push({ x1: d.x0, y1: d.y0, x2: d.x1, y2: d.y1, r: 8, hue, pitch, vib: 10, vibPh: 0, glow: 1, hitU: 0.5, user: true });
-    if (userBars.length > 10) {
+    const b = mkUserBar(d.x0, d.y0, d.x1, d.y1);
+    userBars.push(b);
+    if (isMake()) settle({ type: 'bar', o: b });
+    if (userBars.length > (isMake() ? PART_MAX.bar : 10)) {
       const rm = userBars.shift();
       burst((rm.x1 + rm.x2) / 2, (rm.y1 + rm.y2) / 2, rm.hue, 8);
     }
-    Music.playBar(pitch, 0.85, worldIdx);
-    addFloatNote((d.x0 + d.x1) / 2, (d.y0 + d.y1) / 2, hue);
+    Music.playBar(b.pitch, 0.85, worldIdx);
+    addFloatNote((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, b.hue);
+    saveMake();
   } else if (d.tappedBar) {
-    const b = d.tappedBar;
-    b.vib = 14; b.vibPh = 0; b.glow = 1; b.hitU = 0.5;
-    Music.playBar(b.pitch, 0.9, worldIdx);
-    burst(d.x0, d.y0, b.hue, 8); addFloatNote(d.x0, d.y0 - 12, b.hue);
+    ringBar(d.tappedBar, d.x0, d.y0);
   } else if (d.y0 > 62) {
     // ちょんと さわった ばしょに ビーだま！
     spawnMarble(d.x0, d.y0, { vx: rand(-80, 80), vy: rand(-60, 20) });
@@ -488,21 +723,27 @@ function loop(now) {
     w.glow = Math.max(0, w.glow - dt * 2);
   }
   for (const h of harp) { h.amp *= Math.pow(0.08, dt); h.ph += dt * 42; h.glow = Math.max(0, h.glow - dt * 2); }
-  if (portals) { portals.in.pulse = Math.max(0, portals.in.pulse - dt * 2); portals.out.pulse = Math.max(0, portals.out.pulse - dt * 2); }
-  if (tramp) { tramp.bendV += (-tramp.bend * 85 - tramp.bendV * 6) * dt; tramp.bend += tramp.bendV * dt; }
+  for (const p of portals) { p.in.pulse = Math.max(0, p.in.pulse - dt * 2); p.out.pulse = Math.max(0, p.out.pulse - dt * 2); }
+  for (const tr of tramps) { tr.bendV += (-tr.bend * 85 - tr.bendV * 6) * dt; tr.bend += tr.bendV * dt; }
+  if (tray) {
+    tray.glow = Math.max(0, tray.glow - dt * 3); for (const it of tray.items) it.pop = Math.max(0, it.pop - dt * 4);
+    if (drag && drag.mode && drag.mode !== 'none' && drag.moved && inTray(drag.x1, drag.y1)) tray.glow = 1; // ここで はなすと きえる
+  }
+  const warpMax = WORLDS[worldIdx].make ? 8 : 3; // ワープ・はっしゃ の かいすう（ぐるぐる おわらない ように）
 
   const grav = Math.max(1250, playH * 2.1);
 
   // キャノン（もりのき）
-  if (cannon) {
+  for (const cannon of cannons) {
     cannon.recoil = Math.max(0, cannon.recoil - dt * 4);
     if (cannon.held) {
       cannon.t += dt;
       cannon.aim = -Math.PI / 2 + Math.sin(t * 5) * 0.42;
       cannon.held.x = cannon.x; cannon.held.y = cannon.y - 6 + Math.min(1, cannon.t / 0.2) * 14;
       if (cannon.t >= 0.22) {
-        const m = cannon.held; cannon.held = null; cannon.recoil = 1;
-        const sp = Math.sqrt(2 * grav * playH * 0.88);
+        const m = cannon.held; cannon.held = null; m.heldBy = null; cannon.recoil = 1;
+        // うえの はしの ちかく まで とどく つよさ
+        const sp = Math.sqrt(2 * grav * Math.max(120, (cannon.y - playTop) * 0.98));
         m.vx = Math.cos(cannon.aim) * sp; m.vy = Math.sin(cannon.aim) * sp;
         m.warps++;
         Sfx.tone(240, 0.16, 'sine', 0.24, 0, 560); Sfx.noise(0.14, 0.14, 1400);
@@ -515,7 +756,7 @@ function loop(now) {
   const SUB = 4, sdt = dt / SUB, rest = WORLDS[worldIdx].barRest;
   for (let step = 0; step < SUB; step++) {
     for (const m of marbles) {
-      if (cannon && cannon.held === m) continue;
+      if (m.heldBy) continue;
       const px = m.x, py = m.y;
       m.vy += grav * sdt;
       m.x += m.vx * sdt; m.y += m.vy * sdt;
@@ -621,33 +862,30 @@ function loop(now) {
         }
       }
 
-      // ポータル（ほしぞら）
-      if (portals && m.warps < 3 && Math.hypot(m.x - portals.in.x, m.y - portals.in.y) < portals.in.r + m.r * 0.5) {
-        m.warps++;
-        m.x = portals.out.x + rand(-18, 18); m.y = portals.out.y + 20;
-        m.vx = rand(-150, 150); m.vy = rand(60, 140);
-        m.hue = (m.hue + 95) % 360; m.trail = [];
-        portals.in.pulse = 1; portals.out.pulse = 1;
-        Music.playWarp();
-        addRing(portals.in.x, portals.in.y, 195, 76); addRing(portals.out.x, portals.out.y, 48, 76);
-        burst(portals.out.x, portals.out.y, m.hue, 12);
+      // ポータル（ほしぞら・つくる）
+      for (const p of portals) {
+        if (m.warps < warpMax && Math.hypot(m.x - p.in.x, m.y - p.in.y) < p.in.r + m.r * 0.5) { warpMarble(m, p); break; }
       }
 
-      // キャノンキャッチ（もりのき）
-      if (cannon && !cannon.held && m.warps < 3 && Math.hypot(m.x - cannon.x, m.y - cannon.y) < cannon.r) {
-        cannon.held = m; cannon.t = 0; m.vx = 0; m.vy = 0;
-        Sfx.tone(440, 0.08, 'sine', 0.12, 0, 320);
+      // キャノンキャッチ（もりのき・つくる）
+      for (const cannon of cannons) {
+        if (!cannon.held && !m.heldBy && m.warps < warpMax && Math.hypot(m.x - cannon.x, m.y - cannon.y) < cannon.r) {
+          cannon.held = m; m.heldBy = cannon; cannon.t = 0; m.vx = 0; m.vy = 0;
+          Sfx.tone(440, 0.08, 'sine', 0.12, 0, 320);
+        }
       }
 
-      // ゼリー・トランポリン（キャンディ）
-      if (tramp && m.warps < 3 && m.vy > 0 && m.x >= tramp.x1 && m.x <= tramp.x2 && py <= tramp.y + 8 && m.y + m.r >= tramp.y) {
-        m.y = tramp.y - m.r;
-        m.vy = -Math.sqrt(2 * grav * playH * 0.85);
-        m.vx = (m.vx + rand(-120, 120)) * 0.85;
-        m.warps++;
-        tramp.bend = 34; tramp.bendV = 120; tramp.bendX = m.x;
-        Music.playBumper(0.8); Sfx.boing();
-        burst(m.x, tramp.y, tramp.hue, 12); addRing(m.x, tramp.y, tramp.hue, 70);
+      // ゼリー・トランポリン（キャンディ・つくる）
+      for (const tramp of tramps) {
+        if (!m.heldBy && m.warps < warpMax && m.vy > 0 && m.x >= tramp.x1 && m.x <= tramp.x2 && py <= tramp.y + 8 && m.y + m.r >= tramp.y) {
+          m.y = tramp.y - m.r;
+          m.vy = -Math.sqrt(2 * grav * Math.max(100, (tramp.y - playTop) * 0.93));
+          m.vx = (m.vx + rand(-120, 120)) * 0.85;
+          m.warps++;
+          tramp.bend = 34; tramp.bendV = 120; tramp.bendX = m.x;
+          Music.playBumper(0.8); Sfx.boing();
+          burst(m.x, tramp.y, tramp.hue, 12); addRing(m.x, tramp.y, tramp.hue, 70);
+        }
       }
     }
 
@@ -655,7 +893,7 @@ function loop(now) {
     for (let i = 0; i < marbles.length; i++) {
       for (let j = i + 1; j < marbles.length; j++) {
         const a = marbles[i], b = marbles[j];
-        if ((cannon && (cannon.held === a || cannon.held === b))) continue;
+        if (a.heldBy || b.heldBy) continue;
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), minD = a.r + b.r;
         if (d < minD && d > 0.001) {
           const nx = dx / d, ny = dy / d, ov = (minD - d) * 0.5;
@@ -677,7 +915,7 @@ function loop(now) {
   for (const m of marbles) {
     m.trail.push({ x: m.x, y: m.y });
     if (m.trail.length > 14) m.trail.shift();
-    if (Math.hypot(m.vx, m.vy) < 28 && !(cannon && cannon.held === m)) m.stillT += dt;
+    if (Math.hypot(m.vx, m.vy) < 28 && !m.heldBy) m.stillT += dt;
     else m.stillT = 0;
   }
   marbles = marbles.filter(m => {
@@ -723,6 +961,12 @@ function draw(t) {
       ctx.fillRect(0, 0, W, H);
     }
   }
+  if (w.make) { // ほうがんし
+    ctx.strokeStyle = 'rgba(90,140,220,.10)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = 18; x < W; x += 36) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = 18; y < H; y += 36) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+  }
   for (const d of bgDots) {
     const a = 0.22 + 0.45 * Math.sin(t * 2 + d.p);
     ctx.fillStyle = w.dark ? `rgba(255,250,220,${a})` : `rgba(255,255,255,${a * 0.9})`;
@@ -740,72 +984,22 @@ function draw(t) {
     ctx.beginPath(); ctx.arc(h.x, h.y1, 4.5, 0, 7); ctx.arc(h.x, h.y2, 4.5, 0, 7); ctx.fill();
   }
 
-  // ポータル（ほしぞら）
-  if (portals) {
-    for (const [p, col] of [[portals.in, 195], [portals.out, 48]]) {
-      ctx.save(); ctx.translate(p.x, p.y);
-      const pr = p.r * (1 + p.pulse * 0.25);
-      const pg = ctx.createRadialGradient(0, 0, 4, 0, 0, pr * 1.4);
-      pg.addColorStop(0, `hsla(${col},100%,85%,.85)`); pg.addColorStop(0.6, `hsla(${col},95%,60%,.35)`); pg.addColorStop(1, `hsla(${col},95%,50%,0)`);
-      ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(0, 0, pr * 1.4, 0, 7); ctx.fill();
-      ctx.rotate(t * 2.4 * (col === 48 ? -1 : 1));
-      ctx.strokeStyle = `hsl(${col},100%,75%)`; ctx.lineWidth = 3.5; ctx.setLineDash([12, 8]);
-      ctx.beginPath(); ctx.arc(0, 0, pr, 0, 7); ctx.stroke();
-      ctx.setLineDash([]);
-      drawEmoji(ctx, '✨', 0, 0, pr * 0.9);
-      ctx.restore();
+  // ポータル（つくる せかいでは いりぐち と でぐち を うすい てんせんで むすぶ）
+  for (const p of portals) {
+    if (w.make) {
+      ctx.save(); ctx.strokeStyle = `hsla(${p.hue[0]},80%,55%,.25)`; ctx.lineWidth = 3; ctx.setLineDash([6, 10]); ctx.lineDashOffset = -t * 30;
+      ctx.beginPath(); ctx.moveTo(p.in.x, p.in.y); ctx.lineTo(p.out.x, p.out.y); ctx.stroke(); ctx.restore();
     }
+    drawPortal(p.in, p.hue[0], 1, t); drawPortal(p.out, p.hue[1], -1, t);
   }
-
-  // キャノン（もりのき）
-  if (cannon) {
-    ctx.save(); ctx.translate(cannon.x, cannon.y); ctx.rotate(cannon.aim + Math.PI / 2);
-    const rec = cannon.recoil * 12;
-    ctx.fillStyle = '#c47b2c'; ctx.beginPath(); ctx.roundRect(-24, -22 + rec, 48, 46, 14); ctx.fill();
-    ctx.fillStyle = '#ffd23f'; ctx.fillRect(-26, -24 + rec, 52, 10);
-    ctx.fillStyle = '#5c3310'; ctx.beginPath(); ctx.arc(0, -14 + rec, 16, 0, 7); ctx.fill();
-    ctx.restore();
-  }
-
-  // ゼリー・トランポリン（キャンディ）
-  if (tramp) {
-    ctx.save();
-    ctx.strokeStyle = '#ff5ca8'; ctx.lineWidth = 14; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(tramp.x1, tramp.y); ctx.quadraticCurveTo(tramp.bendX, tramp.y + tramp.bend * 1.6, tramp.x2, tramp.y); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(tramp.x1 + 12, tramp.y - 3); ctx.quadraticCurveTo(tramp.bendX, tramp.y + tramp.bend * 1.6 - 3, tramp.x2 - 12, tramp.y - 3); ctx.stroke();
-    ctx.fillStyle = '#ffd23f';
-    ctx.beginPath(); ctx.arc(tramp.x1, tramp.y, 11, 0, 7); ctx.arc(tramp.x2, tramp.y, 11, 0, 7); ctx.fill();
-    ctx.restore();
-  }
-
+  for (const c of cannons) drawCannon(c);
+  for (const tr of tramps) drawTramp(tr);
   // もっきんバー（じぶんが かいたもの も いっしょに）
-  const allBars = [...bars, ...userBars];
-  for (const b of allBars) {
-    const dx = b.x2 - b.x1, dy = b.y2 - b.y1, len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len, ny = dx / len;
-    const off = Math.sin(b.vibPh) * b.vib;
-    const mx = b.x1 + dx * b.hitU + nx * off, my = b.y1 + dy * b.hitU + ny * off;
-    ctx.save();
-    if (b.glow > 0.05) {
-      ctx.shadowColor = `hsl(${b.hue},95%,62%)`;
-      ctx.shadowBlur = b.glow * 18;
-    }
-    ctx.strokeStyle = worldIdx === 1 && !b.user ? `hsl(${b.hue},58%,${46 + b.glow * 18}%)` : `hsl(${b.hue},90%,${(w.dark ? 62 : 58) + b.glow * 18}%)`;
-    ctx.lineWidth = b.r * 2; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.quadraticCurveTo(mx, my, b.x2, b.y2); ctx.stroke();
-    // つや ライン
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = `rgba(255,255,255,${0.45 + b.glow * 0.4})`; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.quadraticCurveTo(mx, my, b.x2, b.y2); ctx.stroke();
-    // りょうはしの ビョウ
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(b.x1, b.y1, 4, 0, 7); ctx.arc(b.x2, b.y2, 4, 0, 7); ctx.fill();
-    ctx.restore();
-  }
+  for (const b of bars) drawBar(b, w);
+  for (const b of userBars) drawBar(b, w);
 
   // かいている とちゅうの バー プレビュー
-  if (drag && drag.moved) {
+  if (drag && drag.moved && !drag.mode) {
     const len = Math.hypot(drag.x1 - drag.x0, drag.y1 - drag.y0);
     const pitch = Math.max(0.05, Math.min(0.98, 1 - (len - 40) / 260));
     ctx.save();
@@ -814,33 +1008,9 @@ function draw(t) {
     ctx.beginPath(); ctx.moveTo(drag.x0, drag.y0); ctx.lineTo(drag.x1, drag.y1); ctx.stroke();
     ctx.restore();
   }
-
-  // みずぐるま
-  for (const wh of wheels) {
-    ctx.save(); ctx.translate(wh.x, wh.y); ctx.rotate(wh.ang);
-    for (let k = 0; k < 4; k++) {
-      ctx.rotate(Math.PI / 2);
-      ctx.fillStyle = worldIdx === 1 ? '#d98f43' : worldIdx === 2 ? (k % 2 ? '#ff6fae' : '#fff') : `hsl(${(k * 90 + 190) % 360},85%,66%)`;
-      ctx.beginPath(); ctx.roundRect(-6, -6, wh.r, 12, 6); ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.stroke();
-    }
-    ctx.fillStyle = wh.glow > 0 ? '#ffd23f' : '#fff';
-    ctx.beginPath(); ctx.arc(0, 0, 12, 0, 7); ctx.fill();
-    ctx.restore();
-  }
-
-  // バンパー
-  for (const b of bumpers) {
-    const sc = 1 + Math.sin(b.hit * Math.PI) * 0.28;
-    ctx.save(); ctx.translate(b.x, b.y); ctx.scale(sc, sc);
-    if (b.hit > 0.05) { ctx.shadowColor = `hsl(${b.hue},95%,62%)`; ctx.shadowBlur = b.hit * 22; }
-    const bg2 = ctx.createRadialGradient(-b.r * 0.3, -b.r * 0.3, 3, 0, 0, b.r);
-    bg2.addColorStop(0, '#fff'); bg2.addColorStop(0.35, `hsl(${b.hue},95%,68%)`); bg2.addColorStop(1, `hsl(${b.hue},85%,42%)`);
-    ctx.fillStyle = bg2; ctx.beginPath(); ctx.arc(0, 0, b.r, 0, 7); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 3; ctx.stroke();
-    ctx.restore();
-  }
+  for (const wh of wheels) drawWheel(wh);
+  for (const b of bumpers) drawBumper(b);
+  if (tray) drawTray(t);
 
   // うえの ビーだま ディスペンサー（⭐ を さわると きんの ビーだま）
   const dp = dispenserPos();
@@ -903,6 +1073,132 @@ function draw(t) {
     }
     ctx.globalAlpha = 1;
   }
+
+  if (w.make) {
+    // ひっぱって いる あたらしい ぶひん（トレイの うえ では ちいさく うすく ＝ やめる）
+    if (drag && drag.mode === 'new' && drag.moved) {
+      const over = inTray(drag.x1, drag.y1);
+      ctx.globalAlpha = over ? 0.45 : 0.85; drawPartIcon(drag.part, drag.x1, drag.y1, over ? 0.55 : 1, t); ctx.globalAlpha = 1;
+    }
+    // まだ なにも ない ときは、トレイから ひっぱる ゆびの おてほん
+    if (!drag && !userBars.length && !bumpers.length && !wheels.length && !tramps.length && !cannons.length && !portals.length) {
+      const it = tray.items[1], k = (t * 0.45) % 1, e = k < 0.7 ? (1 - Math.cos(Math.min(1, k / 0.6) * Math.PI)) / 2 : 1;
+      const x = it.x + (W * 0.5 - it.x) * e, y = it.y + (sy(0.5) - it.y) * e;
+      ctx.globalAlpha = 0.55 * Math.min(1, (1 - k) * 5); drawPartIcon('bump', x, y, 0.5 + 0.5 * e, t);
+      ctx.globalAlpha = Math.min(1, (1 - k) * 5); drawEmoji(ctx, '👆', x + 12, y + 30, 54); ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// ---- ぶひんの え（トレイの ちいさい えにも つかう） ----
+function drawPortal(p, col, dir, t) {
+  ctx.save(); ctx.translate(p.x, p.y);
+  const pr = p.r * (1 + p.pulse * 0.25);
+  const pg = ctx.createRadialGradient(0, 0, 4, 0, 0, pr * 1.4);
+  pg.addColorStop(0, `hsla(${col},100%,85%,.85)`); pg.addColorStop(0.6, `hsla(${col},95%,60%,.35)`); pg.addColorStop(1, `hsla(${col},95%,50%,0)`);
+  ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(0, 0, pr * 1.4, 0, 7); ctx.fill();
+  ctx.rotate(t * 2.4 * dir);
+  ctx.strokeStyle = `hsl(${col},100%,${WORLDS[worldIdx].dark ? 75 : 60}%)`; ctx.lineWidth = 3.5; ctx.setLineDash([12, 8]);
+  ctx.beginPath(); ctx.arc(0, 0, pr, 0, 7); ctx.stroke();
+  ctx.setLineDash([]);
+  drawEmoji(ctx, '✨', 0, 0, pr * 0.9);
+  ctx.restore();
+}
+function drawCannon(c) {
+  ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.aim + Math.PI / 2);
+  const rec = c.recoil * 12;
+  ctx.fillStyle = '#c47b2c'; ctx.beginPath(); ctx.roundRect(-24, -22 + rec, 48, 46, 14); ctx.fill();
+  ctx.fillStyle = '#ffd23f'; ctx.fillRect(-26, -24 + rec, 52, 10);
+  ctx.fillStyle = '#5c3310'; ctx.beginPath(); ctx.arc(0, -14 + rec, 16, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawTramp(tr) {
+  ctx.save();
+  ctx.strokeStyle = tr.hue === 330 ? '#ff5ca8' : `hsl(${tr.hue},85%,62%)`; ctx.lineWidth = 14; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(tr.x1, tr.y); ctx.quadraticCurveTo(tr.bendX, tr.y + tr.bend * 1.6, tr.x2, tr.y); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(tr.x1 + 12, tr.y - 3); ctx.quadraticCurveTo(tr.bendX, tr.y + tr.bend * 1.6 - 3, tr.x2 - 12, tr.y - 3); ctx.stroke();
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath(); ctx.arc(tr.x1, tr.y, 11, 0, 7); ctx.arc(tr.x2, tr.y, 11, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawBar(b, w) {
+  const dx = b.x2 - b.x1, dy = b.y2 - b.y1, len = Math.hypot(dx, dy) || 1;
+  const nx = -dy / len, ny = dx / len;
+  const off = Math.sin(b.vibPh) * b.vib;
+  const mx = b.x1 + dx * b.hitU + nx * off, my = b.y1 + dy * b.hitU + ny * off;
+  ctx.save();
+  if (b.glow > 0.05) {
+    ctx.shadowColor = `hsl(${b.hue},95%,62%)`;
+    ctx.shadowBlur = b.glow * 18;
+  }
+  ctx.strokeStyle = worldIdx === 1 && !b.user ? `hsl(${b.hue},58%,${46 + b.glow * 18}%)` : `hsl(${b.hue},90%,${(w.dark ? 62 : 58) + b.glow * 18}%)`;
+  ctx.lineWidth = b.r * 2; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.quadraticCurveTo(mx, my, b.x2, b.y2); ctx.stroke();
+  // つや ライン
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = `rgba(255,255,255,${0.45 + b.glow * 0.4})`; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(b.x1, b.y1); ctx.quadraticCurveTo(mx, my, b.x2, b.y2); ctx.stroke();
+  // りょうはしの ビョウ（つくる せかいでは つまめる ので すこし おおきく）
+  const pr = w.make && b.user ? 6 : 4;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(b.x1, b.y1, pr, 0, 7); ctx.arc(b.x2, b.y2, pr, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawWheel(wh) {
+  ctx.save(); ctx.translate(wh.x, wh.y); ctx.rotate(wh.ang);
+  for (let k = 0; k < 4; k++) {
+    ctx.rotate(Math.PI / 2);
+    ctx.fillStyle = worldIdx === 1 ? '#d98f43' : worldIdx === 2 ? (k % 2 ? '#ff6fae' : '#fff') : `hsl(${(k * 90 + 190) % 360},85%,66%)`;
+    ctx.beginPath(); ctx.roundRect(-6, -6, wh.r, 12, 6); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2; ctx.stroke();
+  }
+  ctx.fillStyle = wh.glow > 0 ? '#ffd23f' : '#fff';
+  ctx.beginPath(); ctx.arc(0, 0, 12, 0, 7); ctx.fill();
+  if (WORLDS[worldIdx].make) { ctx.strokeStyle = 'rgba(80,110,170,.35)'; ctx.lineWidth = 2; ctx.stroke(); }
+  ctx.restore();
+}
+function drawBumper(b) {
+  const sc = 1 + Math.sin(b.hit * Math.PI) * 0.28;
+  ctx.save(); ctx.translate(b.x, b.y); ctx.scale(sc, sc);
+  if (b.hit > 0.05) { ctx.shadowColor = `hsl(${b.hue},95%,62%)`; ctx.shadowBlur = b.hit * 22; }
+  const bg2 = ctx.createRadialGradient(-b.r * 0.3, -b.r * 0.3, 3, 0, 0, b.r);
+  bg2.addColorStop(0, '#fff'); bg2.addColorStop(0.35, `hsl(${b.hue},95%,68%)`); bg2.addColorStop(1, `hsl(${b.hue},85%,42%)`);
+  ctx.fillStyle = bg2; ctx.beginPath(); ctx.arc(0, 0, b.r, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.restore();
+}
+// ぶひんの みほん を (x, y) を まんなかに sc ばいで
+// トレイの トランポリンは みじかく して ちいさく なりすぎない ように
+const ICON_HW = 42;
+function partExtent(k) {
+  return { bar: 150, bump: PS.bumpR * 2, wheel: PS.wheelR * 2, tramp: ICON_HW * 2 + 22, cannon: 56, portal: PS.pinR * 2.8 }[k];
+}
+function drawPartIcon(k, x, y, sc, t, icon) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc);
+  const w = WORLDS[worldIdx];
+  if (k === 'bar') drawBar({ x1: -70, y1: -18, x2: 70, y2: 18, r: 8, hue: 200, vib: 0, vibPh: 0, glow: 0, hitU: 0.5, user: true }, w);
+  else if (k === 'bump') drawBumper({ x: 0, y: 0, r: PS.bumpR, hue: 335, hit: 0 });
+  else if (k === 'wheel') drawWheel({ x: 0, y: 0, r: PS.wheelR, ang: t * 1.2, glow: 0 });
+  else if (k === 'tramp') { const hw = icon ? ICON_HW : PS.trampHW; drawTramp({ x1: -hw, x2: hw, y: 0, bendX: 0, bend: 0, hue: 330 }); }
+  else if (k === 'cannon') drawCannon({ x: 0, y: 0, aim: -Math.PI / 2, recoil: 0 });
+  else drawPortal({ x: 0, y: 0, r: PS.pinR, pulse: 0 }, 195, 1, t);
+  ctx.restore();
+}
+function drawTray(t) {
+  const g = tray.glow;
+  ctx.save();
+  ctx.fillStyle = g > 0 ? `rgba(255,${Math.round(255 - g * 60)},${Math.round(255 - g * 50)},.88)` : 'rgba(255,255,255,.78)';
+  ctx.strokeStyle = g > 0 ? `rgba(255,90,120,${0.4 + g * 0.5})` : 'rgba(90,130,210,.35)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(tray.x, tray.y, tray.w, tray.h, 22); ctx.fill(); ctx.stroke();
+  for (const it of tray.items) {
+    ctx.fillStyle = 'rgba(120,160,230,.12)';
+    ctx.beginPath(); ctx.roundRect(it.x - tray.s / 2, it.y - tray.s / 2, tray.s, tray.s, 14); ctx.fill();
+    const sc = Math.min(1, tray.s * 0.8 / partExtent(it.k)) * (1 + it.pop * 0.3);
+    drawPartIcon(it.k, it.x, it.y, sc, t, true);
+  }
+  ctx.restore();
 }
 requestAnimationFrame(loop);
 </script>

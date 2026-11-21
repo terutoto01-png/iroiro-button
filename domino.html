@@ -27,10 +27,14 @@
 // ぜんぶ たおれたら すこしして じどうで たちなおる。ひだりしたの 🧽 で ぜんぶ けす。ぜんぶ たおれたら: ボタンで たちなおる / なぞると あたらしく ならべる。
 // ななめ うえから みた はこの え。たおれると つぎの ドミノに かさなるまで ふかく たおれる。
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
-let dpr = fitCanvas(cv, ctx);
-addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
+// ドミノは べつの キャンバス（layer）に かいて おき、うごいた ドミノの まわり だけ かきなおす（かずが おおくても かるい）
+const layer = document.createElement('canvas'), lc = layer.getContext('2d');
+let dpr, fullDirty = true;
+function fitAll() { dpr = fitCanvas(cv, ctx); layer.width = cv.width; layer.height = cv.height; fullDirty = true; }
+fitAll();
+addEventListener('resize', fitAll);
 
-const MAX = 260;
+const MAX = 600; // がめんが ほぼ うまる かず
 let group = 0, doms = [], state = 'draw', speed = 1, drawing = false, lastPt = null, confetti = [], standIdx = 0, standT = 0, endT = 0, hue0 = rand(0, 360);
 const size = () => { const h = Math.max(48, Math.min(88, Math.min(innerWidth, innerHeight) * 0.1)); return { h, t: h * 0.22, wd: h * 0.5, sp: h * 0.5 }; };
 // おとが かさなりすぎない ように、みじかい あいだに なんども ならさない
@@ -50,6 +54,7 @@ cv.addEventListener('pointerdown', (e) => {
   if (state === 'done') { standUp(); return; }
   if (state === 'fall' || state === 'stand') return;
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  if (doms.length >= MAX) { Sfx.boing(); return; }
   drawing = true;
   const { sp } = size();
   // まえの ならびの おわりに ちかければ つづける。とおければ そこから あたらしく おく
@@ -64,6 +69,7 @@ cv.addEventListener('pointermove', (e) => {
   for (const p of (pts.length ? pts : [e])) {
     const x = p.clientX, y = p.clientY;
     while (Math.hypot(x - lastPt.x, y - lastPt.y) >= sp) {
+      if (doms.length >= MAX) return; // いっぱいなら もう おかない（おかないまま すすむと おわらなく なる）
       // なぞった むきに そって おく。ゆびの ぶれは すこしずつ ならす
       const raw = Math.atan2(y - lastPt.y, x - lastPt.x);
       let q = raw;
@@ -95,7 +101,7 @@ const clearBtn = document.getElementById('clear');
 clearBtn.addEventListener('pointerdown', () => {
   if (state === 'fall' || !doms.length) return;
   for (const d of doms) for (let i = 0; i < 2; i++) { const a = rand(0, 7), v = rand(80, 300); confetti.push({ x: d.x, y: d.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, rot: 0, vr: rand(-8, 8), hue: d.hue, life: 0.8 }); }
-  doms = []; group = 0; hue0 = rand(0, 360); state = 'draw';
+  doms = []; group = 0; hue0 = rand(0, 360); state = 'draw'; fullDirty = true;
   Sfx.noise(0.4, 0.4, 3000, 0, 'bandpass'); Sfx.tone(900, 0.25, 'sine', 0.08, 0, 1800); // きゅっきゅっ
 });
 
@@ -141,9 +147,8 @@ let last = performance.now();
 
   // ドミノ（ななめ うえから みた はこ）。かげ → おくから じゅんに ほんたい
   for (const d of doms) d.born = Math.min(1, d.born + dt * 6);
-  for (const d of doms) drawShadow(d, h, t, wd);
-  const order = doms.slice().sort((p, q) => p.y - q.y);
-  for (const d of order) drawBox(d, h, t, wd);
+  updateLayer(W, H, h, t, wd);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(layer, 0, 0); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   // ヒント
   if (state === 'draw' && doms.length === 0) { // なぞってね: ゆびが ジグザグに うごく
@@ -163,11 +168,44 @@ let last = performance.now();
   // かみふぶき
   for (const c of confetti) {
     c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 500 * dt; c.vx *= 0.99; c.rot += c.vr * dt; c.life -= dt;
-    ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.rot); ctx.fillStyle = `hsl(${c.hue}, 90%, 60%)`; ctx.fillRect(-6, -3, 12, 6); ctx.restore();
+    const co = Math.cos(c.rot) * dpr, si = Math.sin(c.rot) * dpr;
+    ctx.setTransform(co, si, -si, co, c.x * dpr, c.y * dpr); ctx.fillStyle = `hsl(${c.hue | 0}, 90%, 60%)`; ctx.fillRect(-6, -3, 12, 6);
   }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   confetti = confetti.filter(c => c.life > 0 && c.y < H + 20);
   requestAnimationFrame(loop);
 })(last);
+
+// かわった ドミノ（たおれかけ・でてくる とちゅう）の まえと いまの かこみ だけ けして、そこに かかる ドミノを かきなおす
+function bbOf(d, h, t, wd) { // かげも ふくめた かこみ
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const p of corners(d, h, t, wd)) { x0 = Math.min(x0, p.x, p.gx); x1 = Math.max(x1, p.x, p.gx); y0 = Math.min(y0, p.y, p.gy); y1 = Math.max(y1, p.y, p.gy); }
+  const m = 6 + h * 0.08;
+  return [x0 - m, y0 - m, x1 + m, y1 + m];
+}
+function updateLayer(W, H, h, t, wd) {
+  const rs = [];
+  for (const d of doms) if (fullDirty || d.dAng !== d.ang || d.dBorn !== d.born || d.dA !== d.a) {
+    const nb = bbOf(d, h, t, wd);
+    if (d.bb) rs.push(d.bb);
+    rs.push(nb); d.bb = nb; d.dAng = d.ang; d.dBorn = d.born; d.dA = d.a;
+  }
+  if (!fullDirty && !rs.length) return;
+  lc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  let list = doms;
+  if (fullDirty || rs.length > doms.length * 0.6) lc.clearRect(0, 0, W, H);
+  else {
+    lc.save(); lc.beginPath();
+    // がその さかいめに あわせる（はんぱだと ふちが うすく のこって かさなる）
+    for (const r of rs) { r[0] = Math.floor(r[0] * dpr) / dpr; r[1] = Math.floor(r[1] * dpr) / dpr; r[2] = Math.ceil(r[2] * dpr) / dpr; r[3] = Math.ceil(r[3] * dpr) / dpr; lc.rect(r[0], r[1], r[2] - r[0], r[3] - r[1]); }
+    lc.clip(); lc.clearRect(0, 0, W, H);
+    list = doms.filter(o => { const b = o.bb; return rs.some(r => b[0] < r[2] && b[2] > r[0] && b[1] < r[3] && b[3] > r[1]); });
+  }
+  fullDirty = false;
+  for (const d of list) drawShadow(d, h, t, wd);
+  for (const d of list.slice().sort((p, q) => p.y - q.y)) drawBox(d, h, t, wd);
+  if (list !== doms) lc.restore();
+}
 
 // はこの 8この かど（u: すすむ むき、v: よこ、z: たかさ）を まえの したの かどを じくに a だけ たおして がめんへ
 function corners(d, h, t, wd) {
@@ -195,15 +233,15 @@ function drawBox(d, h, t, wd) {
     const ny = nu * sf + nv * cf;
     if (ny * K + nz <= 0.001) continue; // みえない めん
     const light = 52 + shade + 12 * Math.max(0, nz);
-    ctx.fillStyle = `hsl(${d.hue}, 78%, ${light}%)`;
-    ctx.beginPath(); idx.forEach((k, i) => i ? ctx.lineTo(c[k].x, c[k].y) : ctx.moveTo(c[k].x, c[k].y)); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = `hsla(${d.hue}, 70%, 30%, .35)`; ctx.lineWidth = 1; ctx.stroke();
+    lc.fillStyle = `hsl(${d.hue}, 78%, ${light}%)`;
+    lc.beginPath(); idx.forEach((k, i) => i ? lc.lineTo(c[k].x, c[k].y) : lc.moveTo(c[k].x, c[k].y)); lc.closePath(); lc.fill();
+    lc.strokeStyle = `hsla(${d.hue}, 70%, 30%, .35)`; lc.lineWidth = 1; lc.stroke();
     if (pips && nz > 0.2) { // てんてん と まんなかの せん
       const P = (fu, fv) => { const a = c[idx[0]], b = c[idx[1]], e = c[idx[3]]; return { x: a.x + (b.x - a.x) * fv + (e.x - a.x) * fu, y: a.y + (b.y - a.y) * fv + (e.y - a.y) * fu }; };
-      ctx.fillStyle = `rgba(255,255,255,${Math.min(0.95, nz)})`;
-      for (const fu of [0.25, 0.75]) { const p = P(fu, 0.5); ctx.beginPath(); ctx.arc(p.x, p.y, wd * 0.09, 0, 7); ctx.fill(); }
+      lc.fillStyle = `rgba(255,255,255,${Math.min(0.95, nz)})`;
+      for (const fu of [0.25, 0.75]) { const p = P(fu, 0.5); lc.beginPath(); lc.arc(p.x, p.y, wd * 0.09, 0, 7); lc.fill(); }
       const m1 = P(0.5, 0.15), m2 = P(0.5, 0.85);
-      ctx.strokeStyle = `rgba(255,255,255,${Math.min(0.7, nz)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(m1.x, m1.y); ctx.lineTo(m2.x, m2.y); ctx.stroke();
+      lc.strokeStyle = `rgba(255,255,255,${Math.min(0.7, nz)})`; lc.lineWidth = 2; lc.beginPath(); lc.moveTo(m1.x, m1.y); lc.lineTo(m2.x, m2.y); lc.stroke();
     }
   }
 }
@@ -211,10 +249,10 @@ function drawBox(d, h, t, wd) {
 function drawShadow(d, h, t, wd) {
   const ca = Math.cos(d.ang), sa = Math.sin(d.ang), off = 2 + ca * h * 0.08;
   const u0 = t / 2 - t * ca, u1 = t / 2 + h * sa;
-  ctx.save(); ctx.translate(d.x + off, d.y + off); ctx.rotate(d.a);
-  ctx.fillStyle = 'rgba(90,60,30,.16)';
-  ctx.beginPath(); ctx.roundRect(Math.min(u0, -t / 2) - 2, -wd / 2 - 1, Math.max(u1, t / 2) - Math.min(u0, -t / 2) + 4, wd + 2, 4); ctx.fill();
-  ctx.restore();
+  lc.save(); lc.translate(d.x + off, d.y + off); lc.rotate(d.a);
+  lc.fillStyle = 'rgba(90,60,30,.16)';
+  lc.beginPath(); lc.roundRect(Math.min(u0, -t / 2) - 2, -wd / 2 - 1, Math.max(u1, t / 2) - Math.min(u0, -t / 2) + 4, wd + 2, 4); lc.fill();
+  lc.restore();
 }
 function finish() {
   [0, 0.25, 0.5].forEach((w) => { Sfx.tone(1318, 0.8, 'sine', 0.15, w); Sfx.tone(1975, 0.6, 'sine', 0.06, w); });
