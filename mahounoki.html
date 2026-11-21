@@ -1,0 +1,1191 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>まほうの き</title>
+<link rel="stylesheet" href="common.css?v=21">
+<style>
+  body { background: #8fd3ff; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #5ccf5c; --c2: #2f8a2f; }
+  .big-btn .emoji { transition: transform .25s; }
+  .big-btn.swap .emoji { transform: scale(0.2) rotate(-90deg); }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji" id="icon">🌱</span></button></div>
+<script src="common.js?v=18"></script>
+<script>
+// まほうの き:
+// ・🌱 を おすと たねから めが でて、えだが わかれながら ぐんぐん おおきな きに なる。
+// ・もっと おすと はなが さいて（🌸）、みが なって（🍎）、さいごは にじと まほう（🪄）。みが ぜんぶ おちて どうぶつが たべに くる。
+// ・おわったら（🌟）きんの たねが おちて、つぎは ちがう き（さくら・おかし・ほし・あき）が はえる。
+// ・はっぱを こすると ざわざわ（なにかが とびだす ことも）、みきを たたくと コンコン、そらを なぞると かぜ。
+// ・とり・どうぶつ・おちた み・はな・くも・おひさまも さわれる。おひさまを さわると ゆうがた → よる（ほたる）→ あさ。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn'), icon = document.getElementById('icon');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+
+// ---------------------------------------------------------------- おと
+const Mus = (() => {
+  let bus = null, nbuf = null, active = [];
+  function B() {
+    if (bus) return bus;
+    const c = Sfx.ac(), out = Sfx.out();
+    const dry = c.createGain(); dry.gain.value = 0.9;
+    const wet = c.createGain(); wet.gain.value = 0.32;
+    const dl = c.createDelay(1); dl.delayTime.value = 0.23;
+    const fb = c.createGain(); fb.gain.value = 0.32;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2800;
+    dry.connect(out); wet.connect(dl); dl.connect(lp); lp.connect(fb); fb.connect(dl); lp.connect(out);
+    nbuf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const d = nbuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    bus = { c, dry, wet };
+    return bus;
+  }
+  function room(end) {
+    const now = bus.c.currentTime;
+    active = active.filter(e => e > now);
+    if (active.length > 30) return false;
+    active.push(end); return true;
+  }
+  // ペンタトニック（どの おとを かさねても きれい）
+  const P = (i) => 261.63 * Math.pow(2, ([0, 2, 4, 7, 9][((i % 5) + 5) % 5] + 12 * Math.floor(i / 5)) / 12);
+  function osc(f, { type = 'sine', vol = 0.15, dur = 0.5, when = 0, att = 0.004, slide = null, wet = true }) {
+    const { c, dry, wet: w } = B(), t = c.currentTime + when;
+    if (!room(t + dur)) return;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur * 0.8);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + att);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(dry); if (wet) g.connect(w);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function noise(dur, vol, freq, type = 'bandpass', when = 0, q = 1, sweep = null) {
+    const { c, dry } = B(), t = c.currentTime + when;
+    if (!room(t + dur)) return;
+    const s = c.createBufferSource(); s.buffer = nbuf;
+    const f = c.createBiquadFilter(); f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
+    if (sweep) f.frequency.exponentialRampToValueAtTime(sweep, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + Math.min(0.05, dur * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(dry);
+    s.start(t, Math.random() * 0.4, dur + 0.05);
+  }
+  return {
+    P,
+    marimba(i, v = 1, when = 0) {
+      const f = P(i);
+      osc(f, { vol: 0.16 * v, dur: 0.7, when });
+      osc(f * 4, { vol: 0.03 * v, dur: 0.12, when, wet: false });
+    },
+    bell(i, v = 1, when = 0) {
+      const f = P(i);
+      osc(f, { type: 'triangle', vol: 0.09 * v, dur: 1.4, when });
+      osc(f * 2.76, { vol: 0.025 * v, dur: 0.5, when });
+    },
+    grow(level) {
+      const base = 3 + level * 2;
+      [0, 1, 2, 3].forEach(k => this.marimba(base + k, 0.9, k * 0.075));
+      osc(P(base) / 2, { type: 'triangle', vol: 0.08, dur: 0.6 });
+      noise(0.35, 0.05, 900, 'bandpass', 0, 1, 2600);
+    },
+    pop(i = 8) { osc(P(i), { vol: 0.2, dur: 0.16, slide: P(i) * 2.2, wet: false }); this.bell(i + 5, 0.6, 0.04); },
+    chirp(v = 1, when = 0) {
+      const f = rand(2300, 3000);
+      osc(f, { vol: 0.07 * v, dur: 0.09, when, slide: f * 1.35, wet: false });
+      osc(f * 1.1, { vol: 0.06 * v, dur: 0.08, when: when + 0.1, slide: f * 0.9, wet: false });
+    },
+    song(v = 1) {
+      const n = 3 + Math.floor(Math.random() * 3);
+      for (let k = 0; k < n; k++) {
+        const f = rand(2000, 3400), w = k * 0.12;
+        osc(f, { vol: 0.07 * v, dur: 0.1, when: w, slide: f * rand(0.75, 1.4), wet: true });
+      }
+    },
+    thud(v) {
+      v = Math.min(1, v);
+      osc(150, { vol: 0.25 * v, dur: 0.18, slide: 55, wet: false });
+      noise(0.08, 0.12 * v, 500, 'lowpass');
+    },
+    knock() {
+      [0, 0.13].forEach(w => {
+        osc(330, { type: 'triangle', vol: 0.26, dur: 0.1, when: w, slide: 210, wet: false });
+        noise(0.05, 0.2, 1400, 'bandpass', w, 3);
+      });
+    },
+    rustle() { noise(0.35, 0.09, 4200, 'highpass', 0, 0.7); noise(0.25, 0.05, 2500, 'bandpass', 0.08, 2); },
+    whoosh(v = 1) { noise(0.7, 0.13 * v, 300, 'bandpass', 0, 1.2, 1600); },
+    munch() { noise(0.06, 0.18, 1700, 'bandpass', 0, 2); },
+    boing(i = 6) { osc(P(i) / 2, { type: 'triangle', vol: 0.18, dur: 0.3, slide: P(i) }); },
+    drip(i) { osc(P(i) * 2, { vol: 0.08, dur: 0.12, slide: P(i) * 3, wet: true }); },
+    magic() {
+      for (let k = 0; k < 14; k++) this.bell(5 + k, 0.8, k * 0.07);
+      [0, 2, 4].forEach(k => osc(P(k) / 2, { type: 'triangle', vol: 0.07, dur: 3.2, att: 0.4 }));
+    },
+    seedFall() { osc(1600, { vol: 0.08, dur: 1.1, slide: 400, type: 'sine' }); },
+    seedLand() {
+      osc(90, { vol: 0.3, dur: 0.5, slide: 45, wet: false });
+      noise(0.3, 0.18, 300, 'lowpass');
+      [0, 2, 4, 7].forEach((k, j) => this.bell(10 + k, 0.8, 0.12 + j * 0.06));
+    },
+    dayNight(night) {
+      const s = night ? [9, 7, 5, 2] : [2, 4, 7, 9];
+      s.forEach((k, j) => this.bell(k + 3, 0.9, j * 0.12));
+    },
+  };
+})();
+
+// ---------------------------------------------------------------- きの しゅるい
+const STYLES = [
+  { spread: 0.44, ratio: 0.78, droop: 0.0, thick: 1.0, leafSize: 1.0, trunk: ['#4e2f1a', '#7a4b2a', '#a0703f'],
+    leaf: [[108, 52, 30], [112, 55, 40], [100, 58, 46], [92, 62, 56]], fruits: ['🍎', '🍊', '🍒', '🍓'], blossoms: ['🌸', '🌼'], fall: 'leaf' },
+  { spread: 0.62, ratio: 0.75, droop: 0.06, thick: 1.1, leafSize: 0.95, trunk: ['#3d2724', '#5b3a36', '#80564f'],
+    leaf: [[338, 55, 70], [342, 78, 80], [350, 85, 86], [0, 100, 93]], fruits: ['🍒', '🍓', '💖'], blossoms: ['🌸', '🌺'], fall: 'petal' },
+  { spread: 0.52, ratio: 0.74, droop: 0.0, thick: 1.15, leafSize: 1.18, trunk: ['#d98aa6', '#ffffff', '#ffffff'], candy: true,
+    leaf: [[300, 45, 70], [330, 85, 82], [190, 75, 80], [52, 95, 82]], fruits: ['🍭', '🍬', '🍩', '🧁', '🍪'], blossoms: ['🌷', '🌸'], fall: 'candy' },
+  { spread: 0.36, ratio: 0.8, droop: 0.0, thick: 0.85, leafSize: 0.95, trunk: ['#241d55', '#3f3590', '#7d6fe0'], glow: true,
+    leaf: [[240, 50, 35], [228, 72, 52], [205, 85, 62], [180, 95, 74]], fruits: ['⭐', '🌟', '💎', '🎈'], blossoms: ['✨'], fall: 'star' },
+  { spread: 0.48, ratio: 0.77, droop: 0.03, thick: 1.05, leafSize: 1.0, trunk: ['#43281a', '#6b4226', '#93603b'],
+    leaf: [[12, 70, 36], [22, 85, 48], [36, 92, 54], [48, 95, 60]], fruits: ['🍎', '🍄', '🍊', '🍯'], blossoms: ['🌼', '🌻'], fall: 'leaf' },
+];
+
+// ---------------------------------------------------------------- じょうたい
+const MAXD = 7, FULL = MAXD * 0.85 + 0.35 + 1.05;
+let styleIdx = 0, seed = (Math.random() * 1e9) | 0, gen = 0;
+let tree = null, growth = 0, growTarget = 0, treeAlpha = 1;
+let stage = 'grow', stageT = 0, magicT = 0, seedObj = null;
+let atts = [];          // きに ついている はな・み
+let gfruits = [];       // じめんの み
+let animals = [], birds = [], bugs = [], flowers = [], clouds = [], drops = [];
+let sparks = [], leavesF = [], floaters = [], rings = [];
+let wind = 0, windT = 0, globalShake = 0;
+let tod = 0, todTarget = 0, todStep = 0;
+let groundY = 0, rootX = 0, topLimit = 80, scale = 100, leafR = 20, emojiS = 40;
+let stars = [], tufts = [], fireflies = [];
+let visitorT = 4, birdT = 3, bugT = 2, idleSongT = 6;
+let t = 0, eatCount = 0, layoutDbg = null, xs = 1;
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let r = Math.imul(a ^ a >>> 15, 1 | a);
+    r = r + Math.imul(r ^ r >>> 7, 61 | r) ^ r;
+    return ((r ^ r >>> 14) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const ease = (x) => 1 - Math.pow(1 - clamp(x, 0, 1), 3);
+const lerp = (a, b, k) => a + (b - a) * k;
+
+function genTree() {
+  const S = STYLES[styleIdx], R = mulberry32(seed);
+  const nodes = [], queue = [];
+  // うえの だんから じゅんばんに つくる（かずの じょうげんで かたがわだけ のびない ように）
+  function add(parent, depth, len, ang) {
+    const n = { i: nodes.length, parent, depth, len, ang, kids: [], phase: R() * 6.28, startG: depth * 0.85 + R() * 0.35,
+      shake: 0, x1: 0, y1: 0, x2: 0, y2: 0, a: 0, tip: false, leafy: depth >= 5 || (depth >= 3 && R() < 0.45), shade: (R() * 4) | 0,
+      blobs: [0, 1, 2].map(() => [(R() - 0.5) * 1.3, (R() - 0.5) * 1.1, 0.7 + R() * 0.45]) };
+    nodes.push(n);
+    if (parent) parent.kids.push(n);
+    queue.push(n);
+    return n;
+  }
+  function grow(n) {
+    const { depth, len } = n;
+    if (depth < MAXD && nodes.length < 600) {
+      let k = R() < (depth < 3 ? 0.3 : 0.1) ? 3 : 2;
+      if (depth >= 5 && R() < 0.22) k = 1;
+      const sp = S.spread * (0.8 + R() * 0.4) * (depth === 0 ? 0.8 : 1);
+      for (let j = 0; j < k; j++) {
+        const u = k === 1 ? 0 : j / (k - 1) - 0.5;
+        add(n, depth + 1, len * (S.ratio + (R() - 0.5) * 0.12), u * 2 * sp * (0.8 + R() * 0.35) + (R() - 0.5) * 0.16);
+      }
+    } else n.tip = true;
+  }
+  add(null, 0, 1.25, (R() - 0.5) * 0.06);
+  for (let qi = 0; qi < queue.length; qi++) grow(queue[qi]);
+  const tips = nodes.filter(n => n.tip);
+  // きれいに ひろがる ように、みや はなを つける ばしょは あとで えらぶ
+  return { nodes, tips, S };
+}
+
+// ぜんぶ そだった ときの おおきさを はかって、がめんに おさまる ように する
+function layout() {
+  W = innerWidth; H = innerHeight;
+  const back = document.querySelector('.back');
+  topLimit = Math.max(70, (back ? back.getBoundingClientRect().bottom : 56) + 26);
+  groundY = H - Math.max(110, Math.min(H * 0.2, 190));
+  rootX = W * (W > H ? 0.42 : 0.45);
+  if (!tree) return;
+  let minX = 0, maxX = 0, minY = 0;
+  const pos = (n, x, y, a) => {
+    a += n.ang + droopOf(n, a);
+    const x2 = x + Math.cos(a) * n.len, y2 = y + Math.sin(a) * n.len;
+    minX = Math.min(minX, x2); maxX = Math.max(maxX, x2); minY = Math.min(minY, y2);
+    n.kids.forEach(k => pos(k, x2, y2, a));
+  };
+  pos(tree.nodes[0], 0, 0, -Math.PI / 2);
+  const pad = 0.2 * tree.S.leafSize;
+  const sV = (groundY - topLimit) / (-minY + pad);
+  // よこが はみだす ときは よこだけ すこし ちぢめる（たかさは がめん いっぱい）
+  const sH = (W - 28) / (maxX - minX + pad * 2);
+  scale = Math.max(40, Math.min(sV, sH / 0.66));
+  xs = Math.min(1, sH / scale);
+  rootX = clamp(W / 2 - (minX + maxX) / 2 * scale * xs, W * 0.3, W * 0.6);
+  const sL = 0, sR = 0;
+  layoutDbg = { sV: sV | 0, sH: sH | 0, xs: +xs.toFixed(2), rootX: rootX | 0, minX: +minX.toFixed(2), maxX: +maxX.toFixed(2), minY: +minY.toFixed(2) };
+  leafR = clamp(scale * 0.13 * tree.S.leafSize, 12, 60);
+  emojiS = clamp(Math.min(W, H) * 0.075, 34, 64);
+}
+// えだは すこし そらの ほうへ（よこに ひろがりすぎない）。しだれる きは すこし したへ
+function droopOf(n, a) {
+  const d = tree.S.droop;
+  return (d ? d * n.depth * (Math.cos(a) >= 0 ? 1 : -1) : 0) + (-Math.PI / 2 - a) * 0.1 * (n.depth > 0 ? 1 : 0);
+}
+function gy(x) { return groundY + Math.sin(x * 0.006 + 1) * H * 0.012 + Math.sin(x * 0.017) * 3; }
+
+function newTree(first) {
+  gen++;
+  if (!first) { styleIdx = (styleIdx + 1) % STYLES.length; seed = (Math.random() * 1e9) | 0; }
+  tree = genTree();
+  growth = 0; growTarget = first ? FULL * 0.12 : FULL * 0.14; treeAlpha = 1;
+  atts = [];
+  layout();
+  stage = 'grow'; setIcon('🌱');
+}
+
+function initScene() {
+  stars = Array.from({ length: 90 }, () => ({ x: Math.random(), y: Math.random() * 0.62, p: Math.random() * 6.28, s: rand(0.6, 1.8) }));
+  tufts = Array.from({ length: 70 }, () => ({ x: Math.random(), h: rand(6, 16), p: Math.random() * 6.28 }));
+  clouds = Array.from({ length: 3 }, (_, i) => ({ x: rand(0, 1) * W, y: rand(0.12, 0.34), s: rand(0.8, 1.3), v: rand(6, 14), puff: 0 }));
+}
+
+// ---------------------------------------------------------------- ボタン
+let swapTO = 0;
+function setIcon(e) {
+  if (icon.textContent === e) return;
+  btn.classList.add('swap');
+  clearTimeout(swapTO);
+  swapTO = setTimeout(() => { icon.textContent = e; btn.classList.remove('swap'); }, 160);
+}
+function freeTips() {
+  const used = new Set(atts.map(a => a.tip));
+  return tree.tips.filter(n => !used.has(n.i));
+}
+function bloomTarget() { return clamp(Math.round(tree.tips.length * 0.22), 8, 16); }
+
+btn.addEventListener('pointerdown', () => {
+  const S = tree.S;
+  if (stage === 'grow') {
+    growTarget = Math.min(FULL, growTarget + FULL / 7);
+    const lvl = Math.round(growTarget / FULL * 6);
+    Mus.grow(lvl);
+    // みきを のぼる ひかり
+    for (let i = 0; i < 14; i++) sparks.push({ x: rootX + rand(-8, 8), y: gy(rootX) - rand(0, 20), vx: rand(-30, 30), vy: rand(-420, -220), life: rand(0.7, 1.2), max: 1.2, hue: 90 + Math.random() * 60, size: rand(3, 6), g: 120 });
+    addRing(rootX, gy(rootX), 120, 90);
+    globalShake = 0.05;
+    if (growTarget >= FULL - 1e-6) { stage = 'bloom'; setIcon(S.blossoms[0]); }
+  } else if (stage === 'bloom') {
+    const free = freeTips().sort(() => Math.random() - 0.5);
+    const n = Math.min(4, bloomTarget() - atts.length, free.length);
+    for (let k = 0; k < n; k++) {
+      atts.push({ tip: free[k].i, kind: 'blossom', e: pick(S.blossoms), s: 0, sw: 0, swv: 0, born: t + k * 0.09 });
+      Mus.pop(7 + k * 2);
+    }
+    if (atts.length >= bloomTarget() || free.length <= n) { stage = 'fruit'; setIcon(S.fruits[0]); }
+    for (let i = 0; i < 6; i++) spawnBug(true);
+  } else if (stage === 'fruit') {
+    const bl = atts.filter(a => a.kind === 'blossom').slice(0, 4);
+    bl.forEach((a, k) => setTimeout(() => toFruit(a), k * 90));
+    if (atts.filter(a => a.kind === 'blossom').length <= bl.length) {
+      setTimeout(() => { if (stage === 'fruit') { stage = 'ripe'; setIcon('🪄'); } }, bl.length * 90 + 20);
+    }
+  } else if (stage === 'ripe') {
+    stage = 'magic'; magicT = 0; setIcon('🌈');
+    Mus.magic();
+    birds.forEach((b, i) => setTimeout(() => Mus.song(0.9), 300 + i * 260));
+    animals.forEach(a => { a.hop = 1; });
+  } else if (stage === 'magic') {
+    burst(rand(W * 0.2, W * 0.8), rand(topLimit, groundY * 0.7), Math.random() * 360, 14);
+    Mus.bell(8 + ((Math.random() * 8) | 0), 0.8);
+  } else if (stage === 'rest') {
+    startSeed();
+  } else if (stage === 'seed') {
+    burst(seedObj ? seedObj.x : W / 2, seedObj ? seedObj.y : H / 2, 48, 10);
+    Mus.bell(10 + ((Math.random() * 5) | 0), 0.6);
+  }
+});
+
+function toFruit(a) {
+  if (!atts.includes(a) || a.kind !== 'blossom') return;
+  const p = attPos(a);
+  a.kind = 'fruit'; a.e = pick(tree.S.fruits); a.s = 0.2; a.born = t;
+  for (let i = 0; i < 7; i++) leavesF.push(fallingBit(p.x, p.y, 'petal', rand(-80, 80), rand(-120, 0)));
+  Mus.marimba(6 + ((Math.random() * 6) | 0), 0.9);
+  burst(p.x, p.y, 330, 6);
+}
+
+function startSeed() {
+  // きに のこった みも おとして、ふるい きは ひかりに なって きえる
+  atts.forEach((a, k) => setTimeout(() => dropAtt(a, rand(-40, 40)), k * 50));
+  birds.forEach(b => flyAway(b));
+  stage = 'seed'; stageT = 0; setIcon('✨');
+  seedObj = { x: rootX, y: -30, vy: 0, landed: false, trail: 0 };
+  Mus.seedFall();
+}
+
+// ---------------------------------------------------------------- タッチ
+let drag = null;
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  drag = { id: e.pointerId, x, y, lx: x, ly: y, lt: performance.now(), moved: 0, rustleAt: 0, kind: 'sky' };
+  const hit = tapAt(x, y);
+  drag.kind = hit;
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!drag || drag.id !== e.pointerId) return;
+  const x = e.clientX, y = e.clientY, now = performance.now();
+  const dt = Math.max(8, now - drag.lt) / 1000;
+  const vx = (x - drag.lx) / dt;
+  drag.moved += Math.hypot(x - drag.lx, y - drag.ly);
+  // はっぱの うえを なぞると ざわざわ
+  if (now - drag.rustleAt > 130 && nearestLeaf(x, y)) { drag.rustleAt = now; rustle(x, y, false); }
+  // はやく なぞると かぜ
+  if (Math.abs(vx) > 500 && y < groundY) {
+    windT = clamp(windT + vx * 0.00009, -1.4, 1.4);
+    if (Math.random() < 0.35) leavesF.push(fallingBit(x, y, tree.S.fall, vx * 0.3, rand(-60, 40)));
+    if (!drag.whooshed) { drag.whooshed = true; Mus.whoosh(Math.min(1.2, Math.abs(vx) / 1600)); clouds.forEach(c => c.v += vx * 0.01); }
+  }
+  drag.lx = x; drag.ly = y; drag.lt = now;
+});
+const endDrag = (e) => { if (drag && drag.id === e.pointerId) drag = null; };
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+
+function tapAt(x, y) {
+  // とり
+  for (const b of birds) if (Math.hypot(x - b.x, y - b.y) < Math.max(32, b.size * 0.7)) { poke(b); return 'bird'; }
+  // どうぶつ
+  for (const a of animals) if (Math.hypot(x - a.x, y - (a.y - a.size * 0.4)) < a.size * 0.7) { pokeAnimal(a); return 'animal'; }
+  // きの はな・み
+  let best = null, bd = 1e9;
+  for (const a of atts) {
+    const p = attPos(a), d = Math.hypot(x - p.x, y - p.y);
+    if (d < Math.max(30, emojiS * 0.62) && d < bd) { bd = d; best = a; }
+  }
+  if (best) {
+    if (best.kind === 'blossom') toFruit(best);
+    else { dropAtt(best, rand(-70, 70)); Mus.pop(5 + ((Math.random() * 6) | 0)); }
+    return 'att';
+  }
+  // むし
+  for (const g of bugs) if (Math.hypot(x - g.x, y - g.y) < 34) { g.spin = 1; g.vx = rand(-160, 160); g.vy = -160; Mus.boing(9); burst(g.x, g.y, 50, 6); return 'bug'; }
+  // じめんの み
+  for (const f of gfruits) if (!f.eaten && Math.hypot(x - f.x, y - f.y) < Math.max(28, f.size * 0.7)) {
+    f.vy = -rand(520, 700); f.vx = (f.x < x ? -1 : 1) * rand(60, 180); f.vr = rand(-12, 12); f.rest = false;
+    if (f.by) { f.by.target = null; f.by.state = 'look'; f.by = null; }
+    Mus.boing(5 + ((Math.random() * 5) | 0)); return 'gfruit';
+  }
+  // おひさま・おつきさま（はっぱより まえ）
+  const sp = sunPos();
+  if (Math.hypot(x - sp.x, y - sp.y) < 50) { advanceTime(); return 'sun'; }
+  // みき
+  if (tree && treeAlpha > 0.5) {
+    for (const n of tree.nodes) {
+      if (n.depth > 1) continue;
+      if (distSeg(x, y, n.x1, n.y1, n.x2, n.y2) < trunkW(n) / 2 + 16) { knock(); return 'trunk'; }
+    }
+  }
+  // はっぱ
+  if (nearestLeaf(x, y)) { rustle(x, y, true); return 'leaf'; }
+  // くも
+  for (const c of clouds) {
+    const cx = c.x, cy = c.y * H, r = 60 * c.s;
+    if (Math.abs(x - cx) < r * 1.3 && Math.abs(y - cy) < r * 0.7) { rain(c); return 'cloud'; }
+  }
+  // じめん
+  if (y > gy(x) - 14) { plantFlower(x); return 'ground'; }
+  // そら
+  burst(x, y, (y / H) * 300, 8);
+  Mus.bell(12 - Math.round(y / H * 10), 0.7);
+  return 'sky';
+}
+
+function distSeg(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1, l = dx * dx + dy * dy;
+  const u = l ? clamp(((px - x1) * dx + (py - y1) * dy) / l, 0, 1) : 0;
+  return Math.hypot(px - (x1 + dx * u), py - (y1 + dy * u));
+}
+function nearestLeaf(x, y) {
+  if (!tree || treeAlpha < 0.5) return null;
+  let best = null, bd = leafR * 1.7;
+  for (const n of tree.nodes) {
+    if (!n.leafy || n.leafS < 0.3) continue;
+    const d = Math.hypot(x - n.x2, y - n.y2);
+    if (d < bd) { bd = d; best = n; }
+  }
+  return best;
+}
+
+function rustle(x, y, tap) {
+  const R = scale * 0.32;
+  for (const n of tree.nodes) {
+    const d = Math.hypot(x - n.x2, y - n.y2);
+    if (d < R) n.shake = Math.min(0.35, n.shake + 0.16 * (1 - d / R) * (n.depth / MAXD));
+  }
+  for (let i = 0; i < (tap ? 5 : 2); i++) leavesF.push(fallingBit(x + rand(-20, 20), y + rand(-20, 20), tree.S.fall, rand(-60, 60), rand(-80, 20)));
+  Mus.rustle();
+  for (const a of atts) {
+    const p = attPos(a);
+    if (Math.hypot(p.x - x, p.y - y) < R) a.swv += rand(-6, 6);
+  }
+  if (!tap) return;
+  // ときどき なにかが とびだす
+  const r = Math.random();
+  if (r < 0.28 && birds.length < 5) { const b = spawnBird(x, y); b.state = 'fly'; pickPerch(b, true); Mus.song(1); }
+  else if (r < 0.45) { spawnBug(true, x, y); Mus.boing(10); }
+  else if (r < 0.62 && atts.some(a => a.kind === 'fruit')) {
+    const fr = atts.filter(a => a.kind === 'fruit');
+    fr.sort((a, b) => Math.hypot(attPos(a).x - x, attPos(a).y - y) - Math.hypot(attPos(b).x - x, attPos(b).y - y));
+    dropAtt(fr[0], rand(-50, 50));
+  }
+}
+
+function knock() {
+  Mus.knock();
+  globalShake = Math.min(0.12, globalShake + 0.08);
+  tree.nodes.forEach(n => { n.shake = Math.min(0.3, n.shake + 0.04 * n.depth / MAXD); });
+  const fr = atts.filter(a => a.kind === 'fruit').sort(() => Math.random() - 0.5).slice(0, 2);
+  fr.forEach((a, k) => setTimeout(() => dropAtt(a, rand(-60, 60)), 150 + k * 140));
+  birds.forEach(b => { if (b.state === 'perch') { b.hop = 1; if (Math.random() < 0.5) Mus.chirp(0.8, rand(0.05, 0.3)); } });
+  for (let i = 0; i < 4; i++) leavesF.push(fallingBit(rootX + rand(-scale * 0.4, scale * 0.4), groundY - scale * rand(0.8, 1.6), tree.S.fall, rand(-30, 30), 0));
+}
+
+function plantFlower(x) {
+  if (flowers.length >= 18) flowers.shift().dying = true;
+  const f = { x, e: pick(['🌷', '🌼', '🌻', '🍄', '🌸', '🌺']), s: 0, born: t, p: Math.random() * 6.28 };
+  flowers.push(f);
+  Mus.pop(4 + Math.round(x / W * 8));
+  for (let i = 0; i < 6; i++) sparks.push({ x, y: gy(x), vx: rand(-90, 90), vy: rand(-180, -60), life: 0.5, max: 0.5, hue: 30, size: 3, g: 500, dirt: true });
+}
+
+function rain(c) {
+  c.puff = 1;
+  for (let i = 0; i < 16; i++) drops.push({ x: c.x + rand(-55, 55) * c.s, y: c.y * H + rand(0, 20), vy: rand(200, 320), d: i * 0.06 });
+  Mus.drip(10);
+}
+
+function advanceTime() {
+  todStep = (todStep + 1) % 3;
+  todTarget = [0, 0.5, 1][todStep];
+  Mus.dayNight(todStep === 2);
+  const sp = sunPos(); addRing(sp.x, sp.y, todStep === 2 ? 220 : 45, 110);
+}
+
+function addRing(x, y, hue, max = 70) { rings.push({ x, y, hue, r: 4, max, life: 1 }); }
+function burst(x, y, hue, n = 10) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * 6.28, s = rand(80, 260);
+    sparks.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.5, 0.9), max: 0.9, hue: hue + rand(-30, 30), size: rand(2.5, 5), g: 60 });
+  }
+}
+function fallingBit(x, y, kind, vx, vy) {
+  return { x, y, vx, vy, rot: Math.random() * 6.28, vr: rand(-4, 4), life: rand(3, 5.5), kind,
+    hue: kind === 'petal' ? rand(330, 355) : kind === 'candy' ? Math.random() * 360 : kind === 'star' ? rand(40, 60) : tree.S.leaf[1 + ((Math.random() * 3) | 0)][0] + rand(-8, 8),
+    sz: rand(0.8, 1.3), ph: Math.random() * 6.28 };
+}
+
+// ---------------------------------------------------------------- き の いち
+function trunkW(n) {
+  const gk = 0.3 + 0.7 * clamp(growth / FULL, 0, 1);
+  return Math.max(1.6, scale * 0.12 * tree.S.thick * Math.pow(0.68, n.depth) * gk);
+}
+function computeTree() {
+  const sway = Math.sin(t * 0.9) * 0.012 + wind * 0.07;
+  const gsh = Math.sin(t * 22) * globalShake;
+  const walk = (n, x, y, a) => {
+    const g = clamp((growth - n.startG) / 1.05, 0, 1);
+    n.g = g;
+    const flex = n.depth / MAXD;
+    a += n.ang + droopOf(n, a) + (sway + Math.sin(t * 1.7 + n.phase) * 0.018) * flex * (0.5 + flex)
+      + Math.sin(t * 19 + n.phase) * n.shake + gsh * flex;
+    const L = n.len * scale * ease(g);
+    n.x1 = x; n.y1 = y; n.a = a;
+    n.x2 = x + Math.cos(a) * L * xs; n.y2 = y + Math.sin(a) * L;
+    n.leafS = n.leafy ? ease((growth - n.startG - 0.55) / 0.9) : 0;
+    if (g > 0.02) n.kids.forEach(k => walk(k, n.x2, n.y2, a));
+    else n.kids.forEach(k => zero(k, n.x2, n.y2));
+  };
+  const zero = (n, x, y) => { n.g = 0; n.leafS = 0; n.x1 = n.x2 = x; n.y1 = n.y2 = y; n.kids.forEach(k => zero(k, x, y)); };
+  walk(tree.nodes[0], rootX, gy(rootX) + 4, -Math.PI / 2);
+}
+function attPos(a) {
+  const n = tree.nodes[a.tip];
+  if (a.kind === 'blossom') return { x: n.x2, y: n.y2 - leafR * 0.2 };
+  const hang = leafR * 0.55 + emojiS * 0.3;
+  return { x: n.x2 + Math.sin(a.sw) * hang, y: n.y2 + Math.cos(a.sw) * hang };
+}
+function dropAtt(a, vx) {
+  const i = atts.indexOf(a);
+  if (i < 0) return;
+  atts.splice(i, 1);
+  const p = attPos(a);
+  if (a.kind === 'blossom') { for (let k = 0; k < 6; k++) leavesF.push(fallingBit(p.x, p.y, 'petal', rand(-60, 60), rand(-60, 0))); return; }
+  if (gfruits.length > 26) gfruits.shift();
+  gfruits.push({ e: a.e, x: p.x, y: p.y, vx, vy: -rand(40, 140), rot: 0, vr: rand(-6, 6), size: emojiS * 0.9, rest: false, eaten: 0, by: null, born: t });
+  if (stage === 'fruit' || stage === 'ripe') {
+    if (!atts.some(x => x.kind === 'fruit') && !atts.some(x => x.kind === 'blossom') && stage === 'fruit') { stage = 'ripe'; setIcon('🪄'); }
+  }
+}
+
+// ---------------------------------------------------------------- いきもの
+const ANIMALS = ['🐿️', '🐰', '🦔', '🐻', '🐹', '🐭', '🐶', '🐱', '🦊', '🐼', '🐨', '🐢'];
+function spawnAnimal() {
+  const left = Math.random() < 0.5;
+  const size = emojiS * rand(1.05, 1.35);
+  const a = { e: pick(ANIMALS), x: left ? -size : W + size, y: 0, dir: left ? 1 : -1, size, state: 'walk', target: null,
+    t: 0, hop: 0, hopV: 0, hy: 0, eatN: 0, full: 0, leaveT: rand(5, 9), sleepy: false, ph: Math.random() * 6.28 };
+  a.y = gy(a.x); a.wx = rand(W * 0.15, W * 0.8);
+  animals.push(a);
+  return a;
+}
+function pokeAnimal(a) {
+  a.hopV = -rand(380, 480); a.hop = 1;
+  Mus.boing(4 + ((Math.random() * 6) | 0));
+  floaters.push({ e: a.state === 'sleep' ? '💤' : '💖', x: a.x, y: a.y - a.size, vy: -60, life: 1.3 });
+  if (a.state === 'sleep') a.state = 'look';
+}
+function spawnBird(x, y) {
+  const left = Math.random() < 0.5;
+  const b = { e: pick(['🐦', '🐤', '🐥', '🦜']), x: x ?? (left ? -30 : W + 30), y: y ?? rand(topLimit, groundY * 0.5),
+    vx: 0, vy: 0, state: 'fly', tip: -1, tx: 0, ty: 0, size: emojiS * 0.78, flap: 0, hop: 0, dir: 1, sing: rand(3, 9), leave: false };
+  birds.push(b);
+  return b;
+}
+function pickPerch(b, far) {
+  if (!tree || growth < FULL * 0.55) { flyAway(b); return; }
+  const taken = new Set(birds.filter(o => o !== b).map(o => o.tip));
+  const cand = tree.nodes.filter(n => n.leafy && n.leafS > 0.7 && !taken.has(n.i) && n.y2 > topLimit + 10);
+  if (!cand.length) { flyAway(b); return; }
+  let n = pick(cand);
+  if (far) for (let k = 0; k < 4; k++) { const m = pick(cand); if (Math.hypot(m.x2 - b.x, m.y2 - b.y) > Math.hypot(n.x2 - b.x, n.y2 - b.y)) n = m; }
+  b.tip = n.i; b.state = 'fly';
+}
+function flyAway(b) { b.state = 'fly'; b.tip = -1; b.leave = true; b.tx = Math.random() < 0.5 ? -80 : W + 80; b.ty = rand(topLimit - 40, H * 0.3); }
+function poke(b) {
+  Mus.song(1.2);
+  floaters.push({ e: '🎵', x: b.x, y: b.y - b.size * 0.6, vy: -70, life: 1.2 });
+  b.loop = 1.2; b.loopA = 0; b.cx = b.x; b.cy = b.y - 50; b.state = 'loop';
+}
+function spawnBug(near, x, y) {
+  if (bugs.length >= 5) return;
+  const g = { e: Math.random() < 0.6 ? '🦋' : (tree.S.fruits.includes('🍯') || Math.random() < 0.5 ? '🐝' : '🐞'),
+    x: x ?? (Math.random() < 0.5 ? -30 : W + 30), y: y ?? rand(topLimit + 40, groundY - 60), vx: 0, vy: 0, ph: Math.random() * 6.28, spin: 0, life: rand(14, 24), home: null };
+  bugs.push(g);
+}
+
+// ---------------------------------------------------------------- まいフレーム
+let last = performance.now();
+newTree(true);
+initScene();
+setTimeout(() => { if (!animals.length) spawnAnimal(); }, 1800);
+window.__mk = () => ({ stage, gen, styleIdx, growth: +growth.toFixed(2), atts: atts.length, fruitsOnTree: atts.filter(a => a.kind === 'fruit').length,
+  gfruits: gfruits.length, eaten: eatCount, animals: animals.length, birds: birds.length, bugs: bugs.length,
+  flowers: flowers.length, tod: +tod.toFixed(2), sparks: sparks.length, leaves: leavesF.length, tips: tree.tips.length, nodes: tree.nodes.length, L: layoutDbg, leafR: leafR | 0 });
+
+function update(dt) {
+  t += dt; stageT += dt;
+  growth += (growTarget - growth) * Math.min(1, dt * 1.5);
+  wind += (windT - wind) * Math.min(1, dt * 3); windT *= Math.pow(0.35, dt);
+  globalShake *= Math.pow(0.04, dt);
+  tod += (todTarget - tod) * Math.min(1, dt * 0.9);
+  computeTree();
+  for (const n of tree.nodes) n.shake *= Math.pow(0.05, dt);
+
+  // はな・み
+  for (const a of atts) {
+    if (t < a.born) continue;
+    a.s = Math.min(1, a.s + dt * 2.8);
+    a.swv += (-a.sw * 30 - a.swv * 2.2 + wind * 6 + Math.sin(t * 2 + a.tip) * 0.6) * dt;
+    a.sw = clamp(a.sw + a.swv * dt, -1.1, 1.1);
+  }
+
+  // まほう
+  if (stage === 'magic') {
+    magicT += dt;
+    if (Math.random() < dt * 40) {
+      const ang = t * 5 + Math.random() * 0.5, rr = scale * 0.5 * (1 - (magicT % 1));
+      sparks.push({ x: rootX + Math.cos(ang) * rr, y: gy(rootX) - scale * 1.5 * (magicT % 1) - 10, vx: rand(-20, 20), vy: -rand(80, 200), life: 1.2, max: 1.2, hue: (t * 200) % 360, size: rand(3, 6), g: -20 });
+    }
+    if (Math.random() < dt * 6) {
+      const tip = pick(tree.tips);
+      burst(tip.x2, tip.y2, (t * 150) % 360, 5);
+    }
+    if (magicT > 4.2) {
+      const fr = atts.slice();
+      fr.forEach((a, k) => setTimeout(() => { dropAtt(a, rand(-120, 120)); Mus.marimba(4 + (k % 9), 0.6); }, k * 110));
+      stage = 'rest'; stageT = 0; setIcon('🌟');
+      for (let i = 0; i < 3 && animals.length < 5; i++) setTimeout(spawnAnimal, 600 + i * 700);
+    }
+  }
+
+  // たね
+  if (stage === 'seed') {
+    treeAlpha = Math.max(0, treeAlpha - dt * 0.8);
+    if (treeAlpha > 0.05 && Math.random() < dt * 60) {
+      const n = pick(tree.nodes);
+      sparks.push({ x: n.x2, y: n.y2, vx: rand(-20, 20), vy: -rand(60, 160), life: 1, max: 1, hue: 50 + Math.random() * 30, size: rand(2, 4.5), g: -40 });
+    }
+    const s = seedObj;
+    if (!s.landed) {
+      s.vy = Math.min(s.vy + 500 * dt, 520);
+      s.y += s.vy * dt; s.x = rootX + Math.sin(s.y * 0.02) * 30 * (1 - s.y / groundY);
+      if (Math.random() < dt * 40) sparks.push({ x: s.x, y: s.y, vx: rand(-30, 30), vy: rand(-40, 10), life: 0.7, max: 0.7, hue: 48, size: rand(2, 4), g: 0 });
+      if (s.y >= gy(s.x)) {
+        s.landed = true; s.y = gy(s.x); stageT = 0;
+        Mus.seedLand();
+        for (let i = 0; i < 18; i++) sparks.push({ x: s.x, y: s.y, vx: rand(-200, 200), vy: rand(-320, -80), life: 0.8, max: 0.8, hue: 30, size: rand(2.5, 5), g: 700, dirt: true });
+        addRing(s.x, s.y, 48, 140);
+      }
+    } else if (stageT > 0.5 && treeAlpha <= 0) {
+      seedObj = null;
+      newTree(false);
+      Mus.grow(0);
+    }
+  }
+
+  // じめんの み
+  for (const f of gfruits) {
+    if (f.eaten > 0) { continue; }
+    if (!f.rest) {
+      f.vy += 1500 * dt; f.x += f.vx * dt; f.y += f.vy * dt; f.rot += f.vr * dt;
+      const floor = gy(f.x) - f.size * 0.38;
+      if (f.y > floor) {
+        f.y = floor;
+        if (f.vy > 160) { Mus.thud(f.vy / 900); f.vy *= -0.42; f.vx *= 0.8; f.vr = f.vx / (f.size * 0.4); }
+        else { f.vy = 0; f.vx *= Math.pow(0.15, dt); f.vr = f.vx / (f.size * 0.4); if (Math.abs(f.vx) < 6) { f.rest = true; f.vx = 0; } }
+      }
+      if (f.x < f.size * 0.5) { f.x = f.size * 0.5; f.vx = Math.abs(f.vx) * 0.6; }
+      if (f.x > W - f.size * 0.5) { f.x = W - f.size * 0.5; f.vx = -Math.abs(f.vx) * 0.6; }
+    } else f.y = gy(f.x) - f.size * 0.38;
+  }
+  gfruits = gfruits.filter(f => f.eaten < 1 || t - f.eatenAt < 0.3);
+
+  // どうぶつ
+  visitorT -= dt;
+  const freeFruit = gfruits.filter(f => f.rest && !f.by && !f.eaten);
+  if (freeFruit.length && animals.filter(a => a.state !== 'leave').length < Math.min(5, freeFruit.length + 1) && visitorT < 0) { spawnAnimal(); visitorT = 1.6; }
+  if (!animals.length && visitorT < -18) { spawnAnimal(); visitorT = 0; }
+  for (const a of animals) updateAnimal(a, dt);
+  animals = animals.filter(a => !(a.state === 'leave' && (a.x < -a.size * 2 || a.x > W + a.size * 2)));
+
+  // とり
+  birdT -= dt;
+  const birdMax = growth > FULL * 0.55 ? (stage === 'grow' ? 2 : 4) : 0;
+  if (birdT < 0 && birds.filter(b => !b.leave).length < birdMax && stage !== 'seed') { const b = spawnBird(); pickPerch(b); birdT = rand(4, 9); }
+  for (const b of birds) updateBird(b, dt);
+  birds = birds.filter(b => !(b.leave && (b.x < -60 || b.x > W + 60)));
+
+  // むし
+  bugT -= dt;
+  if (bugT < 0 && (stage === 'bloom' || stage === 'fruit') && bugs.length < 3) { spawnBug(); bugT = rand(3, 6); }
+  for (const g of bugs) {
+    g.life -= dt; g.ph += dt;
+    let tx, ty;
+    if (g.life < 0) { tx = g.x < W / 2 ? -80 : W + 80; ty = g.y - 40; }
+    else {
+      const bl = atts.find(a => a.kind === 'blossom' && a.tip === g.home);
+      if (!bl) { const c = atts.filter(a => a.kind === 'blossom'); g.home = c.length ? pick(c).tip : null; }
+      const n = g.home != null ? tree.nodes[g.home] : null;
+      tx = n ? n.x2 + Math.cos(g.ph * 1.3) * 40 : W / 2 + Math.cos(g.ph * 0.4) * W * 0.35;
+      ty = n ? n.y2 + Math.sin(g.ph * 2.1) * 26 : (topLimit + groundY) / 2 + Math.sin(g.ph * 0.7) * 120;
+    }
+    g.vx += ((tx - g.x) * 1.4 - g.vx * 1.1 + Math.sin(g.ph * 7) * 120 + wind * 160) * dt;
+    g.vy += ((ty - g.y) * 1.4 - g.vy * 1.1 + Math.cos(g.ph * 9) * 120) * dt;
+    g.x += g.vx * dt; g.y += g.vy * dt;
+    g.spin = Math.max(0, g.spin - dt * 1.2);
+  }
+  bugs = bugs.filter(g => !(g.life < 0 && (g.x < -60 || g.x > W + 60)));
+
+  // はな（じめん）
+  for (const f of flowers) f.s = f.dying ? f.s - dt * 3 : Math.min(1, f.s + dt * 3);
+  flowers = flowers.filter(f => f.s > 0 || !f.dying);
+
+  // くも・あめ
+  for (const c of clouds) {
+    c.x += (c.v + wind * 60) * dt; c.v += (rand(8, 12) - c.v) * dt * 0.3;
+    c.puff = Math.max(0, c.puff - dt * 1.5);
+    if (c.x > W + 140) c.x = -140; if (c.x < -140) c.x = W + 140;
+  }
+  for (const d of drops) {
+    if (d.d > 0) { d.d -= dt; continue; }
+    d.vy += 900 * dt; d.y += d.vy * dt; d.x += wind * 80 * dt;
+    if (d.y > gy(d.x)) {
+      d.dead = true;
+      for (let i = 0; i < 3; i++) sparks.push({ x: d.x, y: gy(d.x), vx: rand(-60, 60), vy: rand(-120, -40), life: 0.35, max: 0.35, hue: 200, size: 2, g: 600, water: true });
+      if (Math.random() < 0.22) plantFlower(d.x); else if (Math.random() < 0.5) Mus.drip(8 + ((Math.random() * 6) | 0));
+      flowers.forEach(f => { if (Math.abs(f.x - d.x) < 30) f.s = Math.min(1.25, f.s + 0.25); });
+    }
+  }
+  drops = drops.filter(d => !d.dead);
+
+  // ほたる
+  const night = clamp((tod - 0.6) / 0.4, 0, 1);
+  while (fireflies.length < Math.round(night * 22)) fireflies.push({ x: rand(0, W), y: rand(groundY * 0.45, groundY), ph: Math.random() * 6.28, sp: rand(0.4, 1) });
+  if (fireflies.length > Math.round(night * 22)) fireflies.length = Math.round(night * 22);
+  for (const f of fireflies) { f.ph += dt * f.sp; f.x += Math.cos(f.ph * 0.7) * 20 * dt + wind * 50 * dt; f.y += Math.sin(f.ph * 1.1) * 16 * dt; if (f.x < -20) f.x = W + 20; if (f.x > W + 20) f.x = -20; }
+
+  // こぼれる はっぱ（かぜ・あき）
+  if (tree.S.fall !== 'star' && growth > FULL * 0.7 && Math.random() < dt * (0.4 + Math.abs(wind) * 5)) {
+    const n = pick(tree.tips); if (n.leafS > 0.5) leavesF.push(fallingBit(n.x2, n.y2, tree.S.fall, 0, 0));
+  }
+  if (stage === 'magic' && Math.random() < dt * 8) { const n = pick(tree.tips); leavesF.push(fallingBit(n.x2, n.y2, 'petal', rand(-40, 40), -40)); }
+
+  // つぶ
+  for (const s of sparks) { s.life -= dt; s.vy += s.g * dt; s.x += s.vx * dt; s.y += s.vy * dt; s.vx *= Math.pow(0.4, dt); }
+  sparks = sparks.filter(s => s.life > 0);
+  if (sparks.length > 420) sparks.splice(0, sparks.length - 420);
+  for (const l of leavesF) {
+    l.life -= dt; l.ph += dt * 3;
+    l.vx += ((wind * 140 + Math.sin(l.ph) * 50) - l.vx) * dt * 1.5;
+    l.vy += ((l.kind === 'star' ? 30 : 55) - l.vy) * dt * 1.2;
+    l.x += l.vx * dt; l.y += l.vy * dt; l.rot += (l.vr + Math.sin(l.ph) * 2) * dt;
+    if (l.y > gy(l.x) - 2) { l.y = gy(l.x) - 2; l.vx = 0; l.vy = 0; l.vr = 0; l.life = Math.min(l.life, 1.2); }
+  }
+  leavesF = leavesF.filter(l => l.life > 0);
+  if (leavesF.length > 160) leavesF.splice(0, leavesF.length - 160);
+  for (const f of floaters) { f.life -= dt; f.y += f.vy * dt; }
+  floaters = floaters.filter(f => f.life > 0);
+  for (const r of rings) { r.life -= dt * 1.6; r.r += (r.max - r.r) * dt * 5; }
+  rings = rings.filter(r => r.life > 0);
+}
+
+function updateAnimal(a, dt) {
+  a.t += dt;
+  // ジャンプ
+  if (a.hopV || a.hy < 0) { a.hopV += 1500 * dt; a.hy += a.hopV * dt; if (a.hy >= 0) { a.hy = 0; a.hopV = 0; } }
+  if (a.hop > 0 && a.hy === 0 && a.hopV === 0) { a.hop--; a.hopV = -360; }
+  const night = tod > 0.75;
+  const speed = a.size * 2.2;
+  const walkTo = (x) => { const d = x - a.x; a.dir = d > 0 ? 1 : -1; a.x += a.dir * Math.min(Math.abs(d), speed * dt); return Math.abs(d) < 4; };
+  if (a.state === 'walk' || a.state === 'look') {
+    if (!a.target || a.target.eaten || a.target.by !== a) {
+      const c = gfruits.filter(f => f.rest && !f.by && !f.eaten);
+      if (c.length) { c.sort((p, q) => Math.abs(p.x - a.x) - Math.abs(q.x - a.x)); a.target = c[0]; c[0].by = a; a.state = 'walk'; floaters.push({ e: '✨', x: a.x, y: a.y - a.size * 1.1, vy: -40, life: 0.8 }); }
+      else a.target = null;
+    }
+    if (a.target) {
+      if (walkTo(a.target.x - a.dir * a.size * 0.55) || Math.abs(a.target.x - a.x) < a.size * 0.6) { a.state = 'eat'; a.t = 0; a.eatN = 0; }
+    } else {
+      a.leaveT -= dt;
+      if (night && !a.sleepy) { a.sleepy = true; a.state = 'sleepWalk'; a.sx = rootX + rand(-scale * 0.6, scale * 0.6); }
+      else if (a.leaveT < 0) a.state = 'leave';
+      else if (Math.random() < dt * 0.6) a.wx = clamp(a.x + rand(-120, 120), 40, W - 40);
+      if (a.wx != null && a.state === 'walk' && walkTo(a.wx)) a.wx = null;
+    }
+  } else if (a.state === 'eat') {
+    const f = a.target;
+    if (!f || f.by !== a) { a.state = 'look'; }
+    else {
+      if (a.t > a.eatN * 0.28) {
+        a.eatN++; Mus.munch();
+        for (let i = 0; i < 3; i++) sparks.push({ x: f.x, y: f.y, vx: rand(-80, 80), vy: rand(-160, -60), life: 0.5, max: 0.5, hue: 30, size: rand(2, 3.5), g: 600, crumb: true });
+      }
+      f.eaten = Math.min(1, a.t / 1.7);
+      if (f.eaten >= 1) {
+        f.eatenAt = t; eatCount++; a.target = null; a.full++; a.state = 'happy'; a.t = 0; a.hop = 2;
+        floaters.push({ e: '💖', x: a.x, y: a.y - a.size, vy: -60, life: 1.4 });
+        Mus.marimba(8, 0.8); Mus.marimba(10, 0.8, 0.1);
+      }
+    }
+  } else if (a.state === 'happy') {
+    if (a.t > 1.1) { a.state = 'look'; a.leaveT = a.full >= 3 ? 0.5 : rand(3, 6); }
+  } else if (a.state === 'sleepWalk') {
+    if (walkTo(a.sx)) { a.state = 'sleep'; a.t = 0; }
+  } else if (a.state === 'sleep') {
+    if (Math.random() < dt * 0.7) floaters.push({ e: '💤', x: a.x + a.size * 0.3, y: a.y - a.size * 0.9, vy: -30, life: 1.6 });
+    if (tod < 0.3) { a.state = 'look'; a.sleepy = false; a.hop = 1; a.leaveT = rand(2, 5); }
+    const c = gfruits.some(f => f.rest && !f.by && !f.eaten);
+    if (c && Math.random() < dt * 0.15) { a.state = 'look'; a.sleepy = false; }
+  } else if (a.state === 'leave') {
+    a.x += a.dir * speed * dt;
+    if (a.t > 0 && Math.abs(a.x - W / 2) < W / 2 + 1 && a.dirSet !== true) { a.dir = a.x < W / 2 ? -1 : 1; a.dirSet = true; }
+  }
+  a.y = gy(a.x);
+}
+
+function updateBird(b, dt) {
+  b.flap += dt * 18; b.sing -= dt;
+  if (b.hop > 0) b.hop = Math.max(0, b.hop - dt * 3);
+  if (b.state === 'loop') {
+    b.loopA += dt * 7; b.loop -= dt;
+    b.x = b.cx + Math.sin(b.loopA) * 50; b.y = b.cy + Math.cos(b.loopA) * 40;
+    b.dir = Math.cos(b.loopA) > 0 ? 1 : -1;
+    if (b.loop <= 0) pickPerch(b, true);
+    return;
+  }
+  if (b.state === 'fly') {
+    let tx = b.tx, ty = b.ty;
+    if (b.tip >= 0) { const n = tree.nodes[b.tip]; tx = n.x2; ty = n.y2 - leafR * 0.5 - b.size * 0.3; }
+    const dx = tx - b.x, dy = ty - b.y, d = Math.hypot(dx, dy);
+    const sp = Math.min(520, 120 + d * 2.2);
+    b.vx += ((dx / (d || 1)) * sp - b.vx) * dt * 4; b.vy += ((dy / (d || 1)) * sp - b.vy) * dt * 4 + Math.sin(b.flap * 0.5) * 40 * dt;
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (Math.abs(b.vx) > 20) b.dir = b.vx > 0 ? 1 : -1;
+    if (b.tip >= 0 && d < 10) { b.state = 'perch'; b.vx = b.vy = 0; Mus.chirp(0.5); }
+  } else {
+    const n = tree.nodes[b.tip];
+    if (!n || n.leafS < 0.3 || treeAlpha < 0.6) { flyAway(b); return; }
+    b.x = n.x2; b.y = n.y2 - leafR * 0.5 - b.size * 0.3 - b.hop * 18;
+    if (b.sing < 0) { b.sing = rand(5, 12); if (Math.random() < 0.6) { Mus.chirp(0.35); floaters.push({ e: '🎵', x: b.x, y: b.y - b.size * 0.6, vy: -40, life: 1 }); } else pickPerch(b); }
+  }
+}
+
+// ---------------------------------------------------------------- えがく
+// いろを まぜる（#rrggbb どうし、または まぜた けっか どうしも まぜられる）
+function toRGB(c) { if (typeof c !== 'string') return c; const p = parseInt(c.slice(1), 16); return [p >> 16, (p >> 8) & 255, p & 255]; }
+function mix(a, b, k) { a = toRGB(a); b = toRGB(b); return [lerp(a[0], b[0], k), lerp(a[1], b[1], k), lerp(a[2], b[2], k)]; }
+function mixHex(a, b, k) { const c = mix(a, b, k); return `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`; }
+function skyCols() {
+  const D = ['#5cc0ff', '#c9efff'], S = ['#ff8e6e', '#ffd99a'], N = ['#0a1240', '#2c3375'];
+  if (tod <= 0.5) { const k = tod / 0.5; return [mixHex(D[0], S[0], k), mixHex(D[1], S[1], k)]; }
+  const k = (tod - 0.5) / 0.5; return [mixHex(S[0], N[0], k), mixHex(S[1], N[1], k)];
+}
+function sunPos() {
+  const x = W * 0.83, y0 = Math.max(topLimit + 40, H * 0.15);
+  if (tod > 0.75) return { x, y: y0 };
+  return { x, y: y0 + clamp(tod / 0.5, 0, 1) * H * 0.12 };
+}
+const glowCache = new Map();
+function glow(hue, light = 60) {
+  const k = hue + ':' + light;
+  let c = glowCache.get(k);
+  if (!c) {
+    c = document.createElement('canvas'); c.width = c.height = 64;
+    const x = c.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, `hsla(${hue},100%,${Math.min(95, light + 30)}%,1)`);
+    g.addColorStop(0.25, `hsla(${hue},100%,${light}%,0.55)`);
+    g.addColorStop(1, `hsla(${hue},100%,${light}%,0)`);
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    glowCache.set(k, c);
+  }
+  return c;
+}
+function drawGlow(x, y, r, hue, a = 1, light = 60) {
+  ctx.globalAlpha = a;
+  ctx.drawImage(glow(Math.round(hue / 10) * 10 % 360, light), x - r, y - r, r * 2, r * 2);
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  const [c1, c2] = skyCols();
+  const night = clamp((tod - 0.55) / 0.45, 0, 1), dusk = 1 - Math.abs(tod - 0.5) * 2;
+  let g = ctx.createLinearGradient(0, 0, 0, groundY);
+  g.addColorStop(0, c1); g.addColorStop(1, c2);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // ほし
+  if (night > 0.01) {
+    ctx.fillStyle = '#fff';
+    for (const s of stars) {
+      ctx.globalAlpha = night * (0.5 + 0.5 * Math.sin(t * 2 + s.p));
+      ctx.beginPath(); ctx.arc(s.x * W, s.y * groundY, s.s, 0, 6.28); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // おひさま / おつきさま
+  const sp = sunPos();
+  if (tod < 0.8) {
+    const a = 1 - clamp((tod - 0.5) / 0.3, 0, 1);
+    ctx.globalAlpha = a;
+    drawGlow(sp.x, sp.y, 110, tod > 0.3 ? 25 : 45, 0.6);
+    ctx.save(); ctx.translate(sp.x, sp.y); ctx.rotate(t * 0.3);
+    ctx.strokeStyle = tod > 0.3 ? '#ffb070' : '#ffe27a'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    for (let i = 0; i < 10; i++) { ctx.rotate(Math.PI / 5); ctx.beginPath(); ctx.moveTo(44, 0); ctx.lineTo(56 + Math.sin(t * 3 + i) * 5, 0); ctx.stroke(); }
+    ctx.restore();
+    ctx.fillStyle = tod > 0.3 ? '#ff9a52' : '#ffd84a';
+    ctx.beginPath(); ctx.arc(sp.x, sp.y, 36, 0, 6.28); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // にじ（まほう）
+  if (stage === 'magic' || (stage === 'rest' && stageT < 2.5)) {
+    const k = stage === 'magic' ? clamp(magicT / 1.2, 0, 1) : 1 - stageT / 2.5;
+    const R0 = Math.min(W * 0.62, (groundY - topLimit) * 1.0);
+    ctx.lineWidth = R0 * 0.045;
+    ['#ff4d4d', '#ff9f1c', '#ffe14d', '#4cd964', '#3fa9ff', '#7c5cff'].forEach((col, i) => {
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.55 * k;
+      ctx.beginPath(); ctx.arc(rootX, groundY + 10, R0 - i * ctx.lineWidth, Math.PI, Math.PI * (1 + Math.min(1, k * 1.2))); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // くも
+  for (const c of clouds) {
+    const cy = c.y * H, s = c.s * (1 + c.puff * 0.15);
+    ctx.fillStyle = night > 0.5 ? `rgba(180,190,240,${0.35})` : `rgba(255,255,255,${0.9 - dusk * 0.2})`;
+    ctx.beginPath();
+    [[-40, 6, 26], [-14, -10, 34], [18, -4, 30], [44, 8, 22], [0, 10, 28]].forEach(([dx, dy, r]) => { ctx.moveTo(c.x + dx * s + r * s, cy + dy * s); ctx.arc(c.x + dx * s, cy + dy * s, r * s, 0, 6.28); });
+    ctx.fill();
+  }
+
+  // おか
+  const hillA = mixHex(mix('#8fd48a', '#d7a36f', dusk), '#1c2d4f', night), hillB = mixHex(mix('#6cc06a', '#c48a5b', dusk), '#16243f', night);
+  ctx.fillStyle = hillA; ctx.beginPath(); ctx.moveTo(0, groundY);
+  for (let x = 0; x <= W + 20; x += 20) ctx.lineTo(x, groundY - 50 - Math.sin(x * 0.004 + 2) * 40 - Math.sin(x * 0.011) * 14);
+  ctx.lineTo(W, groundY + 20); ctx.lineTo(0, groundY + 20); ctx.fill();
+  ctx.fillStyle = hillB; ctx.beginPath(); ctx.moveTo(0, groundY);
+  for (let x = 0; x <= W + 20; x += 20) ctx.lineTo(x, groundY - 18 - Math.sin(x * 0.007 + 5) * 22);
+  ctx.lineTo(W, groundY + 20); ctx.lineTo(0, groundY + 20); ctx.fill();
+  // じめん
+  g = ctx.createLinearGradient(0, groundY - 20, 0, H);
+  g.addColorStop(0, mixHex(mix('#7dd35a', '#b9a24f', dusk * 0.6), '#1f3b2a', night));
+  g.addColorStop(1, mixHex(mix('#4fa63a', '#8f7a3a', dusk * 0.6), '#132619', night));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, H);
+  for (let x = 0; x <= W + 10; x += 10) ctx.lineTo(x, gy(x));
+  ctx.lineTo(W, H); ctx.fill();
+  // くさ
+  ctx.strokeStyle = mixHex('#5dbb45', '#183022', night); ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const u of tufts) {
+    const x = u.x * W, y = gy(x) + 2, b = Math.sin(t * 2 + u.p) * 2 + wind * 8;
+    ctx.moveTo(x - 4, y); ctx.quadraticCurveTo(x - 4, y - u.h * 0.5, x - 6 + b, y - u.h);
+    ctx.moveTo(x + 3, y); ctx.quadraticCurveTo(x + 3, y - u.h * 0.5, x + 5 + b, y - u.h * 0.8);
+  }
+  ctx.stroke();
+
+  // かげ
+  if (tree) {
+    const gk = clamp(growth / FULL, 0, 1) * treeAlpha;
+    ctx.fillStyle = `rgba(0,0,0,${0.16 * gk})`;
+    ctx.beginPath(); ctx.ellipse(rootX, gy(rootX) + 8, scale * 0.6 * gk + 10, 12 * gk + 3, 0, 0, 6.28); ctx.fill();
+  }
+  // じめんの はな
+  for (const f of flowers) {
+    const s = emojiS * 0.75 * ease(Math.min(1, f.s)) * (f.s > 1 ? f.s : 1);
+    if (s <= 1) continue;
+    const b = Math.sin(t * 2.4 + f.p) * 0.08 + wind * 0.15;
+    ctx.save(); ctx.translate(f.x, gy(f.x) + 4); ctx.rotate(b);
+    drawEmoji(ctx, f.e, 0, -s * 0.45, s); ctx.restore();
+  }
+
+  drawTree();
+
+  // じめんの み
+  for (const f of gfruits) {
+    const k = 1 - (f.eaten || 0);
+    if (k <= 0) continue;
+    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.scale(k, k);
+    drawEmoji(ctx, f.e, 0, 0, f.size); ctx.restore();
+  }
+  // どうぶつ
+  for (const a of animals) {
+    let bob = 0, sq = 1;
+    if ((a.state === 'walk' || a.state === 'leave' || a.state === 'sleepWalk') && a.hy === 0) bob = -Math.abs(Math.sin(a.t * 11)) * a.size * 0.08;
+    if (a.state === 'eat') sq = 1 + Math.sin(a.t * 22) * 0.06;
+    if (a.state === 'sleep') sq = 1 + Math.sin(t * 2) * 0.03;
+    ctx.save(); ctx.translate(a.x, a.y + a.hy + bob + 2);
+    if (a.state === 'sleep') ctx.rotate(0.12 * -a.dir);
+    ctx.scale(a.dir > 0 ? -1 : 1, sq);
+    drawEmoji(ctx, a.e, 0, -a.size * 0.42, a.size); ctx.restore();
+  }
+  // むし
+  for (const gb of bugs) {
+    ctx.save(); ctx.translate(gb.x, gb.y);
+    ctx.rotate(gb.spin * 12 + Math.sin(gb.ph * 9) * 0.15);
+    ctx.scale((gb.vx > 0 ? -1 : 1) * (0.85 + Math.abs(Math.sin(gb.ph * 14)) * 0.15), 1);
+    drawEmoji(ctx, gb.e, 0, 0, emojiS * 0.62); ctx.restore();
+  }
+  // とり
+  for (const b of birds) {
+    const fl = b.state === 'perch' ? 0 : Math.sin(b.flap) * 0.18;
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(fl);
+    ctx.scale(b.dir > 0 ? -1 : 1, 1 - (b.state === 'perch' ? 0 : Math.abs(Math.sin(b.flap)) * 0.12));
+    drawEmoji(ctx, b.e, 0, 0, b.size); ctx.restore();
+  }
+  // たね
+  if (seedObj) {
+    const s = seedObj;
+    drawGlow(s.x, s.y, 46, 48, 0.9, 65);
+    ctx.fillStyle = '#ffcf3a'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2;
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.sin(t * 8) * 0.3);
+    ctx.beginPath(); ctx.ellipse(0, 0, 9, 13, 0, 0, 6.28); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff8'; ctx.beginPath(); ctx.ellipse(-3, -4, 3, 5, 0, 0, 6.28); ctx.fill();
+    ctx.restore();
+  }
+  // あめ
+  ctx.strokeStyle = 'rgba(120,180,255,0.85)'; ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  for (const d of drops) if (d.d <= 0) { ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - wind * 4, d.y - 12); }
+  ctx.stroke();
+  // おちる はっぱ
+  for (const l of leavesF) drawBit(l);
+
+  // よる・ゆうがたの いろ
+  if (dusk > 0.01) { ctx.fillStyle = `rgba(255,120,60,${0.1 * dusk})`; ctx.fillRect(0, 0, W, H); }
+  if (night > 0.01) { ctx.fillStyle = `rgba(8,12,48,${0.42 * night})`; ctx.fillRect(0, 0, W, H); }
+
+  drawMoon();
+  // ひかる もの（よるに めだつ）
+  ctx.globalCompositeOperation = 'lighter';
+  if (night > 0.05) {
+    for (const f of fireflies) drawGlow(f.x, f.y, 16, 55, (0.4 + 0.6 * Math.max(0, Math.sin(f.ph * 3))) * night, 60);
+    for (const a of atts) if (a.kind === 'fruit') { const p = attPos(a); drawGlow(p.x, p.y, emojiS * 0.9, 40, 0.35 * night, 60); }
+  }
+  if (tree && tree.S.glow && treeAlpha > 0) {
+    let i = 0;
+    for (const n of tree.tips) if (n.leafS > 0.3 && (i++ % 2 === 0)) drawGlow(n.x2, n.y2, leafR * 2.2, 190 + (n.i % 5) * 10, (0.18 + night * 0.3) * n.leafS * treeAlpha * (0.7 + 0.3 * Math.sin(t * 2 + n.phase)), 60);
+  }
+  for (const s of sparks) {
+    const a = clamp(s.life / s.max, 0, 1);
+    if (s.dirt || s.crumb || s.water) continue;
+    drawGlow(s.x, s.y, s.size * 3.2, s.hue, a);
+  }
+  for (const r of rings) {
+    ctx.strokeStyle = `hsla(${r.hue},100%,70%,${r.life * 0.7})`; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 6.28); ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (const s of sparks) {
+    if (!(s.dirt || s.crumb || s.water)) continue;
+    ctx.globalAlpha = clamp(s.life / s.max, 0, 1);
+    ctx.fillStyle = s.water ? '#9fd0ff' : s.crumb ? '#f1c27d' : '#8a5a33';
+    ctx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
+  }
+  ctx.globalAlpha = 1;
+  // ふわふわ えもじ
+  for (const f of floaters) {
+    ctx.globalAlpha = clamp(f.life / 0.4, 0, 1);
+    drawEmoji(ctx, f.e, f.x, f.y, emojiS * 0.55);
+  }
+  ctx.globalAlpha = 1;
+}
+
+let moonImg = null;
+function drawMoon() {
+  const sp = sunPos();
+  if (tod > 0.6) {
+    const a = clamp((tod - 0.6) / 0.3, 0, 1), mx = sp.x, my = Math.max(topLimit + 40, H * 0.15);
+    drawGlow(mx, my, 100, 55, a * 0.5, 80);
+    if (!moonImg) {
+      moonImg = document.createElement('canvas'); moonImg.width = moonImg.height = 128;
+      const m = moonImg.getContext('2d');
+      m.fillStyle = '#fff6c8'; m.beginPath(); m.arc(64, 64, 60, 0, 6.28); m.fill();
+      m.globalCompositeOperation = 'destination-out'; m.beginPath(); m.arc(90, 48, 52, 0, 6.28); m.fill();
+    }
+    ctx.globalAlpha = a; ctx.drawImage(moonImg, mx - 32, my - 32, 64, 64); ctx.globalAlpha = 1;
+  }
+
+}
+
+function drawBit(l) {
+  const a = clamp(l.life / 1.2, 0, 1);
+  ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(l.rot); ctx.globalAlpha = a;
+  const s = leafR * 0.38 * l.sz;
+  if (l.kind === 'star') {
+    ctx.fillStyle = `hsl(${l.hue},100%,70%)`;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) { const r = i % 2 ? s * 0.45 : s; ctx.lineTo(Math.cos(i * Math.PI / 5) * r, Math.sin(i * Math.PI / 5) * r); }
+    ctx.fill();
+  } else if (l.kind === 'candy') {
+    ctx.fillStyle = `hsl(${l.hue},85%,72%)`; ctx.beginPath(); ctx.arc(0, 0, s * 0.6, 0, 6.28); ctx.fill();
+  } else {
+    ctx.scale(1, Math.abs(Math.sin(l.ph)) * 0.7 + 0.3);
+    ctx.fillStyle = l.kind === 'petal' ? `hsl(${l.hue},85%,86%)` : `hsl(${l.hue},70%,48%)`;
+    ctx.beginPath(); ctx.ellipse(0, 0, s, s * 0.55, 0, 0, 6.28); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawTree() {
+  if (!tree || treeAlpha <= 0) return;
+  const S = tree.S, nodes = tree.nodes;
+  ctx.globalAlpha = treeAlpha;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // えだ（ふかさ ごとに まとめて かく）
+  for (let pass = 0; pass < 3; pass++) {
+    for (let d = 0; d <= MAXD; d++) {
+      ctx.beginPath();
+      let any = false, w = 0;
+      for (const n of nodes) {
+        if (n.depth !== d || n.g <= 0.01) continue;
+        if (pass === 2 && d > 3) continue;
+        w = trunkW(n); any = true;
+        if (pass === 2) { const ox = -Math.sin(n.a) * w * 0.18, oy = Math.cos(n.a) * w * 0.18; ctx.moveTo(n.x1 - ox, n.y1 - oy); ctx.lineTo(n.x2 - ox, n.y2 - oy); }
+        else { ctx.moveTo(n.x1, n.y1); ctx.lineTo(n.x2, n.y2); }
+      }
+      if (!any) continue;
+      ctx.strokeStyle = S.trunk[pass];
+      ctx.lineWidth = pass === 0 ? w + 3 : pass === 1 ? w : w * 0.3;
+      if (S.candy && pass === 2) { ctx.strokeStyle = '#ff7eb6'; ctx.lineWidth = w * 0.85; ctx.setLineDash([w * 0.5, w * 0.7]); ctx.lineDashOffset = -t * 6; }
+      ctx.stroke();
+      if (S.candy) ctx.setLineDash([]);
+    }
+  }
+  // ふたば（めが でた ころ）
+  const sprout = clamp(1 - (growth - 1.2) / 1.5, 0, 1) * clamp(growth / 0.5, 0, 1);
+  if (sprout > 0.01) {
+    const n = nodes[0];
+    ctx.fillStyle = '#6ed04f';
+    [-1, 1].forEach(sd => {
+      ctx.save(); ctx.translate(n.x2, n.y2); ctx.rotate(sd * 0.9 + Math.sin(t * 2) * 0.1);
+      ctx.beginPath(); ctx.ellipse(sd * 0, -14 * sprout, 9 * sprout, 16 * sprout, 0, 0, 6.28); ctx.fill(); ctx.restore();
+    });
+  }
+  // はっぱ
+  const magicHue = stage === 'magic' ? (t * 140) % 360 : null;
+  const passes = [[0, 1.12, 0, 0.6], [1, 1.0, 0, 0], [2, 0.82, 1, -0.18], [3, 0.5, 2, -0.38]];
+  for (const [ci, rk, onlyShade, off] of passes) {
+    if (magicHue === null) {
+      const [h, s, l] = S.leaf[ci];
+      ctx.fillStyle = `hsl(${h},${s}%,${l}%)`;
+    } else ctx.fillStyle = `hsl(${(magicHue + ci * 25) % 360},85%,${45 + ci * 9}%)`;
+    ctx.beginPath();
+    for (const n of nodes) {
+      if (!n.leafy || n.leafS <= 0.01) continue;
+      if (ci === 2 && n.shade > 1) continue;
+      if (ci === 3 && n.shade !== 0) continue;
+      const r0 = leafR * n.leafS;
+      for (const [bx, by, br] of n.blobs) {
+        const r = r0 * br * rk, x = n.x2 + bx * r0 + off * r0 * 0.6, y = n.y2 + by * r0 + off * r0;
+        ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, 6.28);
+      }
+    }
+    ctx.fill();
+  }
+  // はな と み
+  for (const a of atts) {
+    if (t < a.born) continue;
+    const p = attPos(a);
+    const pop = a.s < 1 ? 1 + Math.sin(a.s * Math.PI) * 0.3 : 1;
+    const sz = (a.kind === 'blossom' ? emojiS * 0.72 : emojiS) * ease(a.s) * pop;
+    if (sz < 1) continue;
+    ctx.save(); ctx.translate(p.x, p.y);
+    if (a.kind === 'fruit') ctx.rotate(-a.sw * 0.6); else ctx.rotate(Math.sin(t * 1.5 + a.tip) * 0.15);
+    drawEmoji(ctx, a.e, 0, 0, sz); ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+const onResize = () => { dpr = fitCanvas(cv, ctx); layout(); clouds.forEach(c => { if (c.x > W + 140) c.x = rand(0, W); }); };
+addEventListener('resize', onResize);
+addEventListener('DOMContentLoaded', () => setTimeout(layout, 0));
+</script>
+</body>
+</html>
