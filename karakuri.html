@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff8a5c">
+<title>ぐるぐるからくり</title>
+<link rel="stylesheet" href="common.css?v=21">
+<style>
+  body { background: #fff8ee; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ff8a5c; --c2: #c4461b; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔴</span></button></div>
+<script src="common.js?v=18"></script>
+<script>
+// ぐるぐるからくり:
+// ・うえの トレイから ぶひんを ひっぱって おく（レール・ドミノ・シーソー・かね・エレベーター・ばね）。
+// ・🔴 か ⭐ で たまを おとすと、ぶひんが つぎつぎ うごく。エレベーターで うえに もどって ぐるぐる まわる。
+// ・おいた ぶひんは ゆびで うごかす・トレイに もどすと きえる・ちょんで うごく。🧽 で ぜんぶ けす。
+// ・なにも ない ところを なぞると レールが ひける。この きかいに じどうで のこる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn');
+let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
+
+const SAVE_KEY = 'karakuri';
+const TRAY = ['rail', 'domino', 'seesaw', 'bell', 'lift', 'spring', 'clear']; // clear = 🧽
+const MAX = { rail: 40, domino: 8, seesaw: 8, bell: 8, lift: 4, spring: 8 };
+const BALL_MAX = 40;
+let rails = [], dominos = [], seesaws = [], bells = [], lifts = [], springs = [];
+let balls = [], sparks = [], rings = [];
+let star = null, tray = null, drag = null, hitCool = new Map();
+let playTop = 120, playBot = H - 140, playH = H - 260, BR = 14;
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ---- がめんの わりつけ: トレイは うえの 🏠 と 🔊 の あいだ ----
+function layout() {
+  const bRect = btn.getBoundingClientRect();
+  const backEl = document.querySelector('.back'), vEl = document.querySelector('.vol');
+  const bk = backEl ? backEl.getBoundingClientRect() : { left: 12, right: 70, top: 12, bottom: 56 };
+  const vl = vEl ? vEl.getBoundingClientRect() : { left: W - 70 };
+  const n = TRAY.length, gap = 8;
+  let x0 = bk.right + 14, x1 = vl.left - 14;
+  let s = Math.min(72, (x1 - x0 - gap * (n - 1)) / n), ty;
+  if (s >= 52) ty = Math.max((bk.top + bk.bottom) / 2, s / 2 + 22);
+  else { x0 = 12; x1 = W - 12; s = Math.min(64, (x1 - x0 - gap * (n - 1)) / n); ty = bk.bottom + 20 + s / 2; }
+  const tw = n * s + (n - 1) * gap, tx = (x0 + x1) / 2 - tw / 2;
+  tray = { x: tx - 10, y: ty - s / 2 - 10, w: tw + 20, h: s + 20, s, glow: 0, items: TRAY.map((k, i) => ({ k, x: tx + s / 2 + i * (s + gap), y: ty, pop: 0 })) };
+  playTop = tray.y + tray.h + 12;
+  playBot = (bRect.top > 0 ? bRect.top : H - 140) - 8;
+  playH = playBot - playTop;
+  BR = Math.max(11, Math.min(15, Math.min(W, playH) * 0.02));
+}
+const U = x => x / W, V = y => (y - playTop) / playH;
+const X = u => u * W, Y = v => playTop + v * playH;
+
+// ---- ぶひんを つくる ----
+function mkRail(x1, y1, x2, y2) { return { x1, y1, x2, y2, hue: rand(0, 360), glow: 0 }; }
+const DOM_N = 5, DOM_S = 30, DOM_H = 58;
+function mkDomino(x, y, dir = 1) { return { x, y, dir, a: new Array(DOM_N).fill(0), w: new Array(DOM_N).fill(0), state: 'stand', t: 0, hue: rand(0, 360) }; }
+const SAW_L = 190, SAW_TH = 0.34;
+function mkSeesaw(x, y, th = -SAW_TH) { return { x, y, th, home: th > 0 ? 1 : -1, w: 0, free: 0, hue: rand(0, 360) }; } // home = おもりの ある がわ（なにも のって ない と こっちに もどる）
+function mkBell(x, y) { return { x, y, r: 24, sw: 0, sv: 0, glow: 0 }; }
+function mkLift(x, y, h = 260, dir = 1) { return { x, y, h, dir, ph: 0, glow: 0 }; }
+function mkSpring(x, y, ang = 0) { return { x, y, ang, comp: 0, cv: 0, hue: rand(0, 360) }; }
+const listOf = { rail: () => rails, domino: () => dominos, seesaw: () => seesaws, bell: () => bells, lift: () => lifts, spring: () => springs };
+function newPart(k, x, y) {
+  if (k === 'rail') { const L = Math.min(170, W * 0.22); return mkRail(x - L / 2, y - 22, x + L / 2, y + 22); }
+  if (k === 'domino') return mkDomino(x, y, x < W / 2 ? 1 : -1);
+  if (k === 'seesaw') return mkSeesaw(x, y);
+  if (k === 'bell') return mkBell(x, y);
+  if (k === 'lift') return mkLift(x, Math.min(playBot - 10, y + 130), Math.min(260, playH * 0.5), x < W / 2 ? 1 : -1);
+  return mkSpring(x, y);
+}
+
+// ---- かたちの けいさん ----
+function domFloor(d) { const hw = DOM_N * DOM_S / 2 + 14; return { x1: d.x - hw, x2: d.x + hw, y: d.y }; }
+function domBase(d, i) { return d.x + d.dir * (i - (DOM_N - 1) / 2) * DOM_S; }
+function domSeg(d, i) { // ねもと → あたま
+  const bx = domBase(d, i), a = d.a[i];
+  return { x1: bx, y1: d.y, x2: bx + d.dir * Math.sin(a) * DOM_H, y2: d.y - Math.cos(a) * DOM_H };
+}
+function sawEnds(s) { const c = Math.cos(s.th) * SAW_L / 2, si = Math.sin(s.th) * SAW_L / 2; return { x1: s.x - c, y1: s.y - si, x2: s.x + c, y2: s.y + si }; }
+function liftTop(l) { return l.y - l.h; }
+function liftWalls(l) { // じょうご と うえの すべりだい
+  const fy = l.y, tp = liftTop(l), d = l.dir;
+  return [
+    { x1: l.x - 50, y1: fy - 40, x2: l.x - 16, y2: fy + 4 },
+    { x1: l.x + 50, y1: fy - 40, x2: l.x + 16, y2: fy + 4 },
+    { x1: l.x + d * 10, y1: tp + 10, x2: l.x + d * 64, y2: tp + 26 },
+  ];
+}
+function springPad(s) { // ばねの いた（ふたつの はし）と うえむきの むき
+  const top = 34 - s.comp * 16, nx = Math.sin(s.ang), ny = -Math.cos(s.ang);
+  const cx = s.x + nx * top, cy = s.y + ny * top, tx = -ny * 34, ty = nx * 34;
+  return { x1: cx - tx, y1: cy - ty, x2: cx + tx, y2: cy + ty, nx, ny, cx, cy };
+}
+
+// ---- たま ----
+function spawnBall(x, y, vx = 0, vy = 0) {
+  const b = { x, y, vx, vy, r: BR * rand(0.94, 1.06), hue: rand(0, 360), rot: 0, still: 0, nudged: false, held: null, ly: 0, id: Math.random(), trail: [] };
+  balls.push(b);
+  if (balls.length > BALL_MAX) { const o = balls.shift(); burst(o.x, o.y, o.hue, 6); }
+  return b;
+}
+function dropFromStar() {
+  spawnBall(star.x + rand(-1, 1), star.y + 30, 0, 30);
+  star.pulse = 1;
+  Sfx.tone(700, 0.08, 'sine', 0.12, 0, 1000);
+}
+function burst(x, y, hue, n = 10) {
+  for (let i = 0; i < n; i++) { const a = rand(0, 6.28), sp = rand(60, 260); sparks.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, hue: (hue + rand(-30, 30) + 360) % 360, r: rand(2, 4.5), life: rand(0.35, 0.7) }); }
+  if (sparks.length > 500) sparks.splice(0, sparks.length - 500);
+}
+function addRing(x, y, hue, maxR = 50) { rings.push({ x, y, hue, r: 8, maxR, life: 1 }); if (rings.length > 60) rings.shift(); }
+function canTrigger(key, now, gap = 90) {
+  const prev = hitCool.get(key) || 0;
+  if (now - prev < gap) return false;
+  hitCool.set(key, now);
+  if (hitCool.size > 400) hitCool.clear();
+  return true;
+}
+function distToSeg(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy || 1;
+  const u = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / l2));
+  const cx = x1 + dx * u, cy = y1 + dy * u;
+  return { cx, cy, u, d: Math.hypot(px - cx, py - cy) };
+}
+// うごく ぼう（まわる ちゅうしん px,py・かくそくど w）との ぶつかり。ぶつかった つよさを かえす（ふれただけ なら 0.001）
+function hitSeg(b, x1, y1, x2, y2, t, px, py, w, rest) {
+  const h = distToSeg(b.x, b.y, x1, y1, x2, y2), minD = b.r + t;
+  if (h.d >= minD || h.d < 0.001) return null;
+  const nx = (b.x - h.cx) / h.d, ny = (b.y - h.cy) / h.d;
+  b.x = h.cx + nx * minD; b.y = h.cy + ny * minD;
+  const svx = -w * (h.cy - py), svy = w * (h.cx - px);
+  const rvx = b.vx - svx, rvy = b.vy - svy, vn = rvx * nx + rvy * ny;
+  let imp = 0.001;
+  if (vn < 0) {
+    const tx = -ny, ty = nx, vt = rvx * tx + rvy * ty, bounce = -vn > 110 ? rest : 0.12;
+    b.vx = svx + tx * vt * 0.9995 - nx * vn * bounce;
+    b.vy = svy + ty * vt * 0.9995 - ny * vn * bounce;
+    b.spin = vt / b.r;
+    imp = -vn;
+  }
+  return { imp, u: h.u, nx, ny, cx: h.cx, cy: h.cy };
+}
+
+// ---- おと ----
+function bellSound(bl) {
+  const f = 520 + (1 - clampN(V(bl.y), 0, 1)) * 700;
+  Sfx.tone(f, 1.1, 'sine', 0.16); Sfx.tone(f * 2.76, 0.5, 'sine', 0.05); Sfx.tone(f * 5.4, 0.22, 'sine', 0.025);
+}
+function domClick(d, i) { Sfx.noise(0.03, 0.18, 3800, 0, 'highpass'); Sfx.tone(700 + i * 110, 0.05, 'square', 0.03); }
+function sawThunk() { Sfx.tone(150, 0.13, 'triangle', 0.22); Sfx.noise(0.06, 0.12, 700); }
+function springBoing(s) { Sfx.tone(220 + rand(-20, 20), 0.22, 'triangle', 0.18, 0, 560); }
+
+// ---- ぶひんの うごき ----
+function ringBell(bl, now, power = 1) {
+  if (!canTrigger('bell' + bells.indexOf(bl), now, 70)) return;
+  bl.sv += (Math.random() < 0.5 ? -1 : 1) * 5 * power; bl.glow = 1;
+  bellSound(bl); addRing(bl.x, bl.y, 48, 56);
+}
+function toppleDomino(d, i = 0, w = 3) {
+  if (d.state === 'stand' || d.state === 'rise') d.state = 'fall';
+  if (d.a[i] < 0.05 && d.w[i] < w) d.w[i] = w;
+}
+function flipSaw(s, dirSign) { s.w = dirSign * 9; }
+function launchSpring(s, b) {
+  const p = springPad(s), sp = Math.sqrt(2 * grav() * playH * 0.42);
+  const tv = (b.vx * -p.ny + b.vy * p.nx) * 0.25;
+  b.vx = p.nx * sp + -p.ny * tv; b.vy = p.ny * sp + p.nx * tv;
+  b.x = p.cx + p.nx * (b.r + 8); b.y = p.cy + p.ny * (b.r + 8);
+  s.comp = 1; s.cv = 0;
+  springBoing(s); burst(p.cx, p.cy, s.hue, 8);
+}
+const grav = () => Math.max(1200, playH * 1.9);
+
+function stepParts(dt, now) {
+  for (const r of rails) r.glow = Math.max(0, r.glow - dt * 2.5);
+  // ドミノ
+  const lean = Math.asin((DOM_S - 7) / DOM_H);
+  for (const d of dominos) {
+    if (d.state === 'fall') {
+      let moving = false;
+      for (let i = 0; i < DOM_N; i++) {
+        if (d.a[i] <= 0 && d.w[i] <= 0) continue;
+        const lim = i === DOM_N - 1 ? Math.PI / 2 - 0.02 : Math.min(Math.PI / 2 - 0.1, d.a[i + 1] + lean);
+        d.w[i] += (36 * Math.sin(d.a[i]) + 2.5) * dt;
+        d.a[i] += d.w[i] * dt;
+        if (d.a[i] >= lim) { if (d.w[i] > 1.2) domClick(d, i); d.a[i] = lim; d.w[i] = 0; }
+        else moving = true;
+        if (i < DOM_N - 1 && d.a[i] >= lean * 0.92 && d.a[i + 1] < 0.02 && d.w[i + 1] <= 0) d.w[i + 1] = Math.max(2.5, d.w[i] * 0.8);
+      }
+      // さいごの ドミノの あたまで ほかの ドミノ・かねを うごかす
+      const tip = domSeg(d, DOM_N - 1);
+      for (const o of dominos) if (o !== d && o.state === 'stand') for (let i = 0; i < DOM_N; i++) {
+        const sg = domSeg(o, i);
+        if (distToSeg(tip.x2, tip.y2, sg.x1, sg.y1, sg.x2, sg.y2).d < 9) { o.dir = Math.sign(sg.x1 - d.x) || o.dir; toppleDomino(o, 0, 3); }
+      }
+      for (const bl of bells) if (Math.hypot(tip.x2 - bl.x, tip.y2 - bl.y) < bl.r + 6) ringBell(bl, now, 0.6);
+      if (!moving) { d.t += dt; if (d.t > 0.4) { d.state = 'down'; d.t = 0; } } else d.t = 0;
+    } else if (d.state === 'down') {
+      d.t += dt; if (d.t > 2.2) { d.state = 'rise'; d.t = 0; }
+    } else if (d.state === 'rise') {
+      d.t += dt;
+      let all = true;
+      for (let i = DOM_N - 1; i >= 0; i--) {
+        const start = (DOM_N - 1 - i) * 0.09;
+        if (d.t < start) { all = false; continue; }
+        if (d.a[i] > 0) {
+          const was = d.a[i];
+          d.a[i] = Math.max(0, d.a[i] - dt * 9); d.w[i] = -9;
+          if (d.a[i] === 0 && was > 0) { d.w[i] = 0; Sfx.tone(520 + i * 70, 0.06, 'sine', 0.06); }
+          all = false;
+        }
+      }
+      if (all) { d.state = 'stand'; d.w.fill(0); }
+    }
+  }
+  // シーソー
+  for (const s of seesaws) {
+    s.free += dt;
+    if (s.free > 0.5 && Math.sign(s.th) !== s.home && s.w === 0) s.w = s.home * 2.6; // おもりで ゆっくり もどる
+    s.th += s.w * dt;
+    if (s.th > SAW_TH) { s.th = SAW_TH; if (s.w > 1.5) { sawThunk(); burst(sawEnds(s).x2, sawEnds(s).y2, s.hue, 6); } s.w = 0; }
+    if (s.th < -SAW_TH) { s.th = -SAW_TH; if (s.w < -1.5) { sawThunk(); burst(sawEnds(s).x1, sawEnds(s).y1, s.hue, 6); } s.w = 0; }
+  }
+  for (const bl of bells) { bl.sv += -bl.sw * 60 * dt; bl.sv *= Math.pow(0.25, dt); bl.sw += bl.sv * dt; bl.glow = Math.max(0, bl.glow - dt * 1.8); }
+  for (const l of lifts) { l.ph += dt; l.glow = Math.max(0, l.glow - dt * 2); }
+  for (const s of springs) { s.cv += (-s.comp * 300 - s.cv * 14) * dt; s.comp += s.cv * dt; }
+  if (star) star.pulse = Math.max(0, (star.pulse || 0) - dt * 3);
+}
+
+function stepBalls(dt, now) {
+  const g = grav(), SUB = 4, sdt = dt / SUB;
+  // エレベーター: のせた たまを うえへ
+  for (const l of lifts) {
+    const mine = balls.filter(b => b.held === l).sort((a, b) => a.ly - b.ly);
+    for (let k = 0; k < mine.length; k++) {
+      const b = mine[k], above = mine[k - 1];
+      let ny = b.ly - 210 * dt;
+      if (above && ny < above.ly + b.r * 2 + 2) ny = Math.max(b.ly, above.ly + b.r * 2 + 2);
+      b.ly = ny; b.x = l.x; b.y = b.ly; b.vx = 0; b.vy = 0;
+      if (b.ly <= liftTop(l) + 4) {
+        b.held = null; b.y = liftTop(l) - 2; b.x = l.x + l.dir * 22; b.vx = l.dir * 190; b.vy = -60;
+        Sfx.tone(880, 0.08, 'sine', 0.08, 0, 1320); l.glow = 1;
+      }
+    }
+  }
+  for (let step = 0; step < SUB; step++) {
+    for (const b of balls) {
+      if (b.held) continue;
+      const px = b.x, py = b.y;
+      b.vy += g * sdt;
+      b.x += b.vx * sdt; b.y += b.vy * sdt;
+      b.rot += (b.spin || 0) * sdt;
+      if (b.x < b.r + 4) { b.x = b.r + 4; b.vx = Math.abs(b.vx) * 0.7; }
+      if (b.x > W - b.r - 4) { b.x = W - b.r - 4; b.vx = -Math.abs(b.vx) * 0.7; }
+      const ceil = tray.y + tray.h + 2;
+      if (b.y < ceil + b.r) { b.y = ceil + b.r; b.vy = Math.abs(b.vy) * 0.6; }
+      // レール
+      for (let i = 0; i < rails.length; i++) {
+        const r = rails[i], h = hitSeg(b, r.x1, r.y1, r.x2, r.y2, 5, 0, 0, 0, 0.32);
+        if (h && h.imp > 160 && canTrigger(b.id + 'r' + i, now, 120)) { r.glow = 1; Sfx.tone(260 + Math.min(1, h.imp / 900) * 300, 0.05, 'triangle', 0.05); }
+      }
+      // ドミノ
+      for (const d of dominos) {
+        const f = domFloor(d);
+        hitSeg(b, f.x1, f.y + 6, f.x2, f.y + 6, 4, 0, 0, 0, 0.25);
+        for (let i = 0; i < DOM_N; i++) {
+          const sg = domSeg(d, i);
+          if (d.a[i] === 0 && d.w[i] === 0) {
+            // たって いる ドミノ: かるいので、たまは あまり とまらずに おしたおす
+            const vx0 = b.vx, vy0 = b.vy, h = hitSeg(b, sg.x1, sg.y1, sg.x2, sg.y2, 5, sg.x1, sg.y1, 0, 0.3);
+            if (h && h.imp > 40) { toppleDomino(d, i, Math.max(3, Math.hypot(vx0, vy0) / DOM_H * 1.4)); b.vx = vx0 * 0.9; b.vy = vy0 * 0.9; }
+          } else if (d.w[i] > 0.5) {
+            // たおれて いる とちゅうの ドミノの あたまが たまを おす
+            const tvx = d.dir * Math.cos(d.a[i]) * d.w[i] * DOM_H, tvy = Math.sin(d.a[i]) * d.w[i] * DOM_H;
+            if (Math.hypot(b.x - sg.x2, b.y - sg.y2) < b.r + 6 && (b.vx - tvx) * d.dir < 0) { b.vx = tvx * 1.1; b.vy = Math.min(b.vy, tvy * 0.5 - 60); }
+          }
+        }
+      }
+      // シーソー
+      for (const s of seesaws) {
+        const e = sawEnds(s), h = hitSeg(b, e.x1, e.y1, e.x2, e.y2, 6, s.x, s.y, s.w, 0.2);
+        if (h) {
+          if (Math.abs(h.u - 0.5) > 0.12) s.free = 0;
+          const side = h.u > 0.5 ? 1 : -1, raised = s.th < 0 ? 1 : -1; // th<0 → みぎが うえ
+          if (side === raised && Math.abs(h.u - 0.5) > 0.12) {
+            if (h.imp > 90) flipSaw(s, side);
+            else s.w += side * 30 * sdt; // のっている だけ でも ゆっくり かたむく
+          }
+        }
+        // ささえの さんかく
+        hitSeg(b, s.x, s.y, s.x - 22, s.y + 34, 3, 0, 0, 0, 0.3);
+        hitSeg(b, s.x, s.y, s.x + 22, s.y + 34, 3, 0, 0, 0, 0.3);
+      }
+      // かね
+      for (const bl of bells) {
+        const cx = bl.x + Math.sin(bl.sw) * 6, dx = b.x - cx, dy = b.y - bl.y, d = Math.hypot(dx, dy), minD = b.r + bl.r;
+        if (d < minD && d > 0.001) {
+          const nx = dx / d, ny = dy / d; b.x = cx + nx * minD; b.y = bl.y + ny * minD;
+          const vn = b.vx * nx + b.vy * ny;
+          if (vn < 0) { b.vx -= nx * vn * 1.6; b.vy -= ny * vn * 1.6; if (-vn > 60) ringBell(bl, now, Math.min(1.4, -vn / 400)); }
+        }
+      }
+      // エレベーター
+      for (const l of lifts) {
+        for (const wl of liftWalls(l)) hitSeg(b, wl.x1, wl.y1, wl.x2, wl.y2, 4, 0, 0, 0, 0.25);
+        if (Math.abs(b.x - l.x) < 22 && b.y > l.y - 30 && b.y < l.y + 12) {
+          b.held = l; b.ly = Math.min(b.y, l.y - 4); b.vx = 0; b.vy = 0;
+          Sfx.tone(440, 0.07, 'sine', 0.08, 0, 660); l.glow = 1;
+          break;
+        }
+      }
+      if (b.held) continue;
+      // ばね
+      for (let i = 0; i < springs.length; i++) {
+        const s = springs[i], p = springPad(s), h = hitSeg(b, p.x1, p.y1, p.x2, p.y2, 5, 0, 0, 0, 0.2);
+        if (h && h.nx * p.nx + h.ny * p.ny > 0.5 && canTrigger(b.id + 's' + i, now, 110)) launchSpring(s, b);
+      }
+    }
+    // たま どうし
+    for (let i = 0; i < balls.length; i++) for (let j = i + 1; j < balls.length; j++) {
+      const a = balls[i], c = balls[j];
+      if (a.held || c.held) continue;
+      const dx = c.x - a.x, dy = c.y - a.y, d = Math.hypot(dx, dy), m = a.r + c.r;
+      if (d < m && d > 0.001) {
+        const nx = dx / d, ny = dy / d, o = (m - d) / 2;
+        a.x -= nx * o; a.y -= ny * o; c.x += nx * o; c.y += ny * o;
+        const vn = (c.vx - a.vx) * nx + (c.vy - a.vy) * ny;
+        if (vn < 0) { const j2 = -vn * 0.9; a.vx -= nx * j2; a.vy -= ny * j2; c.vx += nx * j2; c.vy += ny * j2; }
+      }
+    }
+  }
+  // とまった たまは いちど ぴょんと おして、それでも とまったら きえる
+  for (const b of balls) {
+    b.trail.push(b.x, b.y); if (b.trail.length > 20) b.trail.splice(0, 2);
+    if (b.held) { b.still = 0; continue; }
+    const sp = Math.hypot(b.vx, b.vy);
+    if (sp < 24) b.still += dt; else { b.still = 0; if (sp > 160) b.nudged = false; }
+    if (b.still > 1.6 && !b.nudged) { b.nudged = true; b.still = 0; b.vy = -380; b.vx = rand(-140, 140); Sfx.tone(600, 0.06, 'sine', 0.06, 0, 900); }
+  }
+  balls = balls.filter(b => {
+    if (b.y > H + 60 || (b.still > 1.6 && b.nudged)) { if (b.y < H) burst(b.x, b.y, b.hue, 8); return false; }
+    return true;
+  });
+}
+
+// ---- ゆびで さわる ぶひん ----
+function partAt(x, y) {
+  if (star && Math.hypot(x - star.x, y - star.y) < 44) return { type: 'star', o: star };
+  for (const bl of bells) if (Math.hypot(x - bl.x, y - bl.y) < bl.r + 16) return { type: 'bell', o: bl };
+  for (const s of springs) { const p = springPad(s); if (Math.hypot(x - s.x, y - (s.y + p.cy) / 2 - 0) < 44 || Math.hypot(x - p.cx, y - p.cy) < 40) return { type: 'spring', o: s }; }
+  for (const l of lifts) {
+    if (Math.hypot(x - l.x, y - liftTop(l)) < 26) return { type: 'liftTop', o: l };
+    if (Math.abs(x - l.x) < 34 && y > liftTop(l) - 10 && y < l.y + 16) return { type: 'lift', o: l };
+  }
+  for (let i = rails.length - 1; i >= 0; i--) {
+    const r = rails[i];
+    if (Math.hypot(x - r.x1, y - r.y1) < 22) return { type: 'railEnd', o: r, end: 1 };
+    if (Math.hypot(x - r.x2, y - r.y2) < 22) return { type: 'railEnd', o: r, end: 2 };
+  }
+  for (const s of seesaws) { const e = sawEnds(s); if (distToSeg(x, y, e.x1, e.y1, e.x2, e.y2).d < 22 || Math.hypot(x - s.x, y - s.y - 18) < 26) return { type: 'seesaw', o: s }; }
+  for (const d of dominos) { const f = domFloor(d); if (x > f.x1 - 6 && x < f.x2 + 6 && y > d.y - DOM_H - 10 && y < d.y + 18) return { type: 'domino', o: d }; }
+  for (let i = rails.length - 1; i >= 0; i--) { const r = rails[i]; if (distToSeg(x, y, r.x1, r.y1, r.x2, r.y2).d < 18) return { type: 'rail', o: r }; }
+  return null;
+}
+const baseType = t => (t === 'railEnd' ? 'rail' : t === 'liftTop' ? 'lift' : t);
+function movePart(h, dx, dy, x, y) {
+  const o = h.o;
+  if (h.type === 'rail') { o.x1 += dx; o.y1 += dy; o.x2 += dx; o.y2 += dy; }
+  else if (h.type === 'railEnd') { o['x' + h.end] = x; o['y' + h.end] = y; }
+  else if (h.type === 'liftTop') { o.h = clampN(o.y - y, 110, o.y - playTop - 10); }
+  else { o.x += dx; o.y += dy; }
+}
+function settle(h) {
+  const o = h.o, t = baseType(h.type), top = playTop + 8;
+  if (t === 'rail') {
+    o.x1 = clampN(o.x1, 8, W - 8); o.x2 = clampN(o.x2, 8, W - 8); o.y1 = clampN(o.y1, top, playBot); o.y2 = clampN(o.y2, top, playBot);
+    const len = Math.hypot(o.x2 - o.x1, o.y2 - o.y1);
+    if (len < 40) { const a = len > 1 ? Math.atan2(o.y2 - o.y1, o.x2 - o.x1) : 0; o.x2 = o.x1 + Math.cos(a) * 40; o.y2 = o.y1 + Math.sin(a) * 40; }
+  } else if (t === 'domino') { const hw = DOM_N * DOM_S / 2 + 14; o.x = clampN(o.x, hw + 4, W - hw - 4); o.y = clampN(o.y, top + DOM_H, playBot); }
+  else if (t === 'seesaw') { o.x = clampN(o.x, SAW_L / 2 + 4, W - SAW_L / 2 - 4); o.y = clampN(o.y, top + 70, playBot - 34); }
+  else if (t === 'bell') { o.x = clampN(o.x, 30, W - 30); o.y = clampN(o.y, top + 40, playBot - 24); }
+  else if (t === 'lift') { o.x = clampN(o.x, 70, W - 70); o.y = clampN(o.y, top + 120, playBot); o.h = clampN(o.h, 110, o.y - playTop - 10); }
+  else if (t === 'spring') { o.x = clampN(o.x, 40, W - 40); o.y = clampN(o.y, top + 40, playBot - 6); }
+  else if (t === 'star') { o.x = clampN(o.x, 34, W - 34); o.y = clampN(o.y, top + 26, playBot - 26); }
+}
+function partCenter(h) {
+  const o = h.o, t = baseType(h.type);
+  if (t === 'rail') return { x: (o.x1 + o.x2) / 2, y: (o.y1 + o.y2) / 2 };
+  if (t === 'lift') return { x: o.x, y: o.y - o.h / 2 };
+  if (t === 'domino') return { x: o.x, y: o.y - DOM_H / 2 };
+  return o;
+}
+function addPart(k, x, y, quiet) {
+  const o = newPart(k, x, y), list = listOf[k]();
+  list.push(o);
+  if (list.length > MAX[k]) { const old = list.shift(), c = partCenter({ type: k, o: old }); burst(c.x, c.y, 200, 8); for (const b of balls) if (b.held === old) b.held = null; }
+  settle({ type: k, o });
+  if (!quiet) { const c = partCenter({ type: k, o }); Sfx.tone(620, 0.08, 'sine', 0.12, 0, 900); burst(c.x, c.y, 50, 12); addRing(c.x, c.y, 50, 60); save(); }
+  return o;
+}
+function removePart(h) {
+  const t = baseType(h.type), list = listOf[t](), i = list.indexOf(h.o), c = partCenter(h);
+  if (i >= 0) list.splice(i, 1);
+  for (const b of balls) if (b.held === h.o) b.held = null;
+  burst(c.x, c.y, 0, 14);
+  Sfx.tone(820, 0.18, 'sine', 0.12, 0, 260); // ぽいっ
+  save();
+}
+function tapPart(h, x, y, now) {
+  const o = h.o, t = baseType(h.type);
+  if (t === 'star') dropFromStar();
+  else if (t === 'bell') ringBell(o, now, 1.2);
+  else if (t === 'domino') { if (o.state === 'stand') toppleDomino(o, 0, 3.5); else if (o.state === 'down') { o.state = 'rise'; o.t = 0; } }
+  else if (t === 'seesaw') { o.home = -o.home; flipSaw(o, o.home); save(); } // ちょん → おもりの がわが かわる
+  else if (t === 'lift') { o.dir = -o.dir; o.glow = 1; Sfx.tone(560, 0.08, 'sine', 0.1, 0, 760); save(); }
+  else if (t === 'spring') { o.ang = o.ang === 0 ? 0.45 : o.ang > 0 ? -0.45 : 0; o.comp = 0.6; springBoing(o); save(); }
+  else if (t === 'rail') { o.glow = 1; Sfx.tone(300 + rand(0, 200), 0.08, 'triangle', 0.1); }
+}
+function clearAll() {
+  const n = rails.length + dominos.length + seesaws.length + bells.length + lifts.length + springs.length;
+  if (!n) { Sfx.boing(); return; }
+  for (const k of Object.keys(listOf)) for (const o of listOf[k]()) { const c = partCenter({ type: k, o }); burst(c.x, c.y, rand(0, 360), 10); }
+  for (const b of balls) b.held = null;
+  rails = []; dominos = []; seesaws = []; bells = []; lifts = []; springs = [];
+  Sfx.noise(0.4, 0.4, 3000, 0, 'bandpass'); Sfx.tone(900, 0.25, 'sine', 0.08, 0, 1800); // きゅっきゅっ
+  save();
+}
+
+// ---- のこす（わりあいで） ----
+function save() {
+  const r4 = v => +v.toFixed(4);
+  const d = {
+    r: rails.map(o => [r4(U(o.x1)), r4(V(o.y1)), r4(U(o.x2)), r4(V(o.y2))]),
+    d: dominos.map(o => [r4(U(o.x)), r4(V(o.y)), o.dir]),
+    s: seesaws.map(o => [r4(U(o.x)), r4(V(o.y)), o.home]),
+    b: bells.map(o => [r4(U(o.x)), r4(V(o.y))]),
+    l: lifts.map(o => [r4(U(o.x)), r4(V(o.y)), r4(o.h / playH), o.dir]),
+    p: springs.map(o => [r4(U(o.x)), r4(V(o.y)), o.ang]),
+    st: [r4(U(star.x)), r4(V(star.y))],
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch (e) {}
+}
+function load() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) {}
+  rails = []; dominos = []; seesaws = []; bells = []; lifts = []; springs = [];
+  star = { x: X(0.3), y: Y(0.03), r: 28, pulse: 0 };
+  if (!d) { starter(); return; }
+  const A = a => (Array.isArray(a) ? a : []);
+  for (const [a, b, c, e] of A(d.r)) rails.push(mkRail(X(a), Y(b), X(c), Y(e)));
+  for (const [a, b, dir] of A(d.d)) dominos.push(mkDomino(X(a), Y(b), dir === -1 ? -1 : 1));
+  for (const [a, b, th] of A(d.s)) seesaws.push(mkSeesaw(X(a), Y(b), th > 0 ? SAW_TH : -SAW_TH));
+  for (const [a, b] of A(d.b)) bells.push(mkBell(X(a), Y(b)));
+  for (const [a, b, h, dir] of A(d.l)) lifts.push(mkLift(X(a), Y(b), h * playH, dir === -1 ? -1 : 1));
+  for (const [a, b, ang] of A(d.p)) springs.push(mkSpring(X(a), Y(b), +ang || 0));
+  if (Array.isArray(d.st)) { star.x = X(d.st[0]); star.y = Y(d.st[1]); }
+  for (const [k, l] of Object.entries(listOf)) for (const o of l()) settle({ type: k, o });
+  settle({ type: 'star', o: star });
+}
+// はじめての ときの おてほん: ⭐ → レール → ドミノ → シーソー → かね → レール → エレベーター → もどる
+function starter() {
+  const lx = Math.max(64, X(0.09)), hw = DOM_N * DOM_S / 2 + 14;
+  const compact = playH < 720 || W < 600; // よこむき・せまい がめんは だんを へらす
+  if (!compact) {
+    const lift = mkLift(lx, Y(0.95), Y(0.95) - Y(0.03), 1);
+    lifts.push(lift);
+    const dx = X(0.42) + hw, dy = Y(0.27);
+    rails.push(mkRail(lx + 46, Y(0.10), dx - hw, dy));
+    dominos.push(mkDomino(dx, dy, 1));
+    seesaws.push(mkSeesaw(X(0.42), Y(0.60), -SAW_TH));
+    const sEnd = sawEnds(seesaws[0]), fr = dx + hw;
+    bells.push(mkBell(Math.min(W - 30, fr + 78), dy + 26)); // ドミノの さきから とんできた たまが あたる
+    rails.push(mkRail(W - 12, dy + 100, sEnd.x2 + 20, sEnd.y2 - 64)); // みぎの はしまで うけとめる
+    rails.push(mkRail(sEnd.x2 - 22, sEnd.y2 - 120, sEnd.x2 - 22, sEnd.y2 - 52)); // とめる かべ → シーソーの うえに ぽとん
+    bells.push(mkBell(Math.min(W - 30, sEnd.x2 + 58), Y(0.70)));
+    rails.push(mkRail(W - 12, Y(0.78), lx + 24, Y(0.86))); // みぎの はしから エレベーターへ
+    rails.push(mkRail(lx - 40, Y(0.86) - 50, lx - 40, Y(0.95) - 46)); // とめる かべ → じょうごに ぽとん
+  } else {
+    const ly = playBot - 6, top = playTop + 24;
+    lifts.push(mkLift(lx, ly, ly - top, 1));
+    const dy = top + 120, fl = W >= 600 ? Math.max(lx + 200, X(0.36)) : lx + 60, dx = fl + hw;
+    rails.push(mkRail(lx + 46, top + 56, fl, dy));
+    dominos.push(mkDomino(dx, dy, 1));
+    const fr = dx + hw;
+    if (W - fr > 110) bells.push(mkBell(Math.min(W - 30, fr + 78), dy + 26));
+    else bells.push(mkBell(W - 34, dy + 120)); // せまい ときは かべに あたって おちる ところに
+    rails.push(mkRail(W - 12, Math.max(dy + 100, bells[0].y + 64), lx + 24, ly - 56));
+    rails.push(mkRail(lx - 40, ly - 120, lx - 40, ly - 46)); // とめる かべ → じょうごに ぽとん
+  }
+  star.x = lx + 120; star.y = Y(0.03);
+  for (const [k, l] of Object.entries(listOf)) for (const o of l()) settle({ type: k, o });
+  settle({ type: 'star', o: star });
+}
+
+// ---- タッチ ----
+function inTray(x, y) { return x > tray.x - 16 && x < tray.x + tray.w + 16 && y < tray.y + tray.h + 14; }
+function trayItemAt(x, y) { return tray.items.find(it => Math.abs(x - it.x) < tray.s / 2 + 4 && Math.abs(y - it.y) < tray.s / 2 + 8); }
+cv.addEventListener('pointerdown', (e) => {
+  const x = e.clientX, y = e.clientY;
+  if (drag) return; // ひとつ もっている あいだは ほかの ゆびは つかわない
+  const it = trayItemAt(x, y), hit = it ? null : partAt(x, y);
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  drag = { id: e.pointerId, mode: it ? (it.k === 'clear' ? 'clear' : 'new') : hit ? 'move' : inTray(x, y) ? 'none' : 'draw', part: it ? it.k : null, hit, x0: x, y0: y, x1: x, y1: y, px: x, py: y, moved: false };
+  if (it) { it.pop = 1; Sfx.tone(760, 0.06, 'sine', 0.1); }
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!drag || drag.id !== e.pointerId) return;
+  const x = e.clientX, y = e.clientY, was = drag.moved;
+  if (Math.hypot(x - drag.x0, y - drag.y0) > (drag.mode === 'draw' ? 20 : 10)) drag.moved = true;
+  if (drag.mode === 'move' && drag.moved) movePart(drag.hit, x - (was ? drag.px : drag.x0), y - (was ? drag.py : drag.y0), x, y);
+  drag.px = x; drag.py = y; drag.x1 = x; drag.y1 = y;
+});
+const endDrag = (e) => {
+  if (!drag || drag.id !== e.pointerId) return;
+  const d = drag; drag = null;
+  const now = performance.now();
+  if (d.mode === 'clear') { if (inTray(d.x1, d.y1)) clearAll(); return; }
+  if (d.mode === 'new') {
+    if (!d.moved) addPart(d.part, rand(W * 0.2, W * 0.8), Y(rand(0.25, 0.7)));
+    else if (!inTray(d.x1, d.y1)) addPart(d.part, d.x1, d.y1);
+    return;
+  }
+  if (d.mode === 'move') {
+    if (!d.moved) tapPart(d.hit, d.x0, d.y0, now);
+    else if (inTray(d.x1, d.y1) && d.hit.type !== 'star') removePart(d.hit);
+    else { settle(d.hit); Sfx.tone(620, 0.05, 'sine', 0.07); save(); }
+    return;
+  }
+  if (d.mode === 'draw') {
+    const len = Math.hypot(d.x1 - d.x0, d.y1 - d.y0);
+    if (d.moved && len >= 36) {
+      const r = mkRail(d.x0, d.y0, d.x1, d.y1); rails.push(r);
+      if (rails.length > MAX.rail) rails.shift();
+      settle({ type: 'rail', o: r }); r.glow = 1;
+      Sfx.tone(500, 0.1, 'triangle', 0.12, 0, 800); save();
+    } else if (!d.moved) { // ちょん → そこに たまを ひとつ
+      spawnBall(d.x0, d.y0, 0, 0); Sfx.pop();
+    }
+  }
+};
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', (e) => { if (drag && drag.id === e.pointerId) drag = null; });
+btn.addEventListener('pointerdown', () => { flashPress(btn); dropFromStar(); });
+
+// ---- え ----
+function drawRail(r, hl) {
+  ctx.save(); ctx.lineCap = 'round';
+  if (r.glow > 0.05) { ctx.shadowColor = `hsl(${r.hue},90%,60%)`; ctx.shadowBlur = r.glow * 14; }
+  ctx.strokeStyle = `hsl(${r.hue},70%,${52 + r.glow * 15}%)`; ctx.lineWidth = 10;
+  ctx.beginPath(); ctx.moveTo(r.x1, r.y1); ctx.lineTo(r.x2, r.y2); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(r.x1, r.y1 - 2); ctx.lineTo(r.x2, r.y2 - 2); ctx.stroke();
+  if (hl !== false) { ctx.fillStyle = '#fff'; ctx.strokeStyle = `hsl(${r.hue},60%,45%)`; ctx.lineWidth = 2; for (const [px, py] of [[r.x1, r.y1], [r.x2, r.y2]]) { ctx.beginPath(); ctx.arc(px, py, 6, 0, 7); ctx.fill(); ctx.stroke(); } }
+  ctx.restore();
+}
+function drawDomino(d) {
+  const f = domFloor(d);
+  ctx.save();
+  ctx.fillStyle = '#c98c52'; ctx.beginPath(); ctx.roundRect(f.x1, f.y + 2, f.x2 - f.x1, 9, 4); ctx.fill();
+  ctx.fillStyle = '#a86f3a'; ctx.fillRect(f.x1 + 6, f.y + 11, 6, 6); ctx.fillRect(f.x2 - 12, f.y + 11, 6, 6);
+  for (let i = 0; i < DOM_N; i++) {
+    const bx = domBase(d, i);
+    ctx.save(); ctx.translate(bx, d.y); ctx.rotate(d.dir * d.a[i]);
+    ctx.fillStyle = `hsl(${(d.hue + i * 28) % 360},80%,58%)`;
+    ctx.beginPath(); ctx.roundRect(-5, -DOM_H, 10, DOM_H, 3); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillRect(-3, -DOM_H + 4, 2.5, DOM_H - 10);
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, -DOM_H * 0.72, 2.2, 0, 7); ctx.arc(0, -DOM_H * 0.3, 2.2, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawSeesaw(s) {
+  const e = sawEnds(s);
+  ctx.save();
+  ctx.fillStyle = '#8aa0c8'; ctx.beginPath(); ctx.moveTo(s.x, s.y); ctx.lineTo(s.x - 24, s.y + 36); ctx.lineTo(s.x + 24, s.y + 36); ctx.closePath(); ctx.fill();
+  ctx.lineCap = 'round'; ctx.strokeStyle = `hsl(${s.hue},75%,55%)`; ctx.lineWidth = 13;
+  ctx.beginPath(); ctx.moveTo(e.x1, e.y1); ctx.lineTo(e.x2, e.y2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(e.x1, e.y1 - 3); ctx.lineTo(e.x2, e.y2 - 3); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s.x, s.y, 5, 0, 7); ctx.fill();
+  ctx.restore();
+}
+function drawBell(bl) {
+  const hy = bl.y - 29; // かねの まんなかが あたる ところ
+  ctx.save();
+  ctx.strokeStyle = '#9b8a6e'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(bl.x - 16, hy); ctx.lineTo(bl.x + 16, hy); ctx.stroke();
+  ctx.translate(bl.x, hy); ctx.rotate(bl.sw * 0.5);
+  if (bl.glow > 0.05) { ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 22 * bl.glow; }
+  const r = bl.r, top = 10;
+  const g = ctx.createLinearGradient(-r, 0, r, 0); g.addColorStop(0, '#f2b51d'); g.addColorStop(0.45, '#ffe58a'); g.addColorStop(1, '#d99a0a');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(-r * 0.55, top + 4); ctx.quadraticCurveTo(-r * 0.6, top - 6 + 0, 0, top - 4);
+  ctx.quadraticCurveTo(r * 0.6, top - 6, r * 0.55, top + 4);
+  ctx.quadraticCurveTo(r * 0.75, top + r * 1.3, r * 1.1, top + r * 1.75); ctx.lineTo(-r * 1.1, top + r * 1.75);
+  ctx.quadraticCurveTo(-r * 0.75, top + r * 1.3, -r * 0.55, top + 4); ctx.fill();
+  ctx.shadowBlur = 0; ctx.fillStyle = '#b07a08'; ctx.beginPath(); ctx.arc(Math.sin(bl.sw) * 8, top + r * 1.85, 5, 0, 7); ctx.fill();
+  ctx.strokeStyle = '#9b8a6e'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, top - 4); ctx.stroke();
+  ctx.restore();
+}
+function drawLift(l) {
+  const tp = liftTop(l);
+  ctx.save(); ctx.lineCap = 'round';
+  // はしら
+  ctx.strokeStyle = l.glow > 0.05 ? '#7fb6ef' : '#a9b8d6'; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.moveTo(l.x - 18, tp); ctx.lineTo(l.x - 18, l.y - 8); ctx.moveTo(l.x + 18, tp); ctx.lineTo(l.x + 18, l.y - 8); ctx.stroke();
+  // うごく よこぼう
+  ctx.strokeStyle = 'rgba(120,150,210,.45)'; ctx.lineWidth = 3;
+  const off = (l.ph * 210) % 30;
+  ctx.beginPath(); for (let y = l.y - 8 - off; y > tp; y -= 30) { ctx.moveTo(l.x - 15, y); ctx.lineTo(l.x + 15, y); } ctx.stroke();
+  // じょうご と すべりだい
+  ctx.strokeStyle = '#5c7fb8'; ctx.lineWidth = 8;
+  for (const w of liftWalls(l)) { ctx.beginPath(); ctx.moveTo(w.x1, w.y1); ctx.lineTo(w.x2, w.y2); ctx.stroke(); }
+  ctx.fillStyle = '#5c7fb8'; ctx.beginPath(); ctx.roundRect(l.x - 22, l.y + 2, 44, 10, 5); ctx.fill();
+  // うえの つまみ（たかさを かえる）
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#5c7fb8'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(l.x, tp, 9, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+function drawSpring(s) {
+  const p = springPad(s), top = 34 - s.comp * 16;
+  ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.ang);
+  ctx.fillStyle = '#7d8aa6'; ctx.beginPath(); ctx.roundRect(-26, -4, 52, 10, 4); ctx.fill();
+  ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(0, -2);
+  const n = 6; for (let i = 1; i <= n; i++) ctx.lineTo((i % 2 ? 1 : -1) * 13, -2 - (top - 6) * i / n);
+  ctx.lineTo(0, -top + 2); ctx.stroke();
+  ctx.fillStyle = `hsl(${s.hue},85%,58%)`; ctx.beginPath(); ctx.roundRect(-36, -top - 6, 72, 11, 5); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(-30, -top - 4, 60, 3);
+  ctx.restore();
+}
+function drawStar(t) {
+  ctx.save(); ctx.translate(star.x, star.y); const sc = 1 + (star.pulse || 0) * 0.2; ctx.scale(sc, sc);
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(0, 0, 28, 0, 7); ctx.fill();
+  ctx.strokeStyle = `hsl(${(t * 80) % 360},90%,62%)`; ctx.lineWidth = 4; ctx.stroke();
+  drawEmoji(ctx, '⭐', 0, 0, 34);
+  ctx.restore();
+}
+function drawBall(b) {
+  for (let i = 2; i < b.trail.length; i += 2) {
+    const u = i / b.trail.length;
+    ctx.strokeStyle = `hsla(${b.hue},90%,65%,${u * 0.35})`; ctx.lineWidth = b.r * 1.1 * u; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(b.trail[i - 2], b.trail[i - 1]); ctx.lineTo(b.trail[i], b.trail[i + 1]); ctx.stroke();
+  }
+  ctx.save(); ctx.translate(b.x, b.y);
+  const g = ctx.createRadialGradient(-b.r * 0.35, -b.r * 0.35, b.r * 0.1, 0, 0, b.r);
+  g.addColorStop(0, '#fff'); g.addColorStop(0.35, `hsl(${b.hue},90%,64%)`); g.addColorStop(1, `hsl(${b.hue},80%,38%)`);
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, b.r, 0, 7); ctx.fill();
+  ctx.rotate(b.rot); ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.arc(0, 0, b.r * 0.45, 0, 3.4); ctx.stroke();
+  ctx.restore();
+}
+// トレイの え（まんなか に おさまる ちいさい ぶひん）
+function drawIcon(k, x, y, s, t) {
+  ctx.save(); ctx.translate(x, y); const sc = s / 72; ctx.scale(sc, sc);
+  if (k === 'rail') drawRail({ x1: -24, y1: -12, x2: 24, y2: 12, hue: 200, glow: 0 }, false);
+  else if (k === 'domino') { ctx.translate(0, 14); ctx.scale(0.4, 0.4); drawDomino({ x: 0, y: 0, dir: 1, a: [0, 0, 0, 0.25, 0.5], w: [], hue: 0 }); }
+  else if (k === 'seesaw') { ctx.scale(0.3, 0.3); drawSeesaw({ x: 0, y: -10, th: -SAW_TH, hue: 25 }); }
+  else if (k === 'bell') { ctx.scale(0.8, 0.8); drawBell({ x: 0, y: 0, r: 24, sw: Math.sin(t * 3) * 0.2, glow: 0 }); }
+  else if (k === 'lift') { ctx.scale(0.36, 0.36); drawLift({ x: 0, y: 70, h: 150, dir: 1, ph: t, glow: 0 }); }
+  else if (k === 'spring') { ctx.scale(0.62, 0.62); drawSpring({ x: 0, y: 26, ang: 0, comp: 0, hue: 345 }); }
+  else if (k === 'clear') { ctx.restore(); drawEmoji(ctx, '🧽', x, y, s * 0.6); return; }
+  ctx.restore();
+}
+function drawPart(k, o) {
+  ({ rail: drawRail, domino: drawDomino, seesaw: drawSeesaw, bell: drawBell, lift: drawLift, spring: drawSpring })[k](o);
+}
+function drawTray(t) {
+  const g = tray.glow;
+  ctx.save();
+  ctx.fillStyle = g > 0 ? `rgba(255,${Math.round(255 - g * 60)},${Math.round(255 - g * 50)},.9)` : 'rgba(255,255,255,.82)';
+  ctx.strokeStyle = g > 0 ? `rgba(255,90,120,${0.4 + g * 0.5})` : 'rgba(210,150,90,.4)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(tray.x, tray.y, tray.w, tray.h, 22); ctx.fill(); ctx.stroke();
+  for (const it of tray.items) {
+    ctx.fillStyle = 'rgba(230,170,110,.14)';
+    ctx.beginPath(); ctx.roundRect(it.x - tray.s / 2, it.y - tray.s / 2, tray.s, tray.s, 14); ctx.fill();
+    drawIcon(it.k, it.x, it.y, tray.s * (1 + it.pop * 0.25), t);
+  }
+  ctx.restore();
+}
+
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(0.03, (now - last) / 1000), t = now / 1000; last = now;
+  stepParts(dt, now);
+  stepBalls(dt, now);
+  for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 300 * dt; s.life -= dt; }
+  sparks = sparks.filter(s => s.life > 0);
+  for (const r of rings) { r.r += (r.maxR - r.r) * Math.min(1, dt * 7); r.life -= dt * 2.2; }
+  rings = rings.filter(r => r.life > 0);
+  tray.glow = Math.max(0, tray.glow - dt * 3); for (const it of tray.items) it.pop = Math.max(0, it.pop - dt * 4);
+  if (drag && drag.moved && (drag.mode === 'new' || (drag.mode === 'move' && drag.hit.type !== 'star')) && inTray(drag.x1, drag.y1)) tray.glow = 1;
+
+  // はいけい（ほうがんし）
+  const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#fffaf2'); bg.addColorStop(1, '#fff0e0');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(220,170,120,.14)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let x = 0; x < W; x += 36) { ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, H); }
+  for (let y = 0; y < H; y += 36) { ctx.moveTo(0, y + 0.5); ctx.lineTo(W, y + 0.5); }
+  ctx.stroke();
+
+  for (const l of lifts) drawLift(l);
+  for (const r of rails) drawRail(r);
+  for (const d of dominos) drawDomino(d);
+  for (const s of seesaws) drawSeesaw(s);
+  for (const s of springs) drawSpring(s);
+  for (const bl of bells) drawBell(bl);
+  for (const b of balls) drawBall(b);
+  drawStar(t);
+  for (const r of rings) { ctx.strokeStyle = `hsla(${r.hue},100%,62%,${r.life * 0.8})`; ctx.lineWidth = 4 * r.life; ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, 7); ctx.stroke(); }
+  for (const s of sparks) { ctx.fillStyle = `hsla(${s.hue},100%,62%,${Math.min(1, s.life * 1.6)})`; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill(); }
+
+  // ゆびで かいている レール・ひっぱっている ぶひん
+  if (drag && drag.mode === 'draw' && drag.moved) {
+    ctx.save(); ctx.globalAlpha = 0.6; drawRail({ x1: drag.x0, y1: drag.y0, x2: drag.x1, y2: drag.y1, hue: 30, glow: 0 }); ctx.restore();
+  }
+  drawTray(t);
+  if (drag && drag.mode === 'new' && drag.moved) {
+    const over = inTray(drag.x1, drag.y1);
+    ctx.save(); ctx.globalAlpha = over ? 0.45 : 0.85; drawIcon(drag.part, drag.x1, drag.y1, over ? 60 : 110, t); ctx.restore();
+  }
+  // なにも ない ときは、トレイから ひっぱる ゆびの おてほん
+  if (!drag && !rails.length && !dominos.length && !seesaws.length && !bells.length && !lifts.length && !springs.length) {
+    const it = tray.items[1], k = (t * 0.45) % 1, e = k < 0.7 ? (1 - Math.cos(Math.min(1, k / 0.6) * Math.PI)) / 2 : 1;
+    const x = it.x + (W * 0.5 - it.x) * e, y = it.y + (Y(0.45) - it.y) * e;
+    ctx.globalAlpha = 0.55 * Math.min(1, (1 - k) * 5); drawIcon('domino', x, y, 72 + 40 * e, t);
+    ctx.globalAlpha = Math.min(1, (1 - k) * 5); drawEmoji(ctx, '👆', x + 12, y + 34, 54); ctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(loop);
+}
+
+function start() { layout(); load(); }
+addEventListener('resize', () => { save(); dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); load(); });
+start();
+setTimeout(() => { layout(); load(); dropFromStar(); }, 300); // 🏠・🔊 が できてから わりつけ なおし
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
