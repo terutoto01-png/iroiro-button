@@ -171,7 +171,8 @@ function toppleDomino(d, i = 0, w = 3) {
 function flipSaw(s, dirSign) { s.w = dirSign * 9; }
 function launchSpring(s, b) {
   const p = springPad(s), sp = Math.sqrt(2 * grav() * playH * 0.42);
-  const tv = (b.vx * -p.ny + b.vy * p.nx) * 0.25;
+  // きた むきの よこの いきおいは のこす（トランポリンのように ななめに きたら ななめに はねる）
+  const tv = Math.max(-sp * 0.75, Math.min(sp * 0.75, (b.vx * -p.ny + b.vy * p.nx) * 1.1));
   b.vx = p.nx * sp + -p.ny * tv; b.vy = p.ny * sp + p.nx * tv;
   b.x = p.cx + p.nx * (b.r + 8); b.y = p.cy + p.ny * (b.r + 8);
   s.comp = 1; s.cv = 0;
