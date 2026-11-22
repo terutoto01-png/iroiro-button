@@ -35,6 +35,7 @@ let rails = [], dominos = [], seesaws = [], bells = [], lifts = [], springs = []
 let balls = [], sparks = [], rings = [];
 let star = null, tray = null, drag = null, hitCool = new Map();
 let playTop = 120, playBot = H - 140, playH = H - 260, BR = 14;
+let placeBot = H - 14; // ぶひんを おける いちばん した（ボタンの したまで おける）
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---- がめんの わりつけ: トレイは うえの 🏠 と 🔊 の あいだ ----
@@ -53,6 +54,7 @@ function layout() {
   playTop = tray.y + tray.h + 12;
   playBot = (bRect.top > 0 ? bRect.top : H - 140) - 8;
   playH = playBot - playTop;
+  placeBot = H - 14;
   BR = Math.max(11, Math.min(15, Math.min(W, playH) * 0.02));
 }
 const U = x => x / W, V = y => (y - playTop) / playH;
@@ -73,7 +75,7 @@ function newPart(k, x, y) {
   if (k === 'domino') return mkDomino(x, y, x < W / 2 ? 1 : -1);
   if (k === 'seesaw') return mkSeesaw(x, y);
   if (k === 'bell') return mkBell(x, y);
-  if (k === 'lift') return mkLift(x, Math.min(playBot - 10, y + 130), Math.min(260, playH * 0.5), x < W / 2 ? 1 : -1);
+  if (k === 'lift') return mkLift(x, Math.min(placeBot - 10, y + 130), Math.min(260, playH * 0.5), x < W / 2 ? 1 : -1);
   return mkSpring(x, y);
 }
 
@@ -384,15 +386,15 @@ function movePart(h, dx, dy, x, y) {
 function settle(h) {
   const o = h.o, t = baseType(h.type), top = playTop + 8;
   if (t === 'rail') {
-    o.x1 = clampN(o.x1, 8, W - 8); o.x2 = clampN(o.x2, 8, W - 8); o.y1 = clampN(o.y1, top, playBot); o.y2 = clampN(o.y2, top, playBot);
+    o.x1 = clampN(o.x1, 8, W - 8); o.x2 = clampN(o.x2, 8, W - 8); o.y1 = clampN(o.y1, top, placeBot); o.y2 = clampN(o.y2, top, placeBot);
     const len = Math.hypot(o.x2 - o.x1, o.y2 - o.y1);
     if (len < 40) { const a = len > 1 ? Math.atan2(o.y2 - o.y1, o.x2 - o.x1) : 0; o.x2 = o.x1 + Math.cos(a) * 40; o.y2 = o.y1 + Math.sin(a) * 40; }
-  } else if (t === 'domino') { const hw = DOM_N * DOM_S / 2 + 14; o.x = clampN(o.x, hw + 4, W - hw - 4); o.y = clampN(o.y, top + DOM_H, playBot); }
-  else if (t === 'seesaw') { o.x = clampN(o.x, SAW_L / 2 + 4, W - SAW_L / 2 - 4); o.y = clampN(o.y, top + 70, playBot - 34); }
-  else if (t === 'bell') { o.x = clampN(o.x, 30, W - 30); o.y = clampN(o.y, top + 40, playBot - 24); }
-  else if (t === 'lift') { o.x = clampN(o.x, 70, W - 70); o.y = clampN(o.y, top + 120, playBot); o.h = clampN(o.h, 110, o.y - playTop - 10); }
-  else if (t === 'spring') { o.x = clampN(o.x, 40, W - 40); o.y = clampN(o.y, top + 40, playBot - 6); }
-  else if (t === 'star') { o.x = clampN(o.x, 34, W - 34); o.y = clampN(o.y, top + 26, playBot - 26); }
+  } else if (t === 'domino') { const hw = DOM_N * DOM_S / 2 + 14; o.x = clampN(o.x, hw + 4, W - hw - 4); o.y = clampN(o.y, top + DOM_H, placeBot); }
+  else if (t === 'seesaw') { o.x = clampN(o.x, SAW_L / 2 + 4, W - SAW_L / 2 - 4); o.y = clampN(o.y, top + 70, placeBot - 34); }
+  else if (t === 'bell') { o.x = clampN(o.x, 30, W - 30); o.y = clampN(o.y, top + 40, placeBot - 24); }
+  else if (t === 'lift') { o.x = clampN(o.x, 70, W - 70); o.y = clampN(o.y, top + 120, placeBot); o.h = clampN(o.h, 110, o.y - playTop - 10); }
+  else if (t === 'spring') { o.x = clampN(o.x, 40, W - 40); o.y = clampN(o.y, top + 40, placeBot - 6); }
+  else if (t === 'star') { o.x = clampN(o.x, 34, W - 34); o.y = clampN(o.y, top + 26, placeBot - 26); }
 }
 function partCenter(h) {
   const o = h.o, t = baseType(h.type);
