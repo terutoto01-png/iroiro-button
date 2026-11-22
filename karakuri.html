@@ -174,7 +174,9 @@ function launchSpring(s, b) {
   // きた むきの よこの いきおいは のこす（トランポリンのように ななめに きたら ななめに はねる）
   const tv = Math.max(-sp * 0.75, Math.min(sp * 0.75, (b.vx * -p.ny + b.vy * p.nx) * 1.1));
   b.vx = p.nx * sp + -p.ny * tv; b.vy = p.ny * sp + p.nx * tv;
-  b.x = p.cx + p.nx * (b.r + 8); b.y = p.cy + p.ny * (b.r + 8);
+  // あたった ところの まま いたの うえに のせる（まんなかに ワープ させない）
+  const along = Math.max(-34, Math.min(34, (b.x - p.cx) * -p.ny + (b.y - p.cy) * p.nx));
+  b.x = p.cx + -p.ny * along + p.nx * (b.r + 8); b.y = p.cy + p.nx * along + p.ny * (b.r + 8);
   s.comp = 1; s.cv = 0;
   springBoing(s); burst(p.cx, p.cy, s.hue, 8);
 }
