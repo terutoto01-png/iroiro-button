@@ -1,0 +1,1119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#8fd3ff">
+<title>ころころだいぼうけん</title>
+<link rel="stylesheet" href="common.css?v=21">
+<style>
+  body { background: #8fd3ff; }
+  #cv { touch-action: none; }
+  .big-btn { --c1: #ffc93c; --c2: #d08a00; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="corner"><button id="btn" class="big-btn"><span class="emoji">⭐</span></button></div>
+<script src="common.js?v=18"></script>
+<script type="module">
+// ころころだいぼうけん（3D）:
+// ・かおの ある おおきな たまが、したへ したへ ずっと ころがっていく。コースは じどうで つぎつぎ できる。
+// ・しかけ: さか・ぐるぐる・ドミノと かね・もっきん・ばね・たいほう・みずうみ・わかれみち。
+// ・たまを ちょん → ぴょん。しかけを ちょん → うごく。わかれみちは ゆびの ほうへ。⭐ で おおジャンプ。
+// ・たまは きまった みちを すすむので、つまったり おちたり しない。
+import * as THREE from './lib/three.module.min.js?v=0.170.0'; // three.js（MIT、この リポジトリから はいしん）
+
+const V3 = THREE.Vector3, Y_UP = new V3(0, 1, 0);
+const cv = document.getElementById('cv'), btn = document.getElementById('btn');
+const G = 22, R = 1; // じゅうりょく・たまの はんけい
+
+// ---- びょうが ----
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+const bg = new THREE.Color(0x8fd3ff);
+scene.background = bg;
+scene.fog = new THREE.Fog(bg, 30, 80);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 220);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9a8ad0, 1.5));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -13, right: 13, top: 13, bottom: -13, near: 1, far: 60 });
+sun.shadow.bias = -0.0006;
+scene.add(sun, sun.target);
+
+const hsl = (h, s, l) => new THREE.Color().setHSL(((h % 1) + 1) % 1, s, l);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+function stripeTex(c1, c2, n = 8) {
+  const t = canvasTex(64, 256, (x, w, h) => { for (let i = 0; i < n; i++) { x.fillStyle = i % 2 ? c2 : c1; x.fillRect(0, i * h / n, w, h / n + 1); } });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
+
+// ---- おと ----
+const snd = {
+  thud() { Sfx.tone(150, 0.12, 'triangle', 0.22, 0, 80); Sfx.noise(0.06, 0.1, 500); },
+  hop() { Sfx.tone(320, 0.18, 'sine', 0.22, 0, 720); },
+  big() { Sfx.tone(260, 0.4, 'sine', 0.22, 0, 1100); Sfx.yay(); },
+  bell(p) { Sfx.tone(p, 1.3, 'sine', 0.22); Sfx.tone(p * 2.76, 0.6, 'sine', 0.06); Sfx.tone(p * 5.4, 0.25, 'sine', 0.03); },
+  clack() { Sfx.noise(0.04, 0.16, 3200, 0, 'bandpass'); Sfx.tone(rand(700, 950), 0.04, 'square', 0.03); },
+  note(f) { Sfx.tone(f, 0.55, 'triangle', 0.24); Sfx.tone(f * 4, 0.14, 'sine', 0.05); },
+  boing() { Sfx.tone(150, 0.45, 'triangle', 0.3, 0, 560); },
+  rumble() { Sfx.noise(0.6, 0.14, 220); },
+  boom() { Sfx.noise(0.9, 0.6, 420); Sfx.tone(95, 0.5, 'sine', 0.4, 0, 40); },
+  splash() { Sfx.noise(0.5, 0.3, 1800, 0, 'highpass'); Sfx.tone(620, 0.2, 'sine', 0.1, 0, 220); },
+  whoosh() { Sfx.noise(0.4, 0.12, 900, 0, 'bandpass'); },
+};
+
+// ---- つぶつぶ ----
+const PGEO = new THREE.IcosahedronGeometry(0.16, 0);
+const parts = [];
+for (let i = 0; i < 160; i++) {
+  const m = new THREE.Mesh(PGEO, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  m.visible = false; scene.add(m); parts.push({ m, v: new V3(), life: 0, max: 1, grav: 1 });
+}
+let pNext = 0;
+function burst(p, n, hue = null, spd = 6, up = 3, grey = false) {
+  for (let i = 0; i < n; i++) {
+    const q = parts[pNext++ % parts.length];
+    q.m.position.copy(p).add(new V3(rand(-0.4, 0.4), rand(-0.4, 0.4), rand(-0.4, 0.4)));
+    q.v.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).normalize().multiplyScalar(rand(0.4, 1) * spd); q.v.y += up;
+    q.m.material.color.copy(grey ? new THREE.Color().setHSL(0, 0, rand(0.75, 0.95)) : hsl(hue == null ? Math.random() : hue + rand(-0.06, 0.06), 0.9, 0.62));
+    q.max = q.life = rand(0.5, 0.9); q.grav = grey ? -0.15 : 0.5; q.m.visible = true;
+  }
+}
+function updParts(dt) {
+  for (const q of parts) {
+    if (q.life <= 0) continue;
+    q.life -= dt; q.v.y -= G * q.grav * dt; q.v.multiplyScalar(Math.pow(0.4, dt));
+    q.m.position.addScaledVector(q.v, dt);
+    q.m.scale.setScalar(Math.max(0.01, q.life / q.max) * (q.grav < 0 ? 3 : 1));
+    if (q.life <= 0) q.m.visible = false;
+  }
+}
+
+// ---- たま ----
+const ballTex = canvasTex(512, 256, (x, w, h) => {
+  x.fillStyle = '#ffd23f'; x.fillRect(0, 0, w, h);
+  const cols = ['#ff5d8f', '#4fc3ff', '#7be36b', '#b388ff', '#ff9f43'];
+  for (let i = 0; i < 28; i++) {
+    const cy = h * (0.15 + 0.7 * Math.random()), cx = w * Math.random(), r = rand(10, 20);
+    x.fillStyle = cols[i % cols.length]; x.beginPath();
+    x.ellipse(cx, cy, r / Math.max(0.4, Math.sin(cy / h * Math.PI)), r, 0, 0, 7); x.fill();
+  }
+});
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(R, 40, 28), new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.35 }));
+ballMesh.castShadow = true;
+scene.add(ballMesh);
+
+function faceTex(kind) {
+  return canvasTex(256, 256, (x) => {
+    x.lineCap = 'round'; x.lineJoin = 'round';
+    x.fillStyle = 'rgba(255,110,140,0.5)';
+    for (const cx of [62, 194]) { x.beginPath(); x.arc(cx, 150, 17, 0, 7); x.fill(); }
+    x.fillStyle = '#2a1a14'; x.strokeStyle = '#2a1a14'; x.lineWidth = 10;
+    const eyes = (rx, ry) => {
+      for (const cx of [92, 164]) {
+        x.fillStyle = '#2a1a14'; x.beginPath(); x.ellipse(cx, 112, rx, ry, 0, 0, 7); x.fill();
+        x.fillStyle = '#fff'; x.beginPath(); x.arc(cx - 4, 103, rx * 0.38, 0, 7); x.fill();
+      }
+    };
+    if (kind === 'smile') { eyes(15, 22); x.beginPath(); x.arc(128, 140, 32, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke(); }
+    if (kind === 'blink') {
+      for (const cx of [92, 164]) { x.beginPath(); x.moveTo(cx - 15, 114); x.lineTo(cx + 15, 114); x.stroke(); }
+      x.beginPath(); x.arc(128, 140, 32, 0.2 * Math.PI, 0.8 * Math.PI); x.stroke();
+    }
+    if (kind === 'happy') {
+      for (const cx of [92, 164]) { x.beginPath(); x.moveTo(cx - 15, 120); x.lineTo(cx, 102); x.lineTo(cx + 15, 120); x.stroke(); }
+      x.fillStyle = '#7a2418'; x.beginPath(); x.arc(128, 142, 34, 0, Math.PI); x.closePath(); x.fill();
+      x.fillStyle = '#ff7a8a'; x.beginPath(); x.ellipse(128, 164, 15, 9, 0, 0, 7); x.fill();
+    }
+    if (kind === 'wow') {
+      eyes(18, 26);
+      x.fillStyle = '#7a2418'; x.beginPath(); x.ellipse(128, 160, 14, 19, 0, 0, 7); x.fill();
+    }
+  });
+}
+const FACES = { smile: faceTex('smile'), blink: faceTex('blink'), happy: faceTex('happy'), wow: faceTex('wow') };
+const face = new THREE.Sprite(new THREE.SpriteMaterial({ map: FACES.smile, depthWrite: false }));
+scene.add(face);
+
+const ball = { pos: new V3(), vel: new V3(), hop: 0, hopV: 0, squash: 0, scale: 1, hidden: false };
+let faceKind = 'smile', faceUntil = 0, nextBlink = 2;
+function setFace(k, dur = 0.9) { faceKind = k; faceUntil = time + dur; }
+
+// ---- コースの ぶひん ----
+function curvePts(ctrl, step = 0.2) {
+  const c = new THREE.CatmullRomCurve3(ctrl);
+  return c.getSpacedPoints(Math.max(8, Math.ceil(c.getLength() / step)));
+}
+function rollStep(pts, extra = {}) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + pts[i].distanceTo(pts[i - 1]));
+  return { k: 'roll', pts, cum, len: cum[cum.length - 1], exitV: EXIT_V, ...extra };
+}
+// でぐちでは いつも おなじ はやさに そろえて、つぎの しかけを しぜんに おちる ばしょに おく
+const EXIT_V = 5;
+function endVel(pts, v = EXIT_V) { const n = pts.length; return pts[n - 1].clone().sub(pts[n - 2]).normalize().multiplyScalar(v); }
+function landing(c, extra = 0) {
+  const h = c.drop + extra;
+  if (!c.vel) return new V3(c.pos.x, c.pos.y - h, 0);
+  const vy = c.vel.y, t = (vy + Math.sqrt(vy * vy + 2 * G * h)) / G;
+  return new V3(c.pos.x + c.vel.x * t, c.pos.y - h, 0);
+}
+function yAtX(pts, x) { let b = pts[0]; for (const p of pts) if (Math.abs(p.x - x) < Math.abs(b.x - x)) b = p; return b.y; }
+// たまの まんなかが とおる みち pts に そって U の かたちの みぞを つくる
+function trough(sec, pts, hue, r = 1.05, open = 1.3, M = 12, ups = null) {
+  const n = pts.length, pos = new Float32Array(n * (M + 1) * 3), idx = [], eL = [], eR = [];
+  const T = new V3(), S = new V3(), U = new V3();
+  for (let i = 0; i < n; i++) {
+    T.subVectors(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)]).normalize();
+    if (ups) { U.copy(ups[i]).addScaledVector(T, -ups[i].dot(T)).normalize(); S.crossVectors(T, U).normalize(); } // ループ: たまの がわを うえに
+    else { S.crossVectors(T, Y_UP); if (S.lengthSq() < 1e-6) S.set(0, 0, 1); S.normalize(); U.crossVectors(S, T).normalize(); }
+    const c = pts[i];
+    for (let j = 0; j <= M; j++) {
+      const a = -open + 2 * open * j / M, k = (i * (M + 1) + j) * 3;
+      pos[k] = c.x + (S.x * Math.sin(a) - U.x * Math.cos(a)) * r;
+      pos[k + 1] = c.y + (S.y * Math.sin(a) - U.y * Math.cos(a)) * r;
+      pos[k + 2] = c.z + (S.z * Math.sin(a) - U.z * Math.cos(a)) * r;
+    }
+    if (i % 3 === 0 || i === n - 1) {
+      eL.push(new V3(c.x + (-S.x * Math.sin(open) - U.x * Math.cos(open)) * r, c.y + (-S.y * Math.sin(open) - U.y * Math.cos(open)) * r, c.z + (-S.z * Math.sin(open) - U.z * Math.cos(open)) * r));
+      eR.push(new V3(c.x + (S.x * Math.sin(open) - U.x * Math.cos(open)) * r, c.y + (S.y * Math.sin(open) - U.y * Math.cos(open)) * r, c.z + (S.z * Math.sin(open) - U.z * Math.cos(open)) * r));
+    }
+  }
+  for (let i = 0; i < n - 1; i++) for (let j = 0; j < M; j++) { const a = i * (M + 1) + j, b = a + M + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: hsl(hue, 0.75, 0.62), side: THREE.DoubleSide, roughness: 0.5 }));
+  const grp = new THREE.Group(); grp.add(m); m.userData.group = grp;
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+  for (const e of [eL, eR]) if (e.length > 1) grp.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(e), e.length * 2, 0.1, 6, false), rimMat));
+  add(sec, grp);
+  return m;
+}
+function cylBetween(a, b, r, mat) {
+  const d = new V3().subVectors(b, a), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 10), mat);
+  m.position.addVectors(a, b).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(Y_UP, d.normalize()); return m;
+}
+const stdMat = (c, extra = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, ...extra });
+
+// ---- しかけ（セクション） ----
+const sections = [];
+let cursor = null; // つぎの しかけを つくる ばしょ { pos, dir, drop }
+function newSection(kind, E) {
+  const outer = new THREE.Group(), g = new THREE.Group();
+  outer.position.copy(E); g.position.copy(E).multiplyScalar(-1); outer.add(g); scene.add(outer);
+  return { kind, E: E.clone(), outer, g, steps: [], taps: [], texs: [], hue: Math.random(), exit: null, onArrive: null, update: null, born: time, grown: false };
+}
+function add(sec, o) { o.traverse(q => { if (q.isMesh) { q.castShadow = !q.userData.noShadow; q.receiveShadow = true; } }); sec.g.add(o); return o; }
+function tap(sec, obj, fn) { sec.taps.push({ obj, fn }); }
+function finish(sec) {
+  sec.box = new THREE.Box3().setFromObject(sec.outer);
+  if (!sec.grown) sec.outer.scale.setScalar(0.01);
+  return sec;
+}
+
+function buildStart() {
+  const E = new V3(-3, 0, 0), s = newSection('start', E);
+  s.grown = true;
+  const pts = curvePts([E, new V3(-1.2, -0.15, 0.4), new V3(1, -1.2, 0.3), new V3(3, -2.4, 0)]);
+  trough(s, pts, s.hue);
+  const tt = stripeTex('#ff6b6b', '#ffffff', 10); tt.repeat.set(3, 1); s.texs.push(tt);
+  const tower = add(s, new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 3, 24), stdMat(0xffffff, { map: tt })));
+  tower.position.set(E.x, E.y - 1.05 - 1.5, 0);
+  const isle = add(s, new THREE.Mesh(new THREE.ConeGeometry(1.9, 1.8, 7), stdMat(0x9a6b45, { flatShading: true })));
+  isle.rotation.x = Math.PI; isle.position.set(E.x, E.y - 1.05 - 3 - 0.9, 0);
+  add(s, cylBetween(new V3(E.x - 1.1, E.y - 1, -0.7), new V3(E.x - 1.1, E.y + 3.2, -0.7), 0.08, stdMat(0xdddddd)));
+  const fg = new THREE.BufferGeometry().setFromPoints([new V3(0, 0, 0), new V3(0, -1, 0), new V3(1.6, -0.5, 0)]); fg.computeVertexNormals();
+  const flag = add(s, new THREE.Mesh(fg, stdMat(0xff4d6d, { side: THREE.DoubleSide })));
+  flag.position.set(E.x - 1.1, E.y + 3.2, -0.7); s.flag = flag;
+  s.update = (dt) => { flag.rotation.y = Math.sin(time * 3) * 0.25; };
+  s.steps = [{ k: 'wait', upd: () => started }, rollStep(pts)];
+  s.exit = { pos: pts[pts.length - 1].clone(), dir: 1, drop: 1.6, vel: endVel(pts) };
+  return finish(s);
+}
+
+function buildSlope(c) {
+  const E = landing(c), dir = 1, L = rand(6, 8);
+  const s = newSection('slope', E);
+  const pts = curvePts([E, E.clone().add(new V3(L * 0.3, -0.8, rand(0.8, 1.5))), E.clone().add(new V3(L * 0.66, -1.7, rand(-1.4, -0.6))), E.clone().add(new V3(L, -2.4, 0))]);
+  const tr = trough(s, pts, s.hue);
+  tap(s, tr, (p) => { burst(p, 8, s.hue, 4, 2); Sfx.tone(rand(300, 500), 0.1, 'triangle', 0.12); });
+  s.steps = [rollStep(pts)];
+  s.exit = { pos: pts[pts.length - 1].clone(), dir, drop: 1.6, vel: endVel(pts) };
+  return finish(s);
+}
+
+function buildSpiral(c) {
+  const r = 2.6, drop = 6.5, turns = 2, E = landing(c), dirIn = 1;
+  const s = newSection('spiral', E);
+  const C = new V3(E.x, E.y, -r), sg = -dirIn, th0 = Math.PI / 2, pts = [];
+  const n = 200;
+  for (let i = 0; i <= n; i++) { const u = i / n, th = th0 + sg * u * turns * Math.PI * 2; pts.push(new V3(C.x + r * Math.cos(th), E.y - u * drop, C.z + r * Math.sin(th))); }
+  trough(s, pts, s.hue, 1.05, 1.25);
+  const pt = stripeTex('#ffffff', '#' + hsl(s.hue + 0.5, 0.8, 0.6).getHexString(), 12); pt.repeat.set(1, 4); s.texs.push(pt);
+  const pole = add(s, new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, drop + 3, 16), stdMat(0xffffff, { map: pt })));
+  pole.position.set(C.x, E.y - drop / 2, C.z);
+  const top = add(s, new THREE.Mesh(new THREE.SphereGeometry(0.75, 20, 14), stdMat(hsl(s.hue + 0.25, 0.85, 0.6))));
+  top.position.set(C.x, E.y + 1.6, C.z);
+  tap(s, top, () => { s.spinV = 8; snd.bell(1318); burst(top.position, 10, s.hue + 0.25); });
+  tap(s, pole, () => { s.spinV = 8; Sfx.tone(600, 0.2, 'sine', 0.15, 0, 900); });
+  s.spin = 0; s.spinV = 0;
+  s.update = (dt) => { s.spinV *= Math.pow(0.3, dt); s.spin += (0.6 + s.spinV) * dt; pole.rotation.y = s.spin; top.position.y = E.y + 1.6 + Math.sin(time * 2) * 0.15; };
+  s.steps = [rollStep(pts, { vmax: 9 })];
+  s.exit = { pos: pts[pts.length - 1].clone(), dir: dirIn, drop: 2.8, vel: endVel(pts) };
+  return finish(s);
+}
+
+function buildDomino(c) {
+  const E = landing(c), dir = 1, L = 7.6;
+  const s = newSection('domino', E);
+  const pts = curvePts([E, E.clone().add(new V3(dir * L * 0.5, -0.8, 0.3)), E.clone().add(new V3(dir * L, -1.6, 0))]);
+  trough(s, pts, s.hue);
+  const Z = -2.1, list = [], n = 9;
+  const tileMat = stdMat(0xf4efe6);
+  for (let i = 0; i < n; i++) {
+    const x = E.x + dir * (1.1 + i * 0.68), base = yAtX(pts, x) - R;
+    const tile = add(s, new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 1.2), tileMat)); tile.position.set(x, base - 0.08, Z);
+    const pv = new THREE.Group(); pv.position.set(x + dir * 0.11, base, Z);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.5, 0.95), stdMat(hsl(s.hue + i * 0.07, 0.8, 0.6)));
+    m.position.set(-dir * 0.11, 0.75, 0); pv.add(m); add(s, pv);
+    list.push({ pv, ang: 0, t0: null, target: i === n - 1 ? 1.35 : 0.3 });
+    tap(s, m, () => start());
+  }
+  const last = list[n - 1].pv.position, bx = last.x + dir * 1.45, by = last.y;
+  const postMat = stdMat(0x8a6a4a);
+  add(s, cylBetween(new V3(bx + dir * 0.7, by, Z), new V3(bx + dir * 0.7, by + 2.3, Z), 0.09, postMat));
+  add(s, cylBetween(new V3(bx + dir * 0.7, by + 2.3, Z), new V3(bx, by + 2.3, Z), 0.07, postMat));
+  const bell = new THREE.Group(); bell.position.set(bx, by + 2.3, Z);
+  const prof = [[0.05, 0], [0.22, -0.05], [0.32, -0.35], [0.42, -0.85], [0.6, -1.15], [0.55, -1.2]].map(([a, b]) => new THREE.Vector2(a, b));
+  const bm = new THREE.Mesh(new THREE.LatheGeometry(prof, 24), stdMat(0xffc61a, { metalness: 0.5, roughness: 0.3, side: THREE.DoubleSide }));
+  bell.add(bm); add(s, bell);
+  let sw = 0, sv = 0, rung = false;
+  const ring = () => { sv += 4 * dir; snd.bell(pick([880, 988, 1175])); burst(new V3(bx, by + 1.4, Z), 12, 0.13); };
+  tap(s, bm, ring);
+  function start() { if (list[0].t0 == null) { list[0].t0 = time; snd.clack(); } }
+  s.update = (dt) => {
+    for (let i = 0; i < n; i++) {
+      const d = list[i]; if (d.t0 == null) continue;
+      const el = time - d.t0; d.ang = Math.min(d.target, 9 * el * el + 0.5 * el);
+      d.pv.rotation.z = -dir * d.ang;
+      if (i < n - 1 && d.ang >= 0.24 && list[i + 1].t0 == null) { list[i + 1].t0 = time; snd.clack(); }
+      if (i === n - 1 && d.ang >= 1.2 && !rung) { rung = true; ring(); }
+    }
+    sv += -sw * 30 * dt; sv *= Math.pow(0.4, dt); sw += sv * dt; bell.rotation.z = sw;
+  };
+  s.steps = [rollStep(pts, { events: [{ at: 0.6, fn: start }] })];
+  s.exit = { pos: pts[pts.length - 1].clone(), dir, drop: 1.6, vel: endVel(pts) };
+  return finish(s);
+}
+
+const NOTES = [1046.5, 880, 784, 659.3, 587.3, 523.3, 440, 392];
+function buildXylo(c) {
+  const E = landing(c), dir = 1, N = 8;
+  const s = newSection('xylo', E);
+  const B = [], bars = [];
+  for (let k = 0; k < N; k++) {
+    const p = E.clone().add(new V3(dir * k * 1.35, -k * 0.6, 0)); B.push(p);
+    const m = add(s, new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.32, 2.3), stdMat(hsl(k / N, 0.8, 0.6), { roughness: 0.35 })));
+    m.position.set(p.x, p.y - R - 0.16, 0); bars.push({ m, y: m.position.y, b: 0 });
+    tap(s, m, () => hit(k));
+  }
+  const railMat = stdMat(0xb0a090);
+  for (const z of [-0.95, 0.95]) add(s, cylBetween(new V3(B[0].x - dir * 0.6, B[0].y - R - 0.42, z), new V3(B[N - 1].x + dir * 0.6, B[N - 1].y - R - 0.42, z), 0.08, railMat));
+  function hit(k) { snd.note(NOTES[k]); bars[k].b = 1; burst(bars[k].m.position.clone().add(new V3(0, 0.3, 0)), 6, k / N, 3, 3); }
+  s.onArrive = () => { hit(0); ball.squash = 0.6; };
+  s.update = (dt) => { for (const b of bars) { b.b = Math.max(0, b.b - dt * 5); b.m.position.y = b.y - 0.14 * Math.sin(b.b * Math.PI); } };
+  for (let k = 1; k < N; k++) s.steps.push({ k: 'fly', to: B[k], T: 0.34, onLand: () => { hit(k); ball.squash = 0.6; } });
+  s.exit = { pos: B[N - 1].clone(), dir, drop: 1.6, vel: new V3(dir * 4, 2.5, 0) };
+  return finish(s);
+}
+
+class Coil extends THREE.Curve {
+  constructor(r, h, n) { super(); this.r = r; this.h = h; this.n = n; }
+  getPoint(t, o = new V3()) { const a = t * this.n * Math.PI * 2; return o.set(Math.cos(a) * this.r, t * this.h, Math.sin(a) * this.r); }
+}
+function buildSpring(c) {
+  const E = landing(c), x = E.x, padTop = E.y - R, s = newSection('spring', E);
+  const baseY = padTop - 1.9;
+  const base = add(s, new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.5, 0.4, 24), stdMat(0x6a6a8a))); base.position.set(x, baseY, 0);
+  const coil = new THREE.Group(); coil.position.set(x, baseY + 0.2, 0);
+  coil.add(new THREE.Mesh(new THREE.TubeGeometry(new Coil(0.75, 1.45, 5), 120, 0.1, 6, false), stdMat(0xd0d0e0, { metalness: 0.6, roughness: 0.3 })));
+  add(s, coil);
+  const pad = add(s, new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 0.25, 28), stdMat(hsl(s.hue, 0.85, 0.58))));
+  let comp = 0;
+  const boing = () => { comp = 1; snd.boing(); burst(new V3(x, padTop, 0), 10, s.hue, 5, 3); };
+  tap(s, pad, boing); tap(s, coil, boing);
+  s.update = (dt) => {
+    comp = Math.max(0, comp - dt * 4);
+    const k = comp > 0 ? Math.abs(Math.sin(comp * Math.PI * 3)) * comp : 0;
+    pad.position.set(x, padTop - 0.125 - 0.45 * k, 0); coil.scale.y = 1 - 0.3 * k;
+  };
+  s.update(0);
+  s.onArrive = () => { boing(); ball.squash = 1; setFace('happy', 1.2); };
+  s.steps = [{ k: 'wait', t: 0.14 }];
+  s.exit = { pos: new V3(x + rand(6.5, 8), E.y, 0), dir: 1, drop: rand(0.5, 2), launchT: 1.35 };
+  return finish(s);
+}
+
+function buildCannon(c) {
+  const E = landing(c), LEN = 2.4, side = -1; // くちは たまが くる ほう（うしろ）へ
+  const aim0 = new V3(side * 0.55, 1, 0).normalize();
+  const pivot = E.clone().addScaledVector(aim0, -(LEN + 0.2)), bx = pivot.x;
+  const s = newSection('cannon', E);
+  const barrel = new THREE.Group(); barrel.position.copy(pivot); barrel.quaternion.setFromUnitVectors(Y_UP, aim0);
+  const bm = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.2, LEN, 24), stdMat(0x3b4a8a, { metalness: 0.3, roughness: 0.4 }));
+  bm.position.y = LEN / 2; barrel.add(bm);
+  const ringM = new THREE.Mesh(new THREE.TorusGeometry(1.18, 0.14, 8, 24), stdMat(0xffc61a, { metalness: 0.5, roughness: 0.3 }));
+  ringM.rotation.x = Math.PI / 2; ringM.position.y = LEN; barrel.add(ringM);
+  const back = new THREE.Mesh(new THREE.SphereGeometry(1.25, 20, 14), stdMat(0x3b4a8a)); barrel.add(back);
+  add(s, barrel);
+  const wheelMat = stdMat(0xa0522d);
+  for (const z of [-1.15, 1.15]) {
+    const w = add(s, new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.05, 0.3, 20), wheelMat));
+    w.rotation.x = Math.PI / 2; w.position.set(bx, pivot.y - 0.4, z);
+  }
+  const mouth = () => pivot.clone().addScaledVector(new V3(0, 1, 0).applyQuaternion(barrel.quaternion), LEN + 0.2);
+  let shake = 0, recoil = 0, q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion();
+  const puff = () => { burst(mouth(), 10, null, 3, 1, true); Sfx.tone(200, 0.15, 'sine', 0.2, 0, 90); recoil = 0.6; };
+  tap(s, bm, puff); tap(s, back, puff);
+  s.update = (dt) => {
+    shake = Math.max(0, shake - dt); recoil = Math.max(0, recoil - dt * 3);
+    barrel.position.copy(pivot).add(new V3(rand(-1, 1) * shake * 0.12, rand(-1, 1) * shake * 0.12, 0)).addScaledVector(new V3(0, 1, 0).applyQuaternion(barrel.quaternion), -recoil * 0.5);
+  };
+  s.onArrive = () => { setFace('wow', 2); Sfx.tone(500, 0.25, 'sine', 0.15, 0, 150); };
+  s.steps = [
+    { k: 'wait', t: 0.25, upd: (dt, el) => { ball.pos.lerpVectors(E, pivot.clone().addScaledVector(aim0, 0.8), el / 0.25); ball.scale = 1 - 0.7 * el / 0.25; ball.vel.set(0, 0, 0); } },
+    {
+      k: 'wait', t: 0.7,
+      enter: () => {
+        ball.hidden = true; ball.scale = 1;
+        const nx = sections[sections.indexOf(s) + 1], T = s.exit.launchT;
+        q0.copy(barrel.quaternion); let dirV = aim0.clone();
+        for (let it = 0; it < 3; it++) {
+          const m0 = pivot.clone().addScaledVector(dirV, LEN + 0.2);
+          dirV = nx.E.clone().sub(m0).addScaledVector(Y_UP, 0.5 * G * T * T).divideScalar(T).normalize();
+        }
+        q1.setFromUnitVectors(Y_UP, dirV); shake = 0.7; snd.rumble();
+      },
+      upd: (dt, el) => { barrel.quaternion.slerpQuaternions(q0, q1, Math.min(1, el / 0.5)); },
+    },
+    { k: 'do', fn: () => { ball.hidden = false; ball.pos.copy(mouth()); snd.boom(); burst(mouth(), 22, null, 6, 1, true); burst(mouth(), 14, null, 8, 3); recoil = 1; setFace('wow', 2); } },
+  ];
+  s.exit = { pos: new V3(bx + rand(10, 13), pivot.y + 1, 0), dir: 1, drop: rand(1.5, 3.5), launchT: 1.7 };
+  return finish(s);
+}
+
+function buildWater(c) {
+  const E = landing(c, 0.5), dir = 1, s = newSection('water', E);
+  const swim = rand(5, 6.5), LEN = swim + 1.4;
+  const x0 = E.x - dir * 1.2, x1 = E.x + dir * (swim + 0.2), cx = (x0 + x1) / 2, top = E.y, fl = top - 1.7;
+  const wallMat = stdMat(0xe8d9b5);
+  const wall = (w, h, d, x, y, z) => { const m = add(s, new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat)); m.position.set(x, y, z); return m; };
+  wall(LEN + 0.4, 0.3, 4.0, cx, fl - 0.15, 0);
+  wall(LEN + 0.4, 2.4, 0.3, cx, fl + 1.2, -1.95);
+  wall(LEN + 0.4, 1.3, 0.3, cx, fl + 0.65, 1.95);
+  wall(0.3, 2.4, 4.0, x0 - dir * 0.15, fl + 1.2, 0);
+  wall(0.3, 1.0, 4.0, x1 + dir * 0.15, fl + 0.5, 0);
+  const water = new THREE.Mesh(new THREE.BoxGeometry(LEN, 1.6, 3.6), new THREE.MeshStandardMaterial({ color: 0x4fc3ff, transparent: true, opacity: 0.55, roughness: 0.15 }));
+  water.userData.noShadow = true; water.position.set(cx, top - 0.8 - 0.05, 0); add(s, water);
+  const fall = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 4), new THREE.MeshBasicMaterial({ map: (() => { const t = stripeTex('#bfe9ff', '#7fd0ff', 10); t.repeat.set(1, 1); s.texs.push(t); return t; })(), transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+  fall.userData.noShadow = true; fall.rotation.y = Math.PI / 2; fall.position.set(x1 + dir * 0.35, top - 2.0, 0); add(s, fall);
+  const pads = [];
+  for (let i = 0; i < 3; i++) {
+    const p = add(s, new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.06, 16), stdMat(0x5fcf6a)));
+    p.position.set(E.x + dir * (1 + i * swim / 3), top - 0.02, pick([-1.3, 1.2])); pads.push(p);
+  }
+  const splash = (p) => { snd.splash(); burst(p, 16, 0.55, 6, 5); };
+  tap(s, water, (p) => splash(p));
+  s.update = (dt) => {
+    fall.material.map.offset.y -= dt * 1.5;
+    pads.forEach((p, i) => { p.position.y = top - 0.02 + Math.sin(time * 2 + i) * 0.05; p.rotation.y += dt * 0.3; });
+  };
+  s.onArrive = () => { splash(ball.pos.clone()); setFace('happy', 3); ball.squash = 0.8; };
+  s.steps = [{
+    k: 'wait', t: (swim - 1) / 2, upd: (dt, el) => {
+      const bob = Math.min(1, ((swim - 1) / 2 - el) * 2);
+      ball.pos.set(E.x + dir * 2 * el, top + 0.1 + Math.sin(el * 5) * 0.12 * bob, Math.sin(el * 2) * 0.4 * bob);
+      ball.vel.set(dir * 2, 0, 0);
+      if (Math.random() < dt * 3) burst(ball.pos.clone().add(new V3(0, -0.6, 0)), 2, 0.55, 2, 1);
+    },
+  }];
+  s.exit = { pos: new V3(E.x + dir * (swim - 1), top + 0.1, 0), dir, drop: 2.2, vel: new V3(dir * 3.5, 7, 0) };
+  return finish(s);
+}
+
+function buildFork(c) {
+  const E = landing(c), s = newSection('fork', E);
+  const dish = add(s, new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.6, 0.6, 24), stdMat(hsl(s.hue, 0.6, 0.75))));
+  dish.position.set(E.x, E.y - R - 0.32, 0);
+  s.chutes = {}; s.arrows = {};
+  const ROUTE = {
+    1: [new V3(1.4, -0.15, 0.3), new V3(3.2, -0.45, 0.4), new V3(5.2, -1.0, 0)],
+    [-1]: [new V3(1.1, -0.6, -0.3), new V3(2.4, -2.0, -0.4), new V3(4.2, -3.6, 0)],
+  };
+  for (const side of [-1, 1]) {
+    const pts = curvePts([E, ...ROUTE[side].map(v => E.clone().add(v))]);
+    const tr = trough(s, pts, s.hue + side * 0.2);
+    s.chutes[side] = { pts, tr };
+    const ar = new THREE.Group();
+    const col = hsl(s.hue + side * 0.2, 0.9, 0.55), am = stdMat(col, { emissive: col, emissiveIntensity: 0.25 });
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 1.1, 12), am); shaft.rotation.z = Math.PI / 2; shaft.position.x = -0.3; ar.add(shaft);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.9, 16), am); head.rotation.z = -Math.PI / 2; head.position.x = 0.6; ar.add(head);
+    const ang = Math.atan2(side * 0.9, 1);
+    ar.rotation.z = ang;
+    ar.position.copy(E).add(side > 0 ? new V3(2.2, 2.2, 0.8) : new V3(2.0, -1.2, 1.8)); add(s, ar);
+    s.arrows[side] = { g: ar, base: ar.position.clone(), d: new V3(Math.cos(ang), Math.sin(ang), 0), sc: 1 };
+    tap(s, ar, () => choose(s, side));
+  }
+  s.update = (dt) => {
+    for (const side of [-1, 1]) {
+      const a = s.arrows[side];
+      const want = s.choice == null ? 1 : s.choice === side ? 1.25 : 0.01;
+      a.sc += (want - a.sc) * (1 - Math.exp(-8 * dt));
+      a.g.scale.setScalar(a.sc);
+      a.g.position.copy(a.base).addScaledVector(a.d, Math.max(0, Math.sin(time * 5)) * 0.35);
+    }
+  };
+  s.steps = [{
+    k: 'wait', upd: (dt, el) => {
+      ball.pos.set(E.x + Math.sin(el * 3) * 0.25, E.y, 0); ball.vel.set(0, 0, 0);
+      if (el > 4.5 && s.choice == null) choose(s, pick([-1, 1]));
+      return s.choice != null;
+    },
+  }];
+  return finish(s);
+}
+function choose(s, side) {
+  if (s.choice != null) return;
+  s.choice = side; Sfx.chime(); setFace('happy', 1.2);
+  burst(s.arrows[side].g.position, 14, s.hue + side * 0.2);
+  const pts = s.chutes[side].pts;
+  s.steps.push(rollStep(pts));
+  const other = s.chutes[-side].pts; s.chutes[-side].tr.userData.group.visible = false; // えらばなかった みちは ぽんっと きえる
+  for (let i = 0; i < other.length; i += 6) burst(other[i], 2, s.hue - side * 0.2, 3, 2);
+  s.exit = { pos: pts[pts.length - 1].clone(), dir: 1, drop: 1.6, vel: endVel(pts) };
+  cursor = { pos: s.exit.pos.clone(), dir: 1, drop: 1.6, vel: s.exit.vel.clone() };
+  ensureAhead();
+}
+
+// ---- ついかの アトラクション ----
+const vadd = (p, x, y, z = 0) => p.clone().add(new V3(x, y, z));
+const ease = (u) => u * u * (3 - 2 * u);
+
+// ループ: ジェットコースターみたいに いっかいてん
+function buildLoop(c) {
+  const E = landing(c), s = newSection('loop', E), r = 2.6, zs = 2.4;
+  const B = vadd(E, 5, -3), C = vadd(B, 0, r);
+  const app = curvePts([E, vadd(E, 2, -1.2), vadd(E, 3.8, -2.7), B]);
+  const loop = [B.clone()], ups = [new V3(0, 1, 0)];
+  for (let i = 1; i <= 90; i++) {
+    const f = i / 90 * Math.PI * 2, p = new V3(C.x + r * Math.sin(f), C.y - r * Math.cos(f), zs * i / 90);
+    loop.push(p); ups.push(new V3(C.x - p.x, C.y - p.y, 0).normalize());
+  }
+  const L = loop[loop.length - 1];
+  const ex = curvePts([L, vadd(L, 2.4, -0.4, -0.6), vadd(L, 5, -1.4, -zs)]);
+  const t1 = trough(s, app, s.hue), t2 = trough(s, loop, s.hue + 0.08, 1.05, 1.35, 12, ups), t3 = trough(s, ex, s.hue + 0.16);
+  const zoom = () => { Sfx.tone(300, 0.5, 'sine', 0.15, 0, 900); burst(C, 10, s.hue); };
+  for (const t of [t1, t2, t3]) tap(s, t, zoom);
+  const all = [...app, ...loop.slice(1), ...ex.slice(1)];
+  const st = rollStep(all, { vmin: 5.5, vmax: 14 });
+  st.events = [{ at: st.cum[app.length - 1 + 45], fn: () => { Sfx.tone(520, 0.35, 'sine', 0.14, 0, 1040); setFace('wow', 0.8); } }];
+  s.steps = [st];
+  s.exit = { pos: all[all.length - 1].clone(), dir: 1, drop: 1.6, vel: endVel(all) };
+  return finish(s);
+}
+
+// ふうせん: かごに のって ふわふわ → ぱんっ
+function buildBalloon(c) {
+  const E = landing(c), s = newSection('balloon', E), rig = new THREE.Group();
+  const bk = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.05, 1.0, 20, 1, true), stdMat(0xc68a4a, { side: THREE.DoubleSide }));
+  bk.position.y = -0.55; rig.add(bk);
+  const bot = new THREE.Mesh(new THREE.CircleGeometry(1.05, 20), stdMat(0xa8703a, { side: THREE.DoubleSide }));
+  bot.rotation.x = -Math.PI / 2; bot.position.y = -1.05; rig.add(bot);
+  const bal = new THREE.Mesh(new THREE.SphereGeometry(2.3, 28, 20), stdMat(hsl(s.hue, 0.85, 0.6), { roughness: 0.3 }));
+  bal.scale.y = 1.15; bal.position.y = 5.4; rig.add(bal);
+  const ropeMat = stdMat(0xffffff), ropes = [];
+  for (const [x, z] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) { const rp = cylBetween(new V3(x * 1.05, -0.05, z * 1.05), new V3(x * 0.85, 3.2, z * 0.85), 0.04, ropeMat); rig.add(rp); ropes.push(rp); }
+  rig.position.copy(E); add(s, rig);
+  const off = (u) => new V3(8 * u, 3.2 * ease(u), 0.8 * Math.sin(u * Math.PI));
+  let wob = 0;
+  tap(s, bal, () => { wob = 1; snd.boing(); });
+  let inf = 0.12; // ふくらみ（のる まえは しぼんでいる）
+  for (const rp of ropes) rp.visible = false;
+  s.update = (dt) => { wob = Math.max(0, wob - dt * 2); const w = 1 + Math.sin(wob * 12) * wob * 0.08; bal.scale.set(w * inf, 1.15 * inf / w, w * inf); bal.position.set(1.8 * (1 - inf), 1.2 + 4.2 * inf, 0); };
+  s.onArrive = () => { snd.thud(); ball.squash = 0.6; setFace('happy', 1); };
+  s.steps = [
+    { k: 'wait', t: 0.6, enter: () => { Sfx.noise(0.6, 0.18, 2500, 0, 'bandpass'); for (const rp of ropes) rp.visible = true; }, upd: (dt, el) => { inf = 0.12 + 0.88 * ease(el / 0.6); } },
+    {
+      k: 'wait', t: 3.6, enter: () => Sfx.tone(400, 0.8, 'sine', 0.12, 0, 700),
+      upd: (dt, el) => { const o = off(el / 3.6); rig.position.copy(E).add(o); ball.pos.copy(E).add(o); ball.vel.set(2.2, 0.9, 0); },
+    },
+    {
+      k: 'do', fn: () => {
+        const p = rig.position.clone().add(new V3(0, 5.4, 0));
+        Sfx.noise(0.15, 0.5, 3000, 0, 'highpass'); Sfx.tone(900, 0.12, 'square', 0.08, 0, 300); Sfx.yay();
+        burst(p, 34, null, 9, 2); burst(rig.position, 10, 0.08, 3, 1, true);
+        rig.visible = false; setFace('wow', 1);
+      },
+    },
+  ];
+  s.exit = { pos: vadd(E, 8, 3.2), dir: 1, drop: 4.5, vel: new V3(2.5, 2, 0) };
+  return finish(s);
+}
+
+// シーソー: のぼって まんなかを こえると がたん
+function buildSeesaw(c) {
+  const E = landing(c), s = newSection('seesaw', E), th0 = 0.28, HALF = 3.8, TOP = 0.18;
+  const rot = (v, a) => new V3(v.x * Math.cos(a) - v.y * Math.sin(a), v.x * Math.sin(a) + v.y * Math.cos(a), v.z);
+  const P = E.clone().sub(rot(new V3(-3.2, TOP + R, 0), th0));
+  const plank = new THREE.Group(); plank.position.copy(P); plank.rotation.z = th0;
+  plank.add(new THREE.Mesh(new THREE.BoxGeometry(HALF * 2, TOP * 2, 2.2), stdMat(hsl(s.hue, 0.7, 0.6))));
+  for (const x of [-HALF + 0.2, HALF - 0.2]) { const h = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 2.2), stdMat(hsl(s.hue + 0.5, 0.7, 0.55))); h.position.set(x, -0.3, 0); plank.add(h); }
+  add(s, plank);
+  const ful = add(s, new THREE.Mesh(new THREE.ConeGeometry(1.0, 1.7, 3), stdMat(0x8a6a4a, { flatShading: true })));
+  ful.position.set(P.x, P.y - TOP - 0.85, -0.3);
+  const base = add(s, new THREE.Mesh(new THREE.BoxGeometry(3, 0.4, 2.2), stdMat(0x6b8f4e))); base.position.set(P.x, P.y - TOP - 1.9, 0);
+  const at = (d, a) => P.clone().add(rot(new V3(d, TOP + R, 0), a));
+  let ang = th0, wob = 0;
+  tap(s, plank.children[0], () => { wob = 1; Sfx.tone(220, 0.15, 'triangle', 0.2); });
+  s.update = (dt) => { wob = Math.max(0, wob - dt * 3); plank.rotation.z = ang + Math.sin(wob * 20) * wob * 0.04; };
+  const a3 = G * 0.6 * Math.sin(th0), t3 = (-1.5 + Math.sqrt(2.25 + 2 * a3 * 3.2)) / a3;
+  s.steps = [
+    { k: 'wait', t: 0.9, upd: (dt, el) => { const u = el / 0.9, d = -3.2 + 3.5 * (1 - (1 - u) * (1 - u)); ball.pos.copy(at(d, ang)); ball.vel.set(7 * (1 - u) * Math.cos(ang), 7 * (1 - u) * Math.sin(ang), 0); } },
+    {
+      k: 'wait', t: 0.4, upd: (dt, el) => {
+        const u = Math.min(1, el / 0.3), prev = ang; ang = th0 - 2 * th0 * u * u;
+        if (prev > -th0 && ang <= -th0) { Sfx.tone(140, 0.15, 'triangle', 0.25); Sfx.noise(0.08, 0.15, 600); burst(P.clone().add(rot(new V3(HALF, -TOP, 0), -th0)), 10, s.hue, 4, 2); }
+        ball.pos.copy(at(0.3, ang)); ball.vel.set(1, 0, 0);
+      },
+    },
+    { k: 'wait', t: t3, upd: (dt, el) => { const d = 0.3 + 1.5 * el + 0.5 * a3 * el * el, v = 1.5 + a3 * el; ball.pos.copy(at(d, -th0)); ball.vel.set(v * Math.cos(th0), -v * Math.sin(th0), 0); } },
+  ];
+  s.onArrive = () => { snd.thud(); ball.squash = 0.6; };
+  s.exit = { pos: at(3.5, -th0), dir: 1, drop: 1.6, vel: new V3(5 * Math.cos(th0), -5 * Math.sin(th0), 0) };
+  return finish(s);
+}
+
+// トロッコ: がたごと はしって とめきに ごつん → ぽーん
+function buildCart(c) {
+  const E = landing(c), s = newSection('cart', E), LEN = 10, FL = -R - 0.05;
+  const yb = (u) => -2.4 * u + 0.6 * Math.sin(u * Math.PI * 3) * (1 - u);
+  const Q = (u) => new V3(E.x + LEN * u, E.y + FL + yb(u), 0);
+  const railPts = [];
+  for (let i = 0; i <= 40; i++) railPts.push(Q(-0.08 + 1.24 * i / 40).add(new V3(0, -0.75, 0)));
+  const railMat = stdMat(0x9a9aa8, { metalness: 0.6, roughness: 0.3 }), tieMat = stdMat(0x8a5a3a);
+  for (const z of [-1.0, 1.0]) add(s, new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(railPts.map(p => vadd(p, 0, 0, z))), 80, 0.09, 6, false), railMat));
+  for (let i = 0; i <= 13; i++) { const p = Q(-0.06 + i * 0.09); const t = add(s, new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 2.6), tieMat)); t.position.copy(p).add(new V3(0, -0.88, 0)); }
+  const cart = new THREE.Group(), cm = stdMat(hsl(s.hue, 0.75, 0.55)), dark = stdMat(0x444455);
+  const bx = (w, h, d, x, y, z, m = cm) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); cart.add(b); return b; };
+  bx(2.8, 0.12, 2.5, 0, -0.06, 0);
+  bx(0.12, 0.55, 2.5, -1.4, 0.27, 0); bx(0.12, 0.5, 2.5, 1.4, 0.25, 0);
+  bx(2.8, 0.7, 0.12, 0, 0.35, -1.25); bx(2.8, 0.7, 0.12, 0, 0.35, 1.25);
+  for (const [x, z] of [[-0.9, -1.0], [0.9, -1.0], [-0.9, 1.0], [0.9, 1.0]]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.18, 14), dark); w.rotation.x = Math.PI / 2; w.position.set(x, -0.42, z); cart.add(w); }
+  cart.position.copy(Q(0)); add(s, cart);
+  const end = Q(1), bump = add(s, new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 2.6), stdMat(0xd04040))); bump.position.copy(end).add(new V3(1.7, -0.55, 0));
+  const honk = () => { Sfx.tone(520, 0.18, 'square', 0.07); Sfx.tone(660, 0.25, 'square', 0.07, 0.2); };
+  tap(s, cart.children[0], honk); tap(s, cart.children[3], honk); tap(s, cart.children[4], honk);
+  const T = 3.2;
+  s.onArrive = () => { snd.thud(); ball.squash = 0.7; Sfx.noise(0.1, 0.15, 400); };
+  s.steps = [{
+    k: 'wait', t: T, upd: (dt, el) => {
+      const u = el / T, p = Q(u), p2 = Q(Math.min(1, u + 0.01));
+      cart.position.copy(p); cart.rotation.z = Math.atan2(p2.y - p.y, p2.x - p.x) || 0;
+      ball.pos.copy(p).add(new V3(0, -FL, 0)); ball.vel.set(LEN / T, (p2.y - p.y) / 0.01 / T, 0);
+      if (Math.random() < dt * 5) Sfx.noise(0.04, 0.05, 300);
+    },
+  }, { k: 'do', fn: () => { Sfx.tone(160, 0.15, 'triangle', 0.25); Sfx.noise(0.1, 0.2, 900); burst(bump.position, 10, 0.0, 4, 3); setFace('wow', 1); } }];
+  s.exit = { pos: vadd(end, 0, -FL), dir: 1, drop: 2.0, vel: new V3(6, 6, 0) };
+  return finish(s);
+}
+
+// ガラスの チューブ: すきとおった くだの なかを うねうね
+function buildTube(c) {
+  const E = landing(c), s = newSection('tube', E);
+  const ctrl = [E, vadd(E, 2.2, -1.6, 1.0), vadd(E, 4.6, -1.2, -1.0), vadd(E, 7, -2.8, 0.8), vadd(E, 9.4, -3.4, 0)];
+  const curve = new THREE.CatmullRomCurve3(ctrl), pts = curvePts(ctrl);
+  const glass = new THREE.Mesh(new THREE.TubeGeometry(curve, 140, 1.3, 20, false), new THREE.MeshStandardMaterial({ color: hsl(s.hue, 0.6, 0.85), transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide, roughness: 0.1 }));
+  glass.userData.noShadow = true; add(s, glass);
+  const n = 8;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, p = curve.getPointAt(u), t = curve.getTangentAt(u);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.3, 0.09, 8, 28), stdMat(hsl(s.hue + i / n, 0.85, 0.6)));
+    ring.position.copy(p); ring.quaternion.setFromUnitVectors(new V3(0, 0, 1), t); add(s, ring);
+  }
+  const t0 = curve.getTangentAt(0);
+  const fun = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 1.3, 1.2, 24, 1, true), new THREE.MeshStandardMaterial({ color: hsl(s.hue, 0.6, 0.8), transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
+  fun.userData.noShadow = true; fun.position.copy(E).addScaledVector(t0, -0.6); fun.quaternion.setFromUnitVectors(Y_UP, t0.clone().negate()); add(s, fun);
+  tap(s, glass, (p) => { burst(p, 8, s.hue, 3, 1); Sfx.tone(rand(700, 1000), 0.12, 'sine', 0.1); });
+  s.onArrive = () => { Sfx.tone(800, 0.6, 'sine', 0.12, 0, 300); setFace('happy', 1.5); };
+  s.steps = [rollStep(pts, { vmin: 4 })];
+  s.exit = { pos: pts[pts.length - 1].clone(), dir: 1, drop: 1.6, vel: endVel(pts) };
+  return finish(s);
+}
+
+// かんらんしゃ: ゴンドラで ぐるっと まわって かたむいて おりる
+function buildWheel(c) {
+  const E = landing(c), s = newSection('wheel', E), RW = 3.4, NC = 8, f0 = 2.2, fEnd = -0.7, HANG = 1.1, WZ = -1.6;
+  const hang = (f) => new V3(Math.cos(f) * RW, Math.sin(f) * RW, 0);
+  const C = E.clone().sub(hang(f0)).add(new V3(0, HANG, 0));
+  const wheel = new THREE.Group(); wheel.position.set(C.x, C.y, WZ);
+  const wm = stdMat(hsl(s.hue, 0.8, 0.6));
+  wheel.add(new THREE.Mesh(new THREE.TorusGeometry(RW, 0.14, 8, 48), wm));
+  for (let i = 0; i < NC; i++) { const a = i / NC * Math.PI * 2; wheel.add(cylBetween(new V3(0, 0, 0), new V3(Math.cos(a) * RW, Math.sin(a) * RW, 0), 0.06, wm)); }
+  wheel.add(new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 10), stdMat(0xffffff)));
+  add(s, wheel);
+  const legM = stdMat(0x8a8aa0);
+  for (const x of [-2.2, 2.2]) add(s, cylBetween(new V3(C.x, C.y, WZ - 0.3), new V3(C.x + x, C.y - RW - 2.2, WZ - 0.3), 0.12, legM));
+  const cups = [];
+  for (let i = 0; i < NC; i++) {
+    const g = new THREE.Group(), cmat = stdMat(hsl(s.hue + i / NC, 0.8, 0.62));
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.15, 0.9, 20, 1, true), stdMat(hsl(s.hue + i / NC, 0.8, 0.62), { side: THREE.DoubleSide })); body.position.y = -HANG - 0.6; g.add(body);
+    const bt = new THREE.Mesh(new THREE.CircleGeometry(1.15, 20), cmat); bt.rotation.x = -Math.PI / 2; bt.position.y = -HANG - 1.05; g.add(bt);
+    g.add(cylBetween(new V3(0, 0, WZ), new V3(0, -HANG - 0.2, -1.3), 0.06, legM));
+    add(s, g); cups.push(g); tap(s, body, () => { Sfx.tone(700 + i * 60, 0.2, 'sine', 0.12); g.userData.wob = 1; });
+  }
+  let a = 0, tip = 0, spin = 0;
+  const place = () => {
+    wheel.rotation.z = a;
+    cups.forEach((g, i) => { g.position.copy(C).add(hang(f0 + i * 2 * Math.PI / NC + a)); const w = g.userData.wob || 0; g.userData.wob = Math.max(0, w - 0.03); g.rotation.z = (i === 0 ? -tip : 0) + Math.sin(w * 15) * w * 0.15; });
+  };
+  place();
+  s.update = (dt) => { if (spin) a -= dt * 0.25; place(); };
+  const T = 3.8;
+  s.onArrive = () => { snd.thud(); ball.squash = 0.6; setFace('happy', 2); };
+  s.steps = [
+    {
+      k: 'wait', t: T, upd: (dt, el) => {
+        a = (fEnd - f0) * ease(el / T); place();
+        ball.pos.copy(cups[0].position).add(new V3(0, -HANG, 0)); ball.vel.set(0.5, 0, 0);
+        if (Math.random() < dt * 2) Sfx.tone(rand(800, 1200), 0.1, 'sine', 0.05);
+      },
+    },
+    { k: 'wait', t: 0.25, upd: (dt, el) => { tip = el / 0.25; } },
+  ];
+  s.exit = { pos: vadd(C.clone().add(hang(fEnd)), 0, -HANG), dir: 1, drop: 3, vel: new V3(5, 3, 0) };
+  const _fn = s.steps[1].upd; s.steps[1].upd = (dt, el) => { _fn(dt, el); if (el + dt >= 0.25) spin = 1; };
+  return finish(s);
+}
+
+// ロープウェイ: はこに のって ワイヤーを くだる
+function buildGondola(c) {
+  const E = landing(c), s = newSection('gondola', E), H = 2.6, dirC = new V3(12.5, -4.7, 0).normalize();
+  const CZ = -1.6, top = vadd(E, 0, H), P0 = vadd(top, 0, 0, CZ).addScaledVector(dirC, -1.6), P1 = vadd(top, 0, 0, CZ).addScaledVector(dirC, 12);
+  const dark = stdMat(0x3a3a48), postM = stdMat(0x8a8aa0);
+  add(s, cylBetween(P0, P1, 0.06, dark));
+  for (const P of [P0, P1]) {
+    add(s, cylBetween(vadd(P, 0, 0.5, -0.4), vadd(P, 0, -7, -0.4), 0.16, postM));
+  }
+  const cab = new THREE.Group(), cm = stdMat(hsl(s.hue, 0.8, 0.6));
+  const bx = (w, h, d, x, y, z) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), cm); b.position.set(x, y, z); cab.add(b); return b; };
+  const floor = bx(2.8, 0.12, 2.6, 0, -H - 1.11, 0);
+  bx(0.12, 0.6, 2.6, -1.4, -H - 0.75, 0); bx(0.12, 0.6, 2.6, 1.4, -H - 0.75, 0); bx(2.8, 0.6, 0.12, 0, -H - 0.75, -1.3); bx(2.8, 0.6, 0.12, 0, -H - 0.75, 1.3);
+  cab.add(cylBetween(new V3(0, 0, CZ), new V3(0, -H - 0.45, CZ), 0.07, dark));
+  cab.add(cylBetween(new V3(0, -H - 0.45, CZ), new V3(0, -H - 0.45, -1.3), 0.07, dark));
+  const wh = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.07, 6, 16), dark); wh.position.z = CZ; cab.add(wh);
+  cab.position.copy(top); add(s, cab);
+  let sw = 0, sv = 0;
+  tap(s, floor, () => { sv += 2; Sfx.tone(600, 0.15, 'sine', 0.12); });
+  s.update = (dt) => { sv += -sw * 25 * dt; sv *= Math.pow(0.5, dt); sw += sv * dt; cab.rotation.z = sw; };
+  const DIST = 10.4, T = 3.4;
+  s.onArrive = () => { snd.thud(); ball.squash = 0.6; sv -= 1.2; };
+  s.steps = [{
+    k: 'wait', t: T, upd: (dt, el) => {
+      const u = el / T, d = DIST * (0.35 * u + 0.65 * u * u);
+      cab.position.copy(top).addScaledVector(dirC, d); wh.rotation.z = -d * 2;
+      ball.pos.copy(cab.position).add(new V3(H * Math.sin(sw), -H * Math.cos(sw), 0)); ball.vel.copy(dirC).multiplyScalar(DIST / T * (0.35 + 1.3 * u));
+    },
+  }, { k: 'do', fn: () => { sv -= 1.5; Sfx.tone(180, 0.12, 'triangle', 0.22); Sfx.tone(800, 0.2, 'sine', 0.1, 0.05, 1300); setFace('happy', 1); } }];
+  s.exit = { pos: top.clone().addScaledVector(dirC, DIST).add(new V3(0, -H, 0)), dir: 1, drop: 2.5, vel: new V3(5, 5, 0) };
+  return finish(s);
+}
+
+// ぽんぽん ピン: ピンの うえを ぽんぽん はねて おりる
+const PENTA = [523.3, 587.3, 659.3, 784, 880, 1046.5, 1174.7, 1318.5];
+function buildPlinko(c) {
+  const E = landing(c), s = newSection('plinko', E), ROWS = 6, DX = 3.0, DY = 2.4, PR = 0.25;
+  const top0 = vadd(E, 0, -(R + PR)), seq = [0];
+  for (let r = 1; r < ROWS; r++) seq.push(seq[r - 1] + (r === ROWS - 1 || Math.random() < 0.75 ? 1 : -1)); // さいごは みぎへ
+  const lo = Math.min(...seq) - 2, hi = Math.max(...seq) + 2;
+  const pegs = new Map();
+  for (let r = 0; r < ROWS; r++) for (let j = lo; j <= hi; j++) {
+    if (((j - r) % 2 + 2) % 2) continue;
+    if ((r === 0 || r === ROWS - 1) && j !== seq[r]) continue;
+    if (r >= ROWS - 2 && j > seq[r]) continue; // でぐちの じゃまに ならない
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(PR, PR, 1.6, 12), stdMat(hsl(s.hue + j * 0.07, 0.85, 0.6), { emissive: 0x000000 }));
+    m.rotation.x = Math.PI / 2; m.position.set(top0.x + j * DX / 2, top0.y - r * DY, -0.2); add(s, m);
+    pegs.set(r + ',' + j, m); tap(s, m, () => { glow(m); Sfx.tone(pick(PENTA), 0.3, 'triangle', 0.18); });
+  }
+  const bw = (hi - lo) * DX / 2 + 2.6, bh = ROWS * DY + 1.6;
+  const board = add(s, new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.2), stdMat(hsl(s.hue + 0.5, 0.4, 0.9))));
+  board.position.set(top0.x + (lo + hi) / 2 * DX / 2, top0.y - (ROWS - 1) * DY / 2, -1.3);
+  const on = (r) => new V3(top0.x + seq[r] * DX / 2, top0.y - r * DY + R + PR, 0);
+  const lit = [];
+  function glow(m) { m.material.emissive.copy(m.material.color); m.material.emissiveIntensity = 0.8; lit.push(m); }
+  s.update = (dt) => { for (const m of lit) m.material.emissiveIntensity = Math.max(0, m.material.emissiveIntensity - dt * 1.5); };
+  const hit = (r) => { const m = pegs.get(r + ',' + seq[r]); if (m) glow(m); Sfx.tone(PENTA[(r * 2 + seq[r] + 16) % PENTA.length], 0.35, 'triangle', 0.2); ball.squash = 0.5; burst(on(r).add(new V3(0, -R, 0)), 5, s.hue + seq[r] * 0.07, 3, 2); };
+  s.onArrive = () => hit(0);
+  for (let r = 1; r < ROWS; r++) s.steps.push({ k: 'fly', to: on(r), T: 0.55, onLand: () => hit(r) });
+  s.exit = { pos: on(ROWS - 1), dir: 1, drop: 3.5, vel: new V3(4.5, 2.5, 0) };
+  return finish(s);
+}
+
+// ジャンプだいと わっか: おおジャンプで きんの わっかを くぐる
+function buildJump(c) {
+  const E = landing(c), s = newSection('jump', E);
+  const pts = curvePts([E, vadd(E, 2.6, -2.0), vadd(E, 5.0, -2.9), vadd(E, 6.6, -2.2), vadd(E, 7.6, -1.2)]);
+  const tr = trough(s, pts, s.hue);
+  tap(s, tr, (p) => { burst(p, 8, s.hue, 4, 2); Sfx.tone(rand(300, 500), 0.1, 'triangle', 0.12); });
+  const ex = pts[pts.length - 1], vel = endVel(pts, 10), ta = vel.y / G;
+  const apex = ex.clone().add(new V3(vel.x * ta, vel.y * ta - 0.5 * G * ta * ta, 0));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.24, 12, 40), stdMat(0xffc61a, { metalness: 0.5, roughness: 0.3, emissive: 0x553300 }));
+  ring.position.copy(apex); ring.rotation.y = Math.PI / 2; add(s, ring);
+  const stars = [];
+  for (let i = 0; i < 6; i++) { const st = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), stdMat(hsl(i / 6, 0.9, 0.65), { emissive: hsl(i / 6, 0.9, 0.3) })); st.position.copy(apex); add(s, st); stars.push(st); }
+  let passed = false, flash = 0;
+  const party = () => { Sfx.yay(); burst(apex, 36, null, 9, 2); flash = 1; setFace('happy', 1.5); };
+  tap(s, ring, () => { flash = 1; Sfx.chime(); });
+  s.update = (dt) => {
+    flash = Math.max(0, flash - dt);
+    ring.rotation.x += dt * (0.5 + flash * 8);
+    stars.forEach((st, i) => { const a = time * 1.5 + i / 6 * Math.PI * 2; st.position.set(apex.x, apex.y + Math.cos(a) * 2.6, Math.sin(a) * 2.6); st.rotation.y += dt * 3; });
+    if (!passed && ball.pos.x >= apex.x && ball.pos.x < apex.x + 3 && Math.abs(ball.pos.y - apex.y) < 2.5) { passed = true; party(); }
+  };
+  s.steps = [rollStep(pts, { exitV: 10, vmax: 14 })];
+  s.exit = { pos: ex.clone(), dir: 1, drop: 1.6, vel, big: true };
+  return finish(s);
+}
+
+// トランポリン 3れんぱつ
+function buildTramp(c) {
+  const E = landing(c), s = newSection('tramp', E), N = 3, P = [], pads = [];
+  const legM = stdMat(0x8a8aa0);
+  for (let k = 0; k < N; k++) {
+    const p = vadd(E, k * 3.4, -k * 0.9); P.push(p);
+    const g = new THREE.Group(); g.position.copy(p).add(new V3(0, -R, 0));
+    const mat = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 0.08, 24), stdMat(0x2a2a50)); mat.position.y = -0.04; g.add(mat);
+    const fr = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.13, 8, 28), stdMat(hsl(s.hue + k * 0.15, 0.85, 0.58))); fr.rotation.x = Math.PI / 2; g.add(fr);
+    for (let i = 0; i < 4; i++) { const a = i / 4 * Math.PI * 2 + 0.6; g.add(cylBetween(new V3(Math.cos(a) * 1.3, 0, Math.sin(a) * 1.3), new V3(Math.cos(a) * 1.5, -1.3, Math.sin(a) * 1.5), 0.07, legM)); }
+    add(s, g); pads.push({ g, mat, comp: 0 });
+    tap(s, mat, () => boing(k, false)); tap(s, fr, () => boing(k, false));
+  }
+  function boing(k, withBall = true) {
+    pads[k].comp = 1; Sfx.tone(150 + k * 70, 0.45, 'triangle', 0.3, 0, 500 + k * 160); burst(P[k].clone().add(new V3(0, -R, 0)), 8, s.hue + k * 0.15, 4, 3);
+    if (withBall) { ball.squash = 1; setFace('happy', 1); }
+  }
+  s.update = (dt) => { for (const p of pads) { p.comp = Math.max(0, p.comp - dt * 4); p.mat.position.y = -0.04 - 0.35 * Math.abs(Math.sin(p.comp * Math.PI * 2)) * p.comp; } };
+  s.onArrive = () => boing(0);
+  for (let k = 1; k < N; k++) s.steps.push({ k: 'fly', to: P[k], T: 0.75, onLand: () => boing(k) });
+  s.exit = { pos: P[N - 1].clone(), dir: 1, drop: 1.6, vel: new V3(4.5, 10, 0), big: true };
+  return finish(s);
+}
+
+// UFO: ひかりで すいあげて はこんで ぽとん
+function buildUfo(c) {
+  const E = landing(c), s = newSection('ufo', E);
+  const pad = add(s, new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.2, 0.4, 20), stdMat(0xffffff))); pad.position.copy(E).add(new V3(0, -R - 0.2, 0));
+  const U0 = vadd(E, 0.8, 6.2), U1 = vadd(E, 9.5, 2.4);
+  const ufo = new THREE.Group(); ufo.position.copy(U0);
+  const sau = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14), stdMat(0xb8c0d0, { metalness: 0.6, roughness: 0.25 })); sau.scale.set(2.4, 0.55, 2.4); ufo.add(sau);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1.1, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8fe6ff, transparent: true, opacity: 0.6, roughness: 0.1 }));
+  dome.position.y = 0.3; ufo.add(dome);
+  const lights = [];
+  for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const l = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), new THREE.MeshBasicMaterial({ color: hsl(i / 8, 0.9, 0.6) })); l.position.set(Math.cos(a) * 2.2, -0.1, Math.sin(a) * 2.2); ufo.add(l); lights.push(l); }
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 2.0, 5.6, 20, 1, true), new THREE.MeshBasicMaterial({ color: 0xfff27a, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide }));
+  beam.userData.noShadow = true; beam.position.y = -3.2; beam.visible = false; ufo.add(beam);
+  add(s, ufo);
+  tap(s, sau, () => { Sfx.tone(400, 0.4, 'sine', 0.12, 0, 1200); burst(ufo.position, 8, null, 4, 0); });
+  let flying = false;
+  s.update = (dt) => {
+    lights.forEach((l, i) => l.material.color.setHSL(((i / 8 + time * 0.5) % 1), 0.9, 0.6));
+    if (!flying) ufo.position.y = (s.done ? U1.y : U0.y) + Math.sin(time * 2) * 0.15;
+    if (s.done) ufo.position.x = U1.x + Math.sin(time * 0.7) * 0.3;
+  };
+  s.onArrive = () => { snd.thud(); ball.squash = 0.6; };
+  s.steps = [
+    { k: 'wait', t: 0.5, enter: () => { beam.visible = true; Sfx.tone(300, 0.6, 'sine', 0.12, 0, 900); setFace('wow', 3.5); } },
+    { k: 'wait', t: 1.1, upd: (dt, el) => { ball.pos.lerpVectors(E, ufo.position.clone().add(new V3(0, -1.7, 0)), ease(el / 1.1)); ball.vel.set(0, 2, 0); } },
+    {
+      k: 'wait', t: 2.2, enter: () => { flying = true; }, upd: (dt, el) => {
+        ufo.position.lerpVectors(U0, U1, ease(el / 2.2)).add(new V3(0, Math.sin(el * 6) * 0.15, 0));
+        ball.pos.copy(ufo.position).add(new V3(0, -1.7, 0)); ball.vel.set(9 / 2.2, 0.4, 0);
+      },
+    },
+    { k: 'do', fn: () => { beam.visible = false; flying = false; s.done = true; Sfx.tone(900, 0.3, 'sine', 0.12, 0, 300); } },
+  ];
+  s.exit = { pos: vadd(U1, 0, -1.7), dir: 1, drop: 3.5, vel: new V3(2.5, 0, 0) };
+  return finish(s);
+}
+
+const BUILD = { slope: buildSlope, spiral: buildSpiral, domino: buildDomino, xylo: buildXylo, spring: buildSpring, cannon: buildCannon, water: buildWater, fork: buildFork,
+  loop: buildLoop, balloon: buildBalloon, seesaw: buildSeesaw, cart: buildCart, tube: buildTube, wheel: buildWheel, gondola: buildGondola, plinko: buildPlinko, jump: buildJump, tramp: buildTramp, ufo: buildUfo };
+const WEIGHT = { slope: 1.2, spiral: 1.5, domino: 1.5, xylo: 1.5, spring: 1.3, cannon: 1.2, water: 1.2, fork: 1.0,
+  loop: 1.5, balloon: 1.2, seesaw: 1.4, cart: 1.4, tube: 1.4, wheel: 1.2, gondola: 1.2, plinko: 1.4, jump: 1.4, tramp: 1.4, ufo: 1.1 };
+const recent = [];
+function chooseKind() {
+  if (window.__force && window.__force.length) return window.__force.shift(); // テストよう
+  const tall = ['spiral', 'wheel', 'loop', 'balloon', 'ufo'].includes(recent[recent.length - 1]); // たかい しかけの つぎに たかい しかけは おかない
+  const high = ['spring', 'cannon', 'jump', 'tramp'].includes(recent[recent.length - 1]); // うえから とんでくる ときは UFO を おかない
+  const ks = Object.keys(WEIGHT).filter(k => k !== recent[recent.length - 1] && !(tall && (k === 'ufo' || k === 'balloon')) && !(high && k === 'ufo') && !(k === 'fork' && recent.slice(-3).includes('fork')) && !(recent.length < 2 && (k === 'fork' || k === 'cannon')));
+  let sum = 0; for (const k of ks) sum += WEIGHT[k];
+  let r = Math.random() * sum;
+  for (const k of ks) { r -= WEIGHT[k]; if (r <= 0) return k; }
+  return ks[0];
+}
+function buildNext() {
+  const last = sections[sections.length - 1];
+  if (last && last.kind === 'fork' && last.choice == null) return false;
+  const kind = chooseKind();
+  const s = BUILD[kind](cursor);
+  sections.push(s); recent.push(kind); if (recent.length > 6) recent.shift();
+  if (s.exit) cursor = { pos: s.exit.pos.clone(), dir: s.exit.dir, drop: s.exit.drop, vel: s.exit.launchT ? null : s.exit.vel };
+  return true;
+}
+function ensureAhead() { while (sections.length - 1 - sections.indexOf(cur.sec) < 3 && buildNext()); }
+function disposeSection(s) {
+  scene.remove(s.outer);
+  s.outer.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
+  for (const t of s.texs) t.dispose();
+}
+
+// ---- たまの すすみかた ----
+let cur = null, st = null, started = false;
+function enterStep(step) {
+  st = { step, t: 0 };
+  if (step.k === 'roll') {
+    st.s = 0; st.idx = 0;
+    const vin = ball.vel.dot(step.pts[1].clone().sub(step.pts[0]).normalize()); // ぎゃくむきなら かべで こつん
+    st.v = vin < 1 ? 2.8 : Math.max(vin * 0.85, 2.8);
+  }
+  if (step.k === 'fly') {
+    st.p0 = ball.pos.clone(); st.to = step.to.clone();
+    const T = step.T;
+    st.v0 = st.to.clone().sub(st.p0).addScaledVector(Y_UP, 0.5 * G * T * T).divideScalar(T);
+    if (step.big) { snd.whoosh(); setFace('wow', T + 0.3); }
+  }
+  step.enter?.();
+}
+function advance() {
+  const s = cur.sec; cur.i++;
+  if (cur.i < s.steps.length) { enterStep(s.steps[cur.i]); return; }
+  const nx = sections[sections.indexOf(s) + 1];
+  if (!nx) { s.steps.push({ k: 'wait', upd: () => !!sections[sections.indexOf(s) + 1] }); enterStep(s.steps[cur.i]); return; }
+  // つぎの しかけへ ぽーんと とぶ
+  const ex = s.exit, p0 = ball.pos, to = nx.E;
+  let T;
+  if (ex.launchT) T = ex.launchT;
+  else {
+    if (ex.vel) ball.vel.copy(ex.vel);
+    const h = p0.y - to.y, vy = ball.vel.y; // いまの いきおいの まま しぜんに おちる じかん
+    T = h > 0 ? (vy + Math.sqrt(vy * vy + 2 * G * h)) / G : 0.4;
+    T = Math.max(0.25, T);
+  }
+  cur = { sec: nx, i: -1 };
+  enterStep({ k: 'fly', to, T, big: !!ex.launchT || !!ex.big, onLand: () => { if (nx.onArrive) nx.onArrive(); else { snd.thud(); ball.squash = 0.7; } } });
+  ensureAhead();
+}
+const tan = new V3();
+function runStep(dt) {
+  const step = st.step; st.t += dt;
+  if (step.k === 'roll') {
+    const pts = step.pts, cum = step.cum;
+    tan.subVectors(pts[st.idx + 1], pts[st.idx]).normalize();
+    st.v += (G * 0.6 * -tan.y - 0.15 * st.v) * dt;
+    st.v = clamp(st.v, step.vmin || 2.6, step.vmax || 12);
+    if (step.exitV && st.s > step.len - 2.5) st.v += (step.exitV - st.v) * Math.min(1, dt * 6);
+    const prev = st.s; st.s += st.v * dt;
+    for (const ev of step.events || []) if (prev < ev.at && st.s >= ev.at) ev.fn();
+    if (st.s >= step.len) { ball.pos.copy(pts[pts.length - 1]); ball.vel.copy(tan).multiplyScalar(step.exitV || st.v); return true; }
+    while (st.idx < pts.length - 2 && cum[st.idx + 1] < st.s) st.idx++;
+    const a = pts[st.idx], b = pts[st.idx + 1], f = (st.s - cum[st.idx]) / Math.max(1e-6, cum[st.idx + 1] - cum[st.idx]);
+    ball.pos.lerpVectors(a, b, f);
+    tan.subVectors(b, a).normalize(); ball.vel.copy(tan).multiplyScalar(st.v);
+    return false;
+  }
+  if (step.k === 'fly') {
+    const t = Math.min(st.t, step.T);
+    ball.pos.copy(st.p0).addScaledVector(st.v0, t).addScaledVector(Y_UP, -0.5 * G * t * t);
+    ball.vel.copy(st.v0).addScaledVector(Y_UP, -G * t);
+    if (st.t >= step.T) { ball.pos.copy(st.to); step.onLand?.(); return true; }
+    return false;
+  }
+  if (step.k === 'wait') {
+    const r = step.upd?.(dt, st.t, st);
+    if (!step.upd) ball.vel.set(0, 0, 0);
+    return r === true || (step.t != null && st.t >= step.t);
+  }
+  if (step.k === 'do') { step.fn(); return true; }
+  return true;
+}
+
+// ---- けしき ----
+const THEMES = [0x8fd3ff, 0xffc08a, 0xc9a2ff, 0x1f2f66, 0x7fd8c8].map(c => new THREE.Color(c));
+const NIGHT = [0, 0.15, 0.35, 1, 0.25];
+const starGeo = new THREE.BufferGeometry(), sp = [];
+for (let i = 0; i < 500; i++) { const v = new V3(rand(-1, 1), rand(-1, 1), rand(-1, 0.2)).normalize().multiplyScalar(100); sp.push(v.x, v.y, v.z); }
+starGeo.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 3, sizeAttenuation: false, transparent: true, opacity: 0, fog: false }));
+scene.add(stars);
+camera.far = 220;
+
+const CLOUD_GEO = new THREE.IcosahedronGeometry(1, 1), cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+const DECO_GEO = [new THREE.TorusGeometry(1, 0.38, 10, 24), new THREE.OctahedronGeometry(1.2), new THREE.DodecahedronGeometry(1.1), new THREE.SphereGeometry(1, 16, 12)];
+const decor = [];
+let decorX = -30;
+function spawnDecor(y) {
+  const r = Math.random(); let o;
+  if (r < 0.55) {
+    o = new THREE.Group();
+    const n = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) { const m = new THREE.Mesh(CLOUD_GEO, cloudMat); m.position.set((i - n / 2) * 1.2, rand(-0.3, 0.4), rand(-0.4, 0.4)); m.scale.setScalar(rand(0.9, 1.7)); o.add(m); }
+  } else if (r < 0.85) {
+    o = new THREE.Mesh(pick(DECO_GEO.slice(0, 3)), stdMat(hsl(Math.random(), 0.8, 0.65), { flatShading: true })); o.userData.own = true;
+  } else {
+    o = new THREE.Group();
+    const m = new THREE.Mesh(DECO_GEO[3], stdMat(hsl(Math.random(), 0.85, 0.6), { roughness: 0.3 })); m.scale.set(1, 1.2, 1); o.add(m);
+    const str = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.5, 4), stdMat(0xffffff)); str.position.y = -2.4; o.add(str);
+    o.userData.balloon = true;
+  }
+  o.position.set(y.x, y.y, rand(-26, -7));
+  o.userData.spin = rand(-0.6, 0.6); o.userData.y0 = y.y; o.userData.ph = rand(0, 7);
+  scene.add(o); decor.push(o);
+}
+function disposeDecor(o) {
+  scene.remove(o);
+  o.traverse(q => { if (q.isMesh && q.material !== cloudMat) { q.material.dispose(); if (!DECO_GEO.includes(q.geometry) && q.geometry !== CLOUD_GEO) q.geometry.dispose(); } });
+}
+
+// ---- カメラ ----
+const camT = new V3(0, -1, 0); let zoom = 0;
+function updCamera(dt) {
+  const look = ball.pos.clone().add(new V3(3, -1.4, 0)).addScaledVector(ball.vel, 0.12);
+  camT.lerp(look, 1 - Math.exp(-3.5 * dt));
+  const bigFly = st && st.step.k === 'fly' && st.step.big;
+  zoom += ((bigFly ? 6 : 0) - zoom) * (1 - Math.exp(-2 * dt));
+  const asp = innerWidth / innerHeight, dist = (asp < 1 ? 21 : 14) + zoom;
+  camera.position.set(camT.x - 1.5, camT.y + 6 + zoom * 0.5, dist);
+  camera.lookAt(camT);
+  sun.position.set(camT.x + 7, camT.y + 14, 10); sun.target.position.copy(camT);
+  stars.position.copy(camera.position);
+}
+
+// ---- タッチ ----
+const ray = new THREE.Raycaster(), nd = new THREE.Vector2();
+function hop(big = false) {
+  if (big) { ball.hopV = Math.max(ball.hopV, 0) + 11; snd.big(); burst(ball.pos.clone(), 18, null, 7, 3); setFace('happy', 1.6); return; }
+  ball.hopV = ball.hop > 0.05 ? Math.min(ball.hopV + 4, 12) : 7.5;
+  snd.hop(); burst(ball.pos.clone().add(new V3(0, -0.8, 0)), 6, null, 3, 1); setFace('happy', 0.9);
+}
+cv.addEventListener('pointerdown', (e) => {
+  Sfx.ac();
+  if (!started) { started = true; }
+  nd.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(nd, camera);
+  if (!ball.hidden && ray.ray.distanceToPoint(ballMesh.position) < 1.9) { hop(); return; }
+  const objs = []; for (const s of sections) for (const t of s.taps) objs.push(t.obj);
+  const hit = ray.intersectObjects(objs, true)[0];
+  if (hit) {
+    for (const s of sections) for (const t of s.taps) {
+      let o = hit.object; while (o && o !== t.obj) o = o.parent;
+      if (o) { t.fn(hit.point); return; }
+    }
+  }
+  const s = cur.sec;
+  if (s.kind === 'fork' && s.choice == null && cur.i === 0) {
+    const bp = ballMesh.position.clone().project(camera);
+    choose(s, nd.y > bp.y ? 1 : -1); return;
+  }
+  hop();
+});
+btn.addEventListener('pointerdown', () => { flashPress(btn); Sfx.ac(); if (!started) { started = true; return; } hop(true); });
+
+// ---- まいフレーム ----
+let time = 0, last = performance.now();
+const qTmp = new THREE.Quaternion(), axis = new V3();
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+  if (!started && time > 1.6) started = true;
+
+  let guard = 0;
+  if (runStep(dt)) { advance(); while (guard++ < 6 && runStep(0)) advance(); }
+
+  // ぴょん・ころころ・ぺちゃ
+  if (ball.hop > 0 || ball.hopV > 0) { ball.hopV -= G * dt; ball.hop += ball.hopV * dt; if (ball.hop <= 0) { ball.hop = 0; ball.hopV = 0; ball.squash = Math.max(ball.squash, 0.5); } }
+  ball.squash = Math.max(0, ball.squash - dt * 4);
+  axis.crossVectors(Y_UP, ball.vel);
+  const sp2 = axis.length();
+  if (sp2 > 1e-4) { axis.divideScalar(sp2); ballMesh.quaternion.premultiply(qTmp.setFromAxisAngle(axis, sp2 * dt / R)); }
+  ballMesh.position.copy(ball.pos).add(new V3(0, ball.hop, 0));
+  const sq = Math.sin(ball.squash * Math.PI) * 0.22;
+  ballMesh.scale.set((1 + sq) * ball.scale, (1 - sq) * ball.scale, (1 + sq) * ball.scale);
+  ballMesh.visible = face.visible = !ball.hidden;
+  if (time > nextBlink) { nextBlink = time + rand(2, 4.5); }
+  const blinking = time > nextBlink - 0.13;
+  const fk = time < faceUntil ? faceKind : (blinking ? 'blink' : 'smile');
+  if (face.material.map !== FACES[fk]) face.material.map = FACES[fk];
+
+  updCamera(dt);
+  face.position.copy(ballMesh.position).addScaledVector(camera.position.clone().sub(ballMesh.position).normalize(), 1.06 * ball.scale);
+  face.scale.set(1.5 * ball.scale * (1 + sq), 1.5 * ball.scale * (1 - sq), 1);
+
+  // しかけ: でてくる ときに ぽんっ・うごき・うしろの ものを かたづける
+  for (const s of sections) {
+    if (!s.grown) {
+      const k = Math.min(1, (time - s.born) / 0.55);
+      const e = k >= 1 ? 1 : Math.pow(2, -10 * k) * Math.sin((k * 10 - 0.75) * (2 * Math.PI / 3)) * 0.6 + 1;
+      s.outer.scale.setScalar(Math.max(0.01, e));
+      if (k >= 1) s.grown = true;
+    }
+    s.update?.(dt);
+  }
+  while (sections.length > 1 && sections[0] !== cur.sec && sections[0].box.max.x < ball.pos.x - 34) disposeSection(sections.shift());
+
+  // けしき
+  while (decorX < camT.x + 45) { spawnDecor({ x: decorX, y: camT.y + rand(-16, 12) - (decorX - camT.x) * 0.35 }); decorX += rand(2, 4.5); }
+  for (let i = decor.length - 1; i >= 0; i--) {
+    const o = decor[i];
+    o.rotation.y += o.userData.spin * dt;
+    if (o.userData.balloon) o.position.y = o.userData.y0 + Math.sin(time + o.userData.ph) * 0.5;
+    if (o.position.x < camT.x - 45 || o.position.y > camT.y + 45) { disposeDecor(o); decor.splice(i, 1); }
+  }
+  const d = (Math.max(0, camT.x) + Math.max(0, -camT.y)) / 360, i0 = Math.floor(d) % THEMES.length, i1 = (i0 + 1) % THEMES.length;
+  let f = d - Math.floor(d); f = f < 0.7 ? 0 : (f - 0.7) / 0.3; f = f * f * (3 - 2 * f);
+  bg.copy(THEMES[i0]).lerp(THEMES[i1], f); scene.fog.color.copy(bg);
+  stars.material.opacity = NIGHT[i0] * (1 - f) + NIGHT[i1] * f;
+
+  updParts(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+});
+
+// ---- はじまり ----
+const s0 = buildStart();
+sections.push(s0); recent.push('start');
+cursor = { pos: s0.exit.pos.clone(), dir: s0.exit.dir, drop: s0.exit.drop, vel: s0.exit.vel };
+ball.pos.copy(s0.E);
+cur = { sec: s0, i: 0 }; enterStep(s0.steps[0]);
+ensureAhead();
+camT.copy(ball.pos).add(new V3(3, -1.4, 0));
+window.__dbg = { THREE, face, ballMesh, camera, ball, sections, get cur() { return cur; }, get st() { return st; }, choose, hop, get time() { return time; } };
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
