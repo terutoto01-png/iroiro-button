@@ -1013,8 +1013,9 @@ function updCamera(dt) {
 // ---- タッチ ----
 const ray = new THREE.Raycaster(), nd = new THREE.Vector2();
 function hop(big = false) {
-  if (big) { ball.hopV = Math.max(ball.hopV, 0) + 11; snd.big(); burst(ball.pos.clone(), 18, null, 7, 3); setFace('happy', 1.6); return; }
-  ball.hopV = ball.hop > 0.05 ? Math.min(ball.hopV + 4, 12) : 7.5;
+  const cap = (H) => Math.sqrt(2 * G * Math.max(0, H - ball.hop)); // れんだ しても この たかさ まで
+  if (big) { ball.hopV = Math.max(ball.hopV, Math.min(ball.hop > 0.05 ? ball.hopV + 3 : 9.5, cap(2.6))); snd.big(); burst(ball.pos.clone(), 18, null, 7, 3); setFace('happy', 1.6); return; }
+  ball.hopV = Math.max(ball.hopV, Math.min(ball.hop > 0.05 ? ball.hopV + 3 : 7.5, cap(2.0)));
   snd.hop(); burst(ball.pos.clone().add(new V3(0, -0.8, 0)), 6, null, 3, 1); setFace('happy', 0.9);
 }
 cv.addEventListener('pointerdown', (e) => {
