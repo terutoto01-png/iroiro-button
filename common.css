@@ -14,7 +14,7 @@ html, body {
 }
 /* Apple 以外の きかいでは えもじを Google の フォントで（common.js が html に emoji-font を つける）。
    このフォントには えもじ しか はいっていないので、すうじ・にほんごは うしろの ふつうの フォントで でる */
-@font-face { font-family: 'IroEmoji'; src: url('fonts/iroemoji.woff2?v=5') format('woff2'); font-display: swap; } /* Noto Color Emoji の きりだし（fonts/OFL.txt） */
+@font-face { font-family: 'IroEmoji'; src: url('fonts/iroemoji.woff2?v=6') format('woff2'); font-display: swap; } /* Noto Color Emoji の きりだし（fonts/OFL.txt） */
 html.emoji-font, html.emoji-font body { font-family: "IroEmoji", "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Meiryo", system-ui, sans-serif; }
 canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
 

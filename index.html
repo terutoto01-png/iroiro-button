@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css?v=21">
+<link rel="stylesheet" href="common.css?v=22">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -98,6 +98,7 @@ const PAGES = [
   ['shoberu', '🚜', '#ffb300', '#b87d00'], ['pokopoko', '🐹', '#ff8a3d', '#b8561c'],
   ['gattai', '🐘', '#ff7ab8', '#c94585'],
   ['pinball', '🕹️', '#ff5e7e', '#b8304d'], ['meiro', '🗺️', '#66bb44', '#3f8a26'],
+  ['aiueo', '💬', '#ff8fb8', '#c25784'],
   ['katahame', '🧩', '#ff9f1c', '#c47200'], ['kenkenpa', '🦶', '#8a9099', '#5b6068'],
   ['daruma', '🙈', '#ff7b54', '#b84a26'], ['oisha', '🩺', '#4fc3f7', '#1e88c7'],
   ['shoubou', '🚒', '#ff3b3b', '#a81c1c'], ['tsuri', '🎣', '#20a4e8', '#0d6f99'],
@@ -141,7 +142,7 @@ const GROUPS = [
   { e: '🎉', bg: '#ffd9e8', bd: '#f28bb5', items: ['kamifubuki', 'shabondama', 'fuusen', 'bikkuri', 'popcorn', 'hakushon', 'toire', 'obake', 'saikoro', 'gacha', 'okashi', 'keeki', 'oryouri', 'yukidaruma', 'tsurii', 'ohana', 'tejina', 'aisu', 'obentou', 'kureen', 'sunaba', 'kanransha', 'doonatsu'] },
   { e: '🚗', bg: '#d6ecff', bd: '#7fb6ef', items: ['kuruma', 'densha', 'fumikiri', 'drive', 'roketto', 'shoberu', 'hashire', 'shoubou', 'senro', 'kouji', 'sensha', 'shingou', 'hikouki'] },
   { e: '🐶', bg: '#ffe6cc', bd: '#f0ac6a', items: ['doubutsu', 'nigeru', 'sakana', 'nadenade', 'kyouryuu', 'tamago', 'osanpo', 'tsuri', 'kaeru', 'mushitori', 'suberidai', 'iruka'] },
-  { e: '👆', bg: '#e2f7d9', bd: '#8fce73', items: ['fukifuki', 'nijipen', 'katachi', 'mizuyari', 'biyoon', 'awaawa', 'domino', 'sentaku', 'hamigaki', 'tako', 'sutanpu', 'karakuri'] },
+  { e: '👆', bg: '#e2f7d9', bd: '#8fce73', items: ['fukifuki', 'nijipen', 'katachi', 'mizuyari', 'biyoon', 'awaawa', 'domino', 'sentaku', 'hamigaki', 'tako', 'sutanpu', 'karakuri', 'aiueo'] },
   { e: '🎵', bg: '#eadfff', bd: '#ae8ff0', items: ['ongaku', 'taiko', 'onara', 'kao', 'kusuguri', 'beru', 'korokoro'] },
   { e: '🎮', bg: '#d9f5f2', bd: '#6fcfc4', items: ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'pyonpyon', 'tsumiki', 'inseki', 'pokopoko', 'gattai', 'booringu', 'sakkaa', 'daibouken'] },
 ];
@@ -157,7 +158,7 @@ async function hasWebGPU() {
 const can = { gpu: await hasWebGPU(), hic: HIC.supported, mic: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) };
 // ---- ひらいた ことの ある ボタン（この ブラウザに おぼえておく） ----
 // はじめて この しくみが うごく ときは、ふるい ボタンは「ひらいた こと あり」に しておき、さいきん ふえた ぶんだけ ✨ に する
-const NEWEST = ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'yukidaruma', 'hakushon', 'tsurii', 'awaawa', 'gacha', 'domino', 'toire', 'shinkai', 'shoberu', 'pokopoko', 'gattai', 'hikouki', 'doonatsu', 'iruka', 'beru', 'ufo', 'korokoro', 'mahounoki', 'karakuri', 'daibouken'];
+const NEWEST = ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'yukidaruma', 'hakushon', 'tsurii', 'awaawa', 'gacha', 'domino', 'toire', 'shinkai', 'shoberu', 'pokopoko', 'gattai', 'hikouki', 'doonatsu', 'iruka', 'beru', 'ufo', 'korokoro', 'mahounoki', 'karakuri', 'daibouken', 'aiueo'];
 let seen;
 try { seen = JSON.parse(localStorage.getItem('iroiro-seen')); } catch (e) {}
 if (!Array.isArray(seen)) { seen = PAGES.map(p => p[0]).filter(f => !NEWEST.includes(f)); saveSeen(); }

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#ff6b9a">
+<title>あいうえお</title>
+<link rel="stylesheet" href="common.css?v=22">
+<style>
+  body { background: linear-gradient(#fff6d8, #ffe3ec); }
+  .stage { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 10; }
+  @media (orientation: landscape) { .stage { top: 47%; } }
+  #btn { --c1: #ffffff; --c2: #f2a7c0; width: min(48vw, 260px); height: min(48vw, 260px); }
+  #btn .emoji { font-size: min(22vw, 120px); transition: transform .25s cubic-bezier(.3, 1.8, .5, 1); }
+  #btn .emoji.out { transform: scale(0); transition: transform .12s; }
+</style>
+</head>
+<body>
+<canvas id="cv" class="full"></canvas>
+<div class="stage"><button id="btn" class="big-btn"><span class="emoji" id="pic">🍎</span></button></div>
+<script src="common.js?v=18"></script>
+<script>
+// あいうえお: えの ボタンを おすと その ことばの ひらがなが ぽん ぽん と とびだして よみあげる。
+// とびだした もじは したに つもる。さわると その もじを よんで はねる。ゆびで はじいて なげられる。
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const btn = document.getElementById('btn'), pic = document.getElementById('pic');
+
+// ちいさい「ゃ」「っ」や「ー」の ない ことば だけ（1もじずつ よんでも おなじ おとに なる）
+const WORDS = [
+  ['🍎', 'りんご'], ['🍓', 'いちご'], ['🍌', 'ばなな'], ['🍊', 'みかん'], ['🍇', 'ぶどう'], ['🍉', 'すいか'], ['🍑', 'もも'],
+  ['🍒', 'さくらんぼ'], ['🍙', 'おにぎり'], ['🍞', 'ぱん'], ['🥚', 'たまご'], ['🍬', 'あめ'],
+  ['🐶', 'いぬ'], ['🐱', 'ねこ'], ['🐰', 'うさぎ'], ['🐘', 'ぞう'], ['🦒', 'きりん'], ['🐵', 'さる'], ['🐼', 'ぱんだ'],
+  ['🐸', 'かえる'], ['🐷', 'ぶた'], ['🐮', 'うし'], ['🐴', 'うま'], ['🐔', 'にわとり'], ['🐤', 'ひよこ'], ['🐧', 'ぺんぎん'],
+  ['🐻', 'くま'], ['🦁', 'らいおん'], ['🐯', 'とら'], ['🐟', 'さかな'], ['🐙', 'たこ'], ['🦀', 'かに'], ['🐬', 'いるか'],
+  ['🐳', 'くじら'], ['🐢', 'かめ'], ['🐜', 'あり'], ['🐝', 'はち'], ['🐞', 'てんとうむし'],
+  ['🚗', 'くるま'], ['🚌', 'ばす'], ['🚢', 'ふね'], ['✈️', 'ひこうき'],
+  ['⭐', 'ほし'], ['🌙', 'つき'], ['☀️', 'たいよう'], ['🌈', 'にじ'], ['🌸', 'はな'], ['🌳', 'き'], ['⛄', 'ゆきだるま'],
+  ['☂️', 'かさ'], ['👟', 'くつ'], ['👒', 'ぼうし'], ['👓', 'めがね'], ['📖', 'ほん'], ['🔑', 'かぎ'], ['🥁', 'たいこ'],
+  ['🎈', 'ふうせん'], ['👻', 'おばけ'], ['🍦', 'あいす'], ['🦷', 'は'], ['👀', 'め'], ['👂', 'みみ'],
+].filter(w => !/[ゃゅょっー]/.test(w[1]));
+
+let deck = [], cur = null;
+function nextWord() {
+  if (!deck.length) { deck = WORDS.slice(); for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } if (cur && deck[deck.length - 1] === cur) deck.unshift(deck.pop()); }
+  cur = deck.pop(); pic.textContent = cur[0];
+}
+nextWord();
+
+// ---- もじの つぶ ----
+const HUES = [0, 30, 50, 130, 190, 220, 270, 320];
+let W = 0, H = 0, R = 40, SAB = 0, letters = [], sparks = [];
+function resize() { fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; R = Math.max(30, Math.min(48, Math.min(W, H) * 0.068)); SAB = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sab')) || 0; }
+addEventListener('resize', resize); resize();
+const FONT = () => `bold ${Math.round(R * 1.15)}px "Hiragino Maru Gothic ProN", "BIZ UDPGothic", "Meiryo", sans-serif`;
+
+function btnCircle() {
+  const r = btn.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 + 6, r: r.width / 2 + 4 };
+}
+
+function addLetter(ch, hue, x, y, vx, vy) {
+  const L = { ch, hue, x, y, vx, vy, a: (Math.random() - 0.5) * 0.6, va: (Math.random() - 0.5) * 8, sq: 0, glow: 0, born: performance.now(), dead: 0, grab: null };
+  letters.push(L);
+  // おおすぎたら ふるい もじから ぱちんと きえる
+  const MAX = Math.floor(W * H / (R * R * 9));
+  const alive = letters.filter(l => !l.dead);
+  if (alive.length > MAX) for (const l of alive.slice(0, alive.length - MAX)) if (!l.grab && !l.show) { l.dead = performance.now(); spark(l.x, l.y, l.hue, 6); }
+  return L;
+}
+
+function spark(x, y, hue, n = 10) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 120 + Math.random() * 260;
+    sparks.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 80, t: 0, life: 0.5 + Math.random() * 0.4, hue: hue + (Math.random() - 0.5) * 40, r: 4 + Math.random() * 5 });
+  }
+}
+
+// ---- おと ----
+const PENTA = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.5];
+function popSound(i) { const f = PENTA[Math.min(i, PENTA.length - 1)]; Sfx.tone(f, 0.16, 'sine', 0.3, 0, f * 1.5); Sfx.tone(f * 2, 0.08, 'triangle', 0.06); }
+
+// ---- ボタン: ことばが とびだす → うえに ならんで とまる → よみあげ（ぴょこぴょこ）→ おちる ----
+const FLY = 380, GAP = 150, WAVE = 190;
+let group = null;
+function startWord() {
+  const [, word] = cur, chars = [...word], c = btnCircle(), n = chars.length, now = performance.now();
+  const sp = Math.min(R * 2.6, (W - R * 2) / n), y = Math.max(R + 76, c.y - c.r - R * 1.8);
+  const hue0 = HUES[Math.floor(Math.random() * HUES.length)];
+  group = { word, n, t0: now, spokeAt: 0, dropAt: 0, letters: [], chars, c, hue0, sp, y, dropped: false };
+}
+function updGroup(now) {
+  const g = group; if (!g) return;
+  // じゅんばんに とびだす
+  while (g.letters.length < g.n && now >= g.t0 + g.letters.length * GAP) {
+    const i = g.letters.length, k = (g.n === 1 ? 0 : i / (g.n - 1) - 0.5);
+    const sx = g.c.x + k * g.c.r * 0.9, sy = g.c.y - g.c.r * 0.35;
+    const L = addLetter(g.chars[i], (g.hue0 + i * 45) % 360, sx, sy, 0, 0);
+    L.show = { i, sx, sy, tx: W / 2 + (i - (g.n - 1) / 2) * g.sp, ty: g.y, t0: now, sc: 1 };
+    L.glow = 1; g.letters.push(L); popSound(i); spark(sx, sy, L.hue, 6);
+  }
+  // ぜんぶ ならんだら よむ
+  if (!g.spokeAt && g.letters.length === g.n && now >= g.t0 + (g.n - 1) * GAP + FLY + 120) {
+    g.spokeAt = now; speak(g.word + '！', 0.85, 1.25);
+    g.dropAt = now + g.n * WAVE + 650;
+  }
+  if (g.spokeAt && !g.dropped && now >= g.dropAt) dropGroup(g, now, 70);
+  if (g.dropped && now >= g.dropAt + 160 && !g.picDone) { g.picDone = true; newPicture(); }
+  if (g.picDone && g.letters.every(l => !l.show)) group = null;
+}
+function dropGroup(g, now, stagger) {
+  g.dropped = true; g.dropAt = now;
+  g.letters.forEach((l, i) => { if (l.show) l.show.dropAt = now + i * stagger; });
+  Sfx.tone(900, 0.35, 'sine', 0.1, 0, 300); // ひゅーん
+}
+function newPicture() {
+  pic.classList.add('out');
+  setTimeout(() => { nextWord(); pic.classList.remove('out'); Sfx.tone(880, 0.1, 'sine', 0.12, 0, 1400); }, 150);
+}
+btn.addEventListener('pointerdown', () => {
+  flashPress(btn); Sfx.ac();
+  const now = performance.now();
+  if (group && group.letters.length < group.n) return; // とびだしている とちゅうは まつ
+  if (group) { // ならんでいる ときに おしたら: いまの もじを おとして、すぐ つぎの ことば
+    if (!group.dropped) dropGroup(group, now, 35);
+    group.picDone = true; nextWord(); pic.classList.remove('out');
+  }
+  startWord();
+});
+// ならんでいる もじの いち
+const easeBack = (u) => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); };
+function showPos(l, now, dt) {
+  const s = l.show, u = Math.min(1, (now - s.t0) / FLY), e = easeBack(u);
+  let x = s.sx + (s.tx - s.sx) * e, y = s.sy + (s.ty - s.sy) * e - Math.sin(Math.PI * u) * R * 1.2, sc = 0.6 + 0.55 * Math.min(1, u * 1.4);
+  if (u >= 1) { y += Math.sin(now / 260 + s.i * 0.9) * R * 0.08; sc = 1.15; }
+  const g = group;
+  if (g && g.spokeAt && !s.dropAt) { // よみあげに あわせて ぴょこん
+    const k = (now - (g.spokeAt + s.i * WAVE)) / 300;
+    if (k > 0 && k < 1) { y -= Math.sin(Math.PI * k) * R * 0.8; sc = 1.15 + Math.sin(Math.PI * k) * 0.25; if (!s.hopped) { s.hopped = true; l.glow = 1; l.sq = 0.4; } }
+  }
+  if (u >= 1 && !s.landed) { s.landed = true; l.sq = 0.7; }
+  l.vx = (x - l.x) / Math.max(dt, 0.001); l.vy = (y - l.y) / Math.max(dt, 0.001); l.x = x; l.y = y; s.sc = sc;
+  l.a = Math.sin(now / 330 + s.i) * 0.08;
+  if (s.dropAt && now >= s.dropAt) { l.show = null; l.vx = (Math.random() - 0.5) * 180; l.vy = -380 - Math.random() * 120; l.va = (Math.random() - 0.5) * 6; }
+}
+
+// ---- もじに さわる: よむ・はねる・なげる ----
+const grabs = new Map();
+cv.addEventListener('pointerdown', (e) => {
+  Sfx.ac();
+  const x = e.clientX, y = e.clientY;
+  let best = null, bd = (R * 1.35) ** 2;
+  for (const l of letters) { if (l.dead || l.grab) continue; const d = (l.x - x) ** 2 + (l.y - y) ** 2; if (d < bd) { bd = d; best = l; } }
+  if (!best) { spark(x, y, HUES[Math.floor(Math.random() * HUES.length)], 5); Sfx.tone(700 + Math.random() * 300, 0.06, 'sine', 0.08); return; }
+  const g = { l: best, ox: best.x - x, oy: best.y - y, sx: x, sy: y, t0: performance.now(), hist: [[x, y, performance.now()]], moved: false };
+  best.show = null; best.grab = g; grabs.set(e.pointerId, g);
+  best.glow = 1; best.sq = 0.6;
+  speak(best.ch, 0.9, 1.3); Sfx.tone(PENTA[Math.floor(Math.random() * 5)], 0.12, 'sine', 0.22, 0, 1200);
+  spark(best.x, best.y, best.hue, 8);
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+});
+cv.addEventListener('pointermove', (e) => {
+  const g = grabs.get(e.pointerId); if (!g) return;
+  const now = performance.now();
+  g.hist.push([e.clientX, e.clientY, now]); while (g.hist.length > 2 && now - g.hist[0][2] > 90) g.hist.shift();
+  if (Math.hypot(e.clientX - g.sx, e.clientY - g.sy) > 12) g.moved = true;
+  g.tx = e.clientX + g.ox; g.ty = e.clientY + g.oy;
+});
+function release(e) {
+  const g = grabs.get(e.pointerId); if (!g) return;
+  grabs.delete(e.pointerId); const l = g.l; l.grab = null;
+  if (!g.moved) { l.vy = -900 - Math.random() * 200; l.vx += (Math.random() - 0.5) * 200; l.va = (Math.random() - 0.5) * 14; return; } // ぴょん
+  const h = g.hist, a = h[0], b = h[h.length - 1], dt = Math.max(0.016, (b[2] - a[2]) / 1000);
+  l.vx = Math.max(-2600, Math.min(2600, (b[0] - a[0]) / dt)); l.vy = Math.max(-2600, Math.min(2600, (b[1] - a[1]) / dt));
+  l.va = l.vx / R * 0.3;
+  if (Math.hypot(l.vx, l.vy) > 900) Sfx.tone(400, 0.2, 'sine', 0.15, 0, 900); // びゅん
+}
+cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+
+// ---- うごき ----
+const GRAV = 2200;
+let lastT = performance.now(), lastClack = 0;
+function clack(v) {
+  const now = performance.now(); if (now - lastClack < 50 || v < 260) return; lastClack = now;
+  Sfx.tone(300 + Math.random() * 200, 0.05, 'triangle', Math.min(0.12, v / 6000));
+}
+function step(dt) {
+  const floor = H - Math.max(10, SAB) - 8;
+  const bc = btnCircle();
+  const nowS = performance.now();
+  for (const l of letters) {
+    if (l.show) { showPos(l, nowS, dt); l.sc0 = l.show ? l.show.sc : l.sc0; continue; }
+    if (l.sc0 !== undefined) { l.sc0 += (1 - l.sc0) * Math.min(1, dt * 6); }
+    if (l.grab) {
+      const g = l.grab; if (g.tx != null) { const nx = l.x + (g.tx - l.x) * 0.6, ny = l.y + (g.ty - l.y) * 0.6; l.vx = (nx - l.x) / dt; l.vy = (ny - l.y) / dt; l.x = nx; l.y = ny; }
+      l.va *= 0.8; continue;
+    }
+    l.vy += GRAV * dt; l.vx *= Math.pow(0.6, dt); l.x += l.vx * dt; l.y += l.vy * dt;
+    if (l.y > floor - R) { l.y = floor - R; if (l.vy > 0) { clack(l.vy); l.vy *= -0.38; if (Math.abs(l.vy) < 60) l.vy = 0; } l.vx *= Math.pow(0.02, dt); if (Math.abs(l.vx) > 80) l.va = l.vx / R; }
+    if (l.x < R) { l.x = R; if (l.vx < 0) { clack(-l.vx); l.vx *= -0.5; } }
+    if (l.x > W - R) { l.x = W - R; if (l.vx > 0) { clack(l.vx); l.vx *= -0.5; } }
+    if (l.y < -R * 6) { l.y = -R * 6; if (l.vy < 0) l.vy = 0; }
+  }
+  // つぶ どうし と ボタン
+  for (let it = 0; it < 3; it++) {
+    for (let i = 0; i < letters.length; i++) {
+      const a = letters[i]; if (a.dead || a.show) continue;
+      // ボタン（うごかない まる）
+      { const dx = a.x - bc.x, dy = a.y - bc.y, d = Math.hypot(dx, dy), m = R + bc.r;
+        if (d < m && d > 0.01 && !a.grab) { const nx = dx / d, ny = dy / d; a.x = bc.x + nx * m; a.y = bc.y + ny * m; const vn = a.vx * nx + a.vy * ny; if (vn < 0) { if (it === 0) clack(-vn); a.vx -= 1.5 * vn * nx; a.vy -= 1.5 * vn * ny; } } }
+      for (let j = i + 1; j < letters.length; j++) {
+        const b = letters[j]; if (b.dead || b.show) continue;
+        const dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy, m = R * 2;
+        if (d2 >= m * m || d2 < 0.0001) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, ov = m - d;
+        const wa = a.grab ? 0 : b.grab ? 1 : 0.5, wb = 1 - wa;
+        a.x -= nx * ov * wa; a.y -= ny * ov * wa; b.x += nx * ov * wb; b.y += ny * ov * wb;
+        const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (rv < 0) { if (it === 0) clack(-rv * 0.7); const imp = -1.3 * rv; a.vx -= imp * nx * wa; a.vy -= imp * ny * wa; b.vx += imp * nx * wb; b.vy += imp * ny * wb; }
+      }
+    }
+  }
+  for (const l of letters) {
+    if (l.dead) continue;
+    const sp = Math.hypot(l.vx, l.vy);
+    if (sp < 300 && !l.grab && !l.show) { const a = Math.atan2(Math.sin(l.a), Math.cos(l.a)); l.va += (-a * 40 - l.va * 7) * dt; } // とまると まっすぐに もどる
+    l.a += l.va * dt; l.sq *= Math.pow(0.002, dt); l.glow = Math.max(0, l.glow - dt * 1.4);
+  }
+  for (const s of sparks) { s.t += dt; s.vy += 900 * dt; s.x += s.vx * dt; s.y += s.vy * dt; }
+  sparks = sparks.filter(s => s.t < s.life);
+  const now = performance.now();
+  letters = letters.filter(l => !l.dead || now - l.dead < 250);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  const now = performance.now();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = FONT();
+  for (const l of letters) {
+    let s = Math.min(1, (now - l.born) / 140) * (1 + l.sq * 0.25 * Math.sin((now - l.born) / 30));
+    if (l.dead) s *= Math.max(0, 1 - (now - l.dead) / 250);
+    if (l.show) s *= l.show.sc; else if (l.sc0 !== undefined) s *= l.sc0;
+    if (s <= 0) continue;
+    ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(l.a); ctx.scale(s, s);
+    if (l.grab || l.glow > 0) { ctx.fillStyle = `hsla(${l.hue},100%,75%,${l.grab ? 0.55 : l.glow * 0.55})`; ctx.beginPath(); ctx.arc(0, 0, R * 1.35, 0, 7); ctx.fill(); }
+    ctx.fillStyle = 'rgba(0,0,0,.12)'; ctx.beginPath(); ctx.arc(0, R * 0.12, R, 0, 7); ctx.fill();
+    ctx.fillStyle = `hsl(${l.hue},85%,62%)`; ctx.beginPath(); ctx.arc(0, 0, R, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, R * 0.8, 0, 7); ctx.fill();
+    ctx.fillStyle = `hsl(${l.hue},70%,32%)`; ctx.fillText(l.ch, 0, R * 0.06);
+    ctx.restore();
+  }
+  for (const s of sparks) { const k = 1 - s.t / s.life; ctx.fillStyle = `hsla(${s.hue},100%,60%,${k})`; ctx.beginPath(); ctx.arc(s.x, s.y, s.r * k, 0, 7); ctx.fill(); }
+}
+
+function frame(t) {
+  const dt = Math.min(0.033, (t - lastT) / 1000); lastT = t;
+  updGroup(performance.now());
+  const n = 2; for (let i = 0; i < n; i++) step(dt / n);
+  draw(); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__dbg = { get letters() { return letters; }, get cur() { return cur; } };
+</script>
+</body>
+</html>
