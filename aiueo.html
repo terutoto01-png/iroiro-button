@@ -40,10 +40,15 @@ const WORDS = [
   ['🎈', 'ふうせん'], ['👻', 'おばけ'], ['🍦', 'あいす'], ['🦷', 'は'], ['👀', 'め'], ['👂', 'みみ'],
 ].filter(w => !/[ゃゅょっー]/.test(w[1]));
 
-let deck = [], cur = null;
+const SPECIAL = ['🧒', 'かずき'];
+let deck = [], cur = null, sinceSp = 0;
 function nextWord() {
   if (!deck.length) { deck = WORDS.slice(); for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } if (cur && deck[deck.length - 1] === cur) deck.unshift(deck.pop()); }
-  cur = deck.pop(); pic.textContent = cur[0];
+  // ときどき とくべつな ことば（3こ いじょう あいだを あける）
+  sinceSp++;
+  if (sinceSp > 3 && Math.random() < 0.16) { cur = SPECIAL; sinceSp = 0; }
+  else cur = deck.pop();
+  pic.textContent = cur[0];
 }
 nextWord();
 
@@ -87,7 +92,8 @@ function startWord() {
   const [, word] = cur, chars = [...word], c = btnCircle(), n = chars.length, now = performance.now();
   const sp = Math.min(R * 2.6, (W - R * 2) / n), y = Math.max(R + 76, c.y - c.r - R * 1.8);
   const hue0 = HUES[Math.floor(Math.random() * HUES.length)];
-  group = { word, n, t0: now, spokeAt: 0, dropAt: 0, letters: [], chars, c, hue0, sp, y, dropped: false };
+  const special = cur === SPECIAL;
+  group = { special, word, n, t0: now, spokeAt: 0, dropAt: 0, letters: [], chars, c, hue0, sp, y, dropped: false };
 }
 function updGroup(now) {
   const g = group; if (!g) return;
@@ -96,6 +102,7 @@ function updGroup(now) {
     const i = g.letters.length, k = (g.n === 1 ? 0 : i / (g.n - 1) - 0.5);
     const sx = g.c.x + k * g.c.r * 0.9, sy = g.c.y - g.c.r * 0.35;
     const L = addLetter(g.chars[i], (g.hue0 + i * 45) % 360, sx, sy, 0, 0);
+    if (g.special) L.hue = (i * 120 + 10) % 360;
     L.show = { i, sx, sy, tx: W / 2 + (i - (g.n - 1) / 2) * g.sp, ty: g.y, t0: now, sc: 1 };
     L.glow = 1; g.letters.push(L); popSound(i); spark(sx, sy, L.hue, 6);
   }
@@ -103,6 +110,13 @@ function updGroup(now) {
   if (!g.spokeAt && g.letters.length === g.n && now >= g.t0 + (g.n - 1) * GAP + FLY + 120) {
     g.spokeAt = now; speak(g.word + '！', 0.85, 1.25);
     g.dropAt = now + g.n * WAVE + 650;
+    if (g.special) { g.dropAt += 900; g.cheerAt = now + g.n * WAVE + 250; }
+  }
+  // とくべつ: みんなで いっしょに ぴょーん、かみふぶき
+  if (g.cheerAt && now >= g.cheerAt && !g.cheered) {
+    g.cheered = true; speak(g.word + '！', 0.95, 1.4); Sfx.yay(); setTimeout(() => Sfx.chime(), 250);
+    for (let k = 0; k < 70; k++) sparks.push({ x: Math.random() * W, y: -10 - Math.random() * 80, vx: (Math.random() - 0.5) * 120, vy: 60 + Math.random() * 200, t: 0, life: 1.6 + Math.random() * 0.8, hue: Math.random() * 360, r: 5 + Math.random() * 6 });
+    for (const l of g.letters) spark(l.x, l.y, l.hue, 14);
   }
   if (g.spokeAt && !g.dropped && now >= g.dropAt) dropGroup(g, now, 70);
   if (g.dropped && now >= g.dropAt + 160 && !g.picDone) { g.picDone = true; newPicture(); }
@@ -137,6 +151,10 @@ function showPos(l, now, dt) {
   if (g && g.spokeAt && !s.dropAt) { // よみあげに あわせて ぴょこん
     const k = (now - (g.spokeAt + s.i * WAVE)) / 300;
     if (k > 0 && k < 1) { y -= Math.sin(Math.PI * k) * R * 0.8; sc = 1.15 + Math.sin(Math.PI * k) * 0.25; if (!s.hopped) { s.hopped = true; l.glow = 1; l.sq = 0.4; } }
+  }
+  if (g && g.special && g.cheerAt && !s.dropAt) { // とくべつ: みんなで ぴょーん（2かい）
+    const k = (now - g.cheerAt) / 420;
+    if (k > 0 && k < 2) { const h = Math.abs(Math.sin(Math.PI * k)); y -= h * R * 1.3; sc = 1.15 + h * 0.35; l.glow = Math.max(l.glow, 0.8); }
   }
   if (u >= 1 && !s.landed) { s.landed = true; l.sq = 0.7; }
   l.vx = (x - l.x) / Math.max(dt, 0.001); l.vy = (y - l.y) / Math.max(dt, 0.001); l.x = x; l.y = y; s.sc = sc;
@@ -259,7 +277,7 @@ function frame(t) {
   draw(); requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__dbg = { get letters() { return letters; }, get cur() { return cur; } };
+window.__dbg = { get letters() { return letters; }, get cur() { return cur; }, sp() { cur = SPECIAL; pic.textContent = cur[0]; } };
 </script>
 </body>
 </html>
