@@ -54,14 +54,14 @@ const Multi = (() => {
     st.id = 'multi-style';
     st.textContent = `
       .multi-pill {
-        position: fixed; top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+        position: fixed; top: calc(max(12px, env(safe-area-inset-top)) + 54px); right: max(12px, env(safe-area-inset-right));
         z-index: 48; border: none; border-radius: 999px; background: rgba(255,255,255,.92); color: #333;
-        font-family: inherit; font-size: 18px; font-weight: bold; padding: 6px 14px;
-        box-shadow: 0 4px 0 rgba(0,0,0,.18); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+        font-family: inherit; font-size: 16px; font-weight: bold; padding: 6px 12px;
+        box-shadow: 0 4px 0 rgba(0,0,0,.18); cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
         transition: opacity .25s, transform .08s, box-shadow .25s;
       }
-      .multi-pill::after { content: ''; position: absolute; inset: -12px; }
-      .multi-pill:active { transform: translateX(-50%) translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.18); }
+      .multi-pill::after { content: ''; position: absolute; inset: -10px; }
+      .multi-pill:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.18); }
       .multi-pill.live { box-shadow: 0 4px 0 rgba(0,0,0,.18), 0 0 0 3px #42e695; }
       .multi-pill.solo { opacity: .68; }
       .multi-pill.off  { opacity: .55; background: rgba(255,255,255,.78); }
@@ -193,6 +193,7 @@ const Multi = (() => {
     if (typeof data.i === 'number') out.i = Math.round(data.i);
     if (typeof data.s === 'number' && Number.isFinite(data.s)) out.s = Math.abs(Math.trunc(data.s)) % 2147483647;
     if (typeof data.e === 'string') out.e = data.e;
+    if (data.m && typeof data.m === 'object') out.m = data.m;
     try { ws.send(JSON.stringify(out)); } catch (e) {}
   }
 

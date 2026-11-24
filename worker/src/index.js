@@ -10,10 +10,40 @@ const ALLOWED_EMOJIS = new Set([
   '🚗', '🚃', '🚀', '✈️', '🐟', '🐙', '🐳', '⭐', '🌙', '🌈', '❤️', '🌸', '🌻', '🦋', '🦖', '🎈',
 ]);
 const ALLOWED_PAGES = new Set(['hanabi', 'shabondama', 'beru', 'sutanpu', 'korokoro']);
-const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever']);
+const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever', 'world', 'layout']);
 const MAX_PEERS = 20;
-const MAX_MSG_BYTES = 320;
+const MAX_MSG_BYTES = 2400;
 const MAX_PER_SEC = 18;
+
+function sanitizeLayout(m) {
+  if (!m || typeof m !== 'object') return undefined;
+  const pts = (arr, dims, maxLen) => {
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    for (let i = 0; i < Math.min(arr.length, maxLen); i++) {
+      const p = arr[i];
+      if (!Array.isArray(p) || p.length !== dims) continue;
+      const clean = [];
+      let ok = true;
+      for (let j = 0; j < dims; j++) {
+        const v = clampNum(p[j], 0, 1);
+        if (v === undefined) { ok = false; break; }
+        clean.push(v);
+      }
+      if (ok) out.push(clean);
+    }
+    return out;
+  };
+  let star = null;
+  if (Array.isArray(m.s) && m.s.length === 2) {
+    const sx = clampNum(m.s[0], 0, 1), sy = clampNum(m.s[1], 0, 1);
+    if (sx !== undefined && sy !== undefined) star = [sx, sy];
+  }
+  return {
+    l: pts(m.l, 4, 24), b: pts(m.b, 2, 16), w: pts(m.w, 2, 10),
+    t: pts(m.t, 2, 10), c: pts(m.c, 2, 10), p: pts(m.p, 4, 8), s: star,
+  };
+}
 
 function isAllowedOrigin(origin) {
   if (!origin) return false;
@@ -103,6 +133,11 @@ export class Room extends DurableObject {
     if (typeof msg.s === 'number' && Number.isInteger(msg.s) && msg.s >= 0 && msg.s <= 2147483647) out.s = msg.s;
     const h = clampNum(msg.h, 0, 360); if (h !== undefined) out.h = h;
     if (typeof msg.e === 'string' && ALLOWED_EMOJIS.has(msg.e)) out.e = msg.e;
+    if (msg.a === 'layout') {
+      const m = sanitizeLayout(msg.m);
+      if (!m) return;
+      out.m = m;
+    }
 
     const encoded = JSON.stringify(out);
     for (const peer of this.ctx.getWebSockets()) {

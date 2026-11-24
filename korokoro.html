@@ -23,7 +23,7 @@
 <button id="world" class="big-btn" aria-label="せかいをかえる"><span class="emoji" id="worldIcon">☀️</span></button>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">💎</span></button></div>
 <script src="common.js?v=18"></script>
-<script src="multi.js?v=4"></script>
+<script src="multi.js?v=5"></script>
 <script>
 // ころころミュージック:
 // ・💎 ボタンで キラキラの ビーだま が ころがりおちて、もっきん・みずぐるま・バンパー・ハープを かなでる！
@@ -402,8 +402,8 @@ btn.addEventListener('pointerdown', () => {
   if (feverCount % 10 === 0) { triggerFever(); Multi.send({ a: 'fever' }, 1000); }
 });
 
-worldBtn.addEventListener('pointerdown', () => {
-  worldIdx = (worldIdx + 1) % WORLDS.length;
+function switchWorld(nextIdx, remote) {
+  worldIdx = nextIdx;
   drag = null;
   userBars = [];
   marbles = [];
@@ -412,7 +412,12 @@ worldBtn.addEventListener('pointerdown', () => {
   popText(WORLDS[worldIdx].name + '！', W / 2, H * 0.24, WORLDS[worldIdx].dark ? '#7effd4' : '#ff6fae', 44);
   const dp = dispenserPos();
   for (let i = 0; i < 3; i++) spawnMarble(dp.x + (i - 1) * 44, dp.y + 20, { vx: (i - 1) * 60 });
-});
+  if (!remote) {
+    Multi.send({ a: 'world', i: worldIdx }, 120);
+    if (isMake()) Multi.send({ a: 'layout', m: packMake() }, 120);
+  }
+}
+worldBtn.addEventListener('pointerdown', () => switchWorld((worldIdx + 1) % WORLDS.length, false));
 
 // ---- つくる せかい: トレイから ぶひんを だす・うごかす・トレイに もどして けす・この きかいに のこす ----
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -578,20 +583,24 @@ function tapPart(h, x, y) {
   else { const m = spawnMarble(o.in.x, o.in.y, { vx: 0, vy: 0 }); warpMarble(m, o); }
 }
 // のこす: がめんの おおきさが かわっても おなじ ように ならぶ よう わりあいで
-function saveMake() {
-  if (!isMake()) return;
-  const U = x => +(x / W).toFixed(4), V = y => +((y - playTop) / playH).toFixed(4);
-  const d = {
+function packMake() {
+  const U = x => +(x / W).toFixed(3), V = y => +((y - playTop) / playH).toFixed(3);
+  return {
     l: userBars.map(b => [U(b.x1), V(b.y1), U(b.x2), V(b.y2)]), b: bumpers.map(b => [U(b.x), V(b.y)]), w: wheels.map(o => [U(o.x), V(o.y)]),
     t: tramps.map(o => [U(o.cx), V(o.y)]), c: cannons.map(o => [U(o.x), V(o.y)]), p: portals.map(o => [U(o.in.x), V(o.in.y), U(o.out.x), V(o.out.y)]),
     s: star ? [U(star.x), V(star.y)] : null,
   };
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch (e) {}
 }
-function loadMake() {
-  let d = null;
-  try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) {}
+function saveMake(remote) {
+  if (!isMake()) return;
+  const d = packMake();
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch (e) {}
+  if (!remote) Multi.send({ a: 'layout', m: d }, 80);
+}
+function applyMakeData(d) {
   if (!d) return;
+  for (const c of cannons) if (c.held) c.held.heldBy = null;
+  userBars.length = 0; bumpers.length = 0; wheels.length = 0; tramps.length = 0; cannons.length = 0; portals.length = 0;
   const X = u => u * W, Y = v => playTop + v * playH, arr = a => (Array.isArray(a) ? a : []);
   for (const [a, b, c, e] of arr(d.l)) { const o = mkUserBar(X(a), Y(b), X(c), Y(e)); o.vib = 0; o.glow = 0; userBars.push(o); settle({ type: 'bar', o }); }
   for (const [a, b] of arr(d.b)) addPart('bump', X(a), Y(b), true);
@@ -603,6 +612,11 @@ function loadMake() {
   for (const b of bumpers) b.hit = 0;
   for (const tr of tramps) tr.bend = 0;
   for (const p of portals) { p.in.pulse = 0; p.out.pulse = 0; }
+}
+function loadMake() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) {}
+  applyMakeData(d);
 }
 // 🧽: おいた ぶひんを ぜんぶ けす（ビーだまは そのまま）
 function clearMake() {
@@ -703,7 +717,7 @@ const endDrag = (e) => {
     Music.playBar(b.pitch, 0.85, worldIdx);
     addFloatNote((b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2, b.hue);
     saveMake();
-    Multi.send({ a: 'bar', x: b.x1 / W, y: (b.y1 - playTop) / playH, x2: b.x2 / W, y2: (b.y2 - playTop) / playH }, 80);
+    if (!isMake()) Multi.send({ a: 'bar', x: b.x1 / W, y: (b.y1 - playTop) / playH, x2: b.x2 / W, y2: (b.y2 - playTop) / playH }, 80);
   } else if (d.tappedBar) {
     ringBar(d.tappedBar, d.x0, d.y0);
   } else if (d.y0 > 62) {
@@ -731,6 +745,14 @@ Multi.join('korokoro', (msg) => {
     spinWheel(wheels[msg.i]); Multi.showPeer(msg, wheels[msg.i].x, wheels[msg.i].y);
   } else if (msg.a === 'fever') {
     triggerFever(); Multi.showPeer(msg, W / 2, H * 0.2);
+  } else if (msg.a === 'world' && typeof msg.i === 'number' && WORLDS[msg.i]) {
+    if (worldIdx !== msg.i) switchWorld(msg.i, true);
+    Multi.showPeer(msg, W * 0.5, H * 0.25);
+  } else if (msg.a === 'layout' && msg.m) {
+    if (!isMake()) switchWorld(WORLDS.length - 1, true);
+    applyMakeData(msg.m); saveMake(true);
+    Music.playBar(0.75, 0.5, worldIdx);
+    Multi.showPeer(msg, W * 0.5, sy(0.3));
   }
 });
 
