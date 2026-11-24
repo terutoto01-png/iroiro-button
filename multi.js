@@ -44,7 +44,7 @@ const Multi = (() => {
   let enabled = true;
   try { if (localStorage.getItem('iroiro-multi-off') === '1') enabled = false; } catch (e) {}
 
-  let ws = null, pageKey = '', handler = null, pill = null, myAvatar = '🧒', myHue = 200, peers = 0;
+  let ws = null, pageKey = '', handler = null, helloHandler = null, pill = null, myAvatar = '🧒', myHue = 200, peers = 0;
   let retryMs = 1500, retryTm = 0, pingIv = 0, destroyed = false;
   const lastSent = new Map();
 
@@ -155,6 +155,7 @@ const Multi = (() => {
       if (msg.t === 'hello') {
         myAvatar = safeAvatar(msg.avatar); myHue = msg.hue ?? 200; peers = msg.n || 1;
         renderPill();
+        if (msg.state && helloHandler) helloHandler(msg.state);
       } else if (msg.t === 'peers' || msg.t === 'pong') {
         if (typeof msg.n === 'number') { peers = msg.n; renderPill(); }
       } else if (msg.t === 'act' && handler) {
@@ -172,9 +173,10 @@ const Multi = (() => {
     retryMs = Math.min(15000, Math.round(retryMs * 1.6));
   }
 
-  function join(key, onAction) {
+  function join(key, onAction, onState) {
     pageKey = key;
     handler = onAction;
+    helloHandler = onState || null;
     if (!wsBase()) return;
     ensurePill();
     if (enabled) connect();

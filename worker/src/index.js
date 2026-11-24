@@ -94,14 +94,22 @@ export class Room extends DurableObject {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ id, avatar, hue });
 
+    // すでに部屋に誰かいるなら最新の共有状態（世界・配置など）を新規参加者へ即座に渡す
+    let state = null;
+    if (existing.length > 0) {
+      try { state = (await this.ctx.storage.get('state')) || null; } catch {}
+    } else {
+      try { await this.ctx.storage.delete('state'); } catch {}
+    }
+
     const n = this.ctx.getWebSockets().length;
-    try { server.send(JSON.stringify({ t: 'hello', id, avatar, hue, n })); } catch {}
+    try { server.send(JSON.stringify(state ? { t: 'hello', id, avatar, hue, n, state } : { t: 'hello', id, avatar, hue, n })); } catch {}
     this.broadcastPeers(server);
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  webSocketMessage(ws, raw) {
+  async webSocketMessage(ws, raw) {
     if (typeof raw !== 'string' || raw.length > MAX_MSG_BYTES) return;
     let att;
     try { att = ws.deserializeAttachment(); } catch {}
@@ -139,6 +147,17 @@ export class Room extends DurableObject {
       out.m = m;
     }
 
+    // あとから来た人にも同じ世界・配置を合わせるため共有状態を記憶
+    if (msg.a === 'world' || msg.a === 'layout' || msg.a === 'night') {
+      try {
+        const st = (await this.ctx.storage.get('state')) || {};
+        if (msg.a === 'world' && out.i !== undefined) { st.world = out.i; if (out.i !== 3) delete st.layout; }
+        else if (msg.a === 'layout') { st.world = 3; st.layout = out.m; }
+        else if (msg.a === 'night' && out.i !== undefined) { st.night = out.i ? 1 : 0; }
+        await this.ctx.storage.put('state', st);
+      } catch {}
+    }
+
     const encoded = JSON.stringify(out);
     for (const peer of this.ctx.getWebSockets()) {
       if (peer === ws) continue;
@@ -149,11 +168,17 @@ export class Room extends DurableObject {
   webSocketClose(ws) {
     try { ws.close(); } catch {}
     this.broadcastPeers(ws);
+    if (this.ctx.getWebSockets().filter(s => s !== ws).length === 0) {
+      this.ctx.storage.delete('state').catch(() => {});
+    }
   }
 
   webSocketError(ws) {
     try { ws.close(); } catch {}
     this.broadcastPeers(ws);
+    if (this.ctx.getWebSockets().filter(s => s !== ws).length === 0) {
+      this.ctx.storage.delete('state').catch(() => {});
+    }
   }
 
   broadcastPeers(exclude) {

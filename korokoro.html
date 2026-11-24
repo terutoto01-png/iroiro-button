@@ -23,7 +23,7 @@
 <button id="world" class="big-btn" aria-label="せかいをかえる"><span class="emoji" id="worldIcon">☀️</span></button>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">💎</span></button></div>
 <script src="common.js?v=18"></script>
-<script src="multi.js?v=5"></script>
+<script src="multi.js?v=6"></script>
 <script>
 // ころころミュージック:
 // ・💎 ボタンで キラキラの ビーだま が ころがりおちて、もっきん・みずぐるま・バンパー・ハープを かなでる！
@@ -427,7 +427,7 @@ function barTune(b) { // ながさで おんていと いろ（みじかい＝�
 }
 function mkUserBar(x1, y1, x2, y2) { const b = { x1, y1, x2, y2, r: 8, hue: 0, pitch: 0.5, vib: 10, vibPh: 0, glow: 1, hitU: 0.5, user: true }; barTune(b); return b; }
 function bumpPitch(b) { b.pitch = Math.max(0.05, Math.min(0.95, 1 - (b.y - playTop) / playH)); }
-function trampSync(o) { o.x1 = o.cx - o.hw; o.x2 = o.cx + o.hw; }
+function trampSync(o) { o.x1 = o.cx - o.hw; o.x2 = o.cx + o.hw; o.bendX = clampN(o.bendX ?? o.cx, o.x1, o.x2); }
 function listFor(type) {
   return { bar: userBars, barEnd: userBars, bump: bumpers, wheel: wheels, tramp: tramps, cannon: cannons, pin: portals, pout: portals, portal: portals }[type];
 }
@@ -496,7 +496,7 @@ function movePart(h, dx, dy, x, y) {
   const o = h.o;
   if (h.type === 'bar') { o.x1 += dx; o.y1 += dy; o.x2 += dx; o.y2 += dy; }
   else if (h.type === 'barEnd') { o['x' + h.end] = x; o['y' + h.end] = y; barTune(o); }
-  else if (h.type === 'tramp') { o.cx += dx; o.y += dy; trampSync(o); }
+  else if (h.type === 'tramp') { o.cx += dx; o.y += dy; o.bendX += dx; trampSync(o); }
   else if (h.type === 'pin') { o.in.x += dx; o.in.y += dy; }
   else if (h.type === 'pout') { o.out.x += dx; o.out.y += dy; }
   else { o.x += dx; o.y += dy; }
@@ -754,6 +754,11 @@ Multi.join('korokoro', (msg) => {
     Music.playBar(0.75, 0.5, worldIdx);
     Multi.showPeer(msg, W * 0.5, sy(0.3));
   }
+}, (st) => {
+  if (typeof st.world === 'number' && WORLDS[st.world] && st.world !== worldIdx) {
+    worldIdx = st.world; drag = null; userBars = []; marbles = []; buildWorld();
+  }
+  if (st.layout && isMake()) { applyMakeData(st.layout); saveMake(true); }
 });
 
 // ---- ぶつり ヘルパー ----
