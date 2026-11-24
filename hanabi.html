@@ -16,6 +16,7 @@
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎆</span></button></div>
 <script src="common.js?v=18"></script>
+<script src="multi.js?v=1"></script>
 <script>
 // 花火: WebGPU のコンピュートシェーダーで粒を動かす
 const STRIDE = 8; // pos(2) vel(2) color(3) life(1)
@@ -86,9 +87,11 @@ function rocketTrail(x0, y0, x1, y1) {
   writeParticles(arr, count);
 }
 
-function fire(x, y) {
+function fire(x, y, remote) {
+  if (!gpu) return;
   x = x ?? rand(innerWidth * 0.15, innerWidth * 0.85);
   y = y ?? rand(innerHeight * 0.12, innerHeight * 0.5);
+  if (!remote) Multi.send({ a: 'fire', x: x / innerWidth, y: y / innerHeight }, 50);
   Sfx.tone(300, 0.5, 'sine', 0.12, 0, 1200); // ひゅ〜
   rocketTrail(x + rand(-30, 30), innerHeight, x, y);
   setTimeout(() => {
@@ -103,7 +106,7 @@ let streak = 0, lastPress = 0, finaleUntil = 0;
 btn.addEventListener('pointerdown', () => {
   const now = performance.now();
   streak = now - lastPress < 700 ? streak + 1 : 1; lastPress = now;
-  if (streak >= 10 && now > finaleUntil) { streak = 0; finaleUntil = now + 6000; finale(); return; }
+  if (streak >= 10 && now > finaleUntil) { streak = 0; finaleUntil = now + 6000; Multi.send({ a: 'finale' }, 1000); finale(); return; }
   fire();
   if (Math.random() < 0.35) setTimeout(() => fire(), 200);
 });
@@ -156,6 +159,15 @@ function finale() {
   setTimeout(() => { Sfx.yay(); setTimeout(() => Sfx.chime(), 300); }, 3000);
 }
 canvas.addEventListener('pointerdown', (e) => fire(e.clientX, e.clientY));
+Multi.join('hanabi', (msg) => {
+  if (!gpu) return;
+  if (msg.a === 'fire') {
+    const x = (msg.x ?? 0.5) * innerWidth, y = (msg.y ?? 0.3) * innerHeight;
+    fire(x, y, true); Multi.showPeer(msg, x, y);
+  } else if (msg.a === 'finale') {
+    finale(); Multi.showPeer(msg, innerWidth / 2, innerHeight * 0.35);
+  }
+});
 
 // ---------- WebGPU ----------
 const COMMON = /* wgsl */`

@@ -17,6 +17,7 @@
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji" id="cur">🐶</span></button></div>
 <script src="common.js?v=18"></script>
+<script src="multi.js?v=1"></script>
 <script>
 // スタンプ: がめんを さわると ぽんっと スタンプ。ゆびを うごかすと ならんで おせる。ボタンで スタンプが かわる（ボタンに いまの スタンプが でる）。
 // おした スタンプを さわると ぷるぷる。30こ おすと みんなで おどって、つぎの まっしろな かみに なる。
@@ -32,12 +33,14 @@ btn.addEventListener('pointerdown', () => {
   cur = n; curEl.textContent = cur;
   Sfx.tone(pitch(cur), 0.12, 'triangle', 0.1, 0, pitch(cur) * 1.5);
 });
-function stamp(x, y) {
+function stamp(x, y, emoji, remote) {
   if (party >= 0 || y < 70) return;
-  stamps.push({ e: cur, x, y, s: rand(54, 70), rot: rand(-0.3, 0.3), t: 0, wig: 0 });
+  const e = emoji || cur;
+  stamps.push({ e, x, y, s: rand(54, 70), rot: rand(-0.3, 0.3), t: 0, wig: 0 });
   if (stamps.length > 160) stamps.shift();
   count++;
-  Sfx.tone(pitch(cur), 0.1, 'sine', 0.2, 0, pitch(cur) * 0.6); Sfx.noise(0.05, 0.1, 1200);
+  Sfx.tone(pitch(e), 0.1, 'sine', 0.2, 0, pitch(e) * 0.6); Sfx.noise(0.05, 0.1, 1200);
+  if (!remote) Multi.send({ a: 'stamp', x: x / W, y: y / H, e }, 50);
   if (count % 30 === 0) { party = 0; Sfx.yay(); popText('じょうず！', W / 2, H * 0.3, '#ff7b00', 52); }
 }
 cv.addEventListener('pointerdown', (e) => {
@@ -53,6 +56,12 @@ cv.addEventListener('pointermove', (e) => {
 });
 const up = (e) => { if (drag && drag.id === e.pointerId) drag = null; };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+Multi.join('sutanpu', (msg) => {
+  if (msg.a === 'stamp' && msg.e) {
+    const x = (msg.x ?? 0.5) * W, y = Math.max(75, (msg.y ?? 0.5) * H);
+    stamp(x, y, msg.e, true); Multi.showPeer(msg, x, y);
+  }
+});
 
 let last = performance.now();
 function loop(now) {

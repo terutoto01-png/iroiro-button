@@ -1,0 +1,12 @@
+{
+  "name": "iroiro-multi-worker",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "dev:lan": "wrangler dev --port 8787 --ip 0.0.0.0",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -17,6 +17,7 @@
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔔</span></button></div>
 <script src="common.js?v=18"></script>
+<script src="multi.js?v=1"></script>
 <script>
 // どうぶつベル: 8ひきの どうぶつを さわったり なぞったり すると ドレミファソラシドの ベルが なる！
 // ボタンで みんなの えんそう（きらきらぼし・かえるのうた・ちょうちょう・よろこびのうた）。うえの ⭐ を さわると キラキラ ライブモード。
@@ -61,8 +62,10 @@ layout();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
 
 // キラキラした ハンドベルの おと
-function playBell(i) {
+function playBell(i, remote) {
   const p = players[i];
+  if (!p) return;
+  if (!remote) Multi.send({ a: 'bell', i }, 30);
   p.hop = 1; p.ring = 1;
   const c = Sfx.ac(), t = c.currentTime;
   [[p.f, 0.22, 0.9], [p.f * 2, 0.08, 0.45], [p.f * 3, 0.04, 0.25]].forEach(([freq, vol, dur]) => {
@@ -108,6 +111,7 @@ cv.addEventListener('pointerdown', (e) => {
   // うえの ほし（ライブモード きりかえ）
   if (Math.hypot(x - W / 2, y - 92) < 48) {
     night = !night;
+    Multi.send({ a: 'night', i: night ? 1 : 0 }, 200);
     Sfx.chime();
     popText(night ? 'ライブ！' : 'おひる！', W / 2, 160, night ? '#ffd23f' : '#ff6fae', 38);
     return;
@@ -125,6 +129,16 @@ cv.addEventListener('pointermove', (e) => {
 });
 const up = (e) => { if (drag && drag.id === e.pointerId) drag = null; };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+Multi.join('beru', (msg) => {
+  if (msg.a === 'bell' && typeof msg.i === 'number' && players[msg.i]) {
+    const p = players[msg.i];
+    playBell(msg.i, true);
+    Multi.showPeer(msg, p.x, p.y - p.r);
+  } else if (msg.a === 'night') {
+    night = !!msg.i; Sfx.chime();
+    Multi.showPeer(msg, W / 2, 92);
+  }
+});
 
 let last = performance.now();
 function loop(now) {
