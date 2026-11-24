@@ -16,7 +16,7 @@
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🎆</span></button></div>
 <script src="common.js?v=18"></script>
-<script src="multi.js?v=2"></script>
+<script src="multi.js?v=3"></script>
 <script>
 // 花火: WebGPU のコンピュートシェーダーで粒を動かす
 const STRIDE = 8; // pos(2) vel(2) color(3) life(1)
@@ -41,36 +41,38 @@ function writeParticles(arr, count) {
   }
 }
 
-function burst(x, y) {
-  const pal = pick(PALETTES);
-  const shape = pick(['kiku', 'kiku', 'ring', 'heart', 'star']);
+function burst(x, y, R = Math.random) {
+  const rf = (a, b) => a + R() * (b - a);
+  const pf = (arr) => arr[Math.floor(R() * arr.length)];
+  const pal = pf(PALETTES);
+  const shape = pf(['kiku', 'kiku', 'ring', 'heart', 'star']);
   const count = 2500;
   const arr = new Float32Array(count * STRIDE);
-  const speed = Math.min(innerWidth, innerHeight) * rand(0.45, 0.7);
+  const speed = Math.min(innerWidth, innerHeight) * rf(0.45, 0.7);
   for (let i = 0; i < count; i++) {
-    const t = Math.random() * Math.PI * 2;
+    const t = R() * Math.PI * 2;
     let vx, vy;
     if (shape === 'heart') {
       const hx = 16 * Math.pow(Math.sin(t), 3);
       const hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
-      const s = speed / 17 * rand(0.95, 1.05);
+      const s = speed / 17 * rf(0.95, 1.05);
       vx = hx * s; vy = hy * s;
     } else if (shape === 'ring') {
-      const s = speed * rand(0.95, 1.05);
+      const s = speed * rf(0.95, 1.05);
       vx = Math.cos(t) * s; vy = Math.sin(t) * s;
     } else if (shape === 'star') {
       const k = 0.55 + 0.45 * Math.abs(Math.cos(t * 2.5));
-      const s = speed * k * rand(0.95, 1.05);
+      const s = speed * k * rf(0.95, 1.05);
       vx = Math.cos(t) * s; vy = Math.sin(t) * s;
     } else {
-      const s = speed * Math.sqrt(Math.random());
+      const s = speed * Math.sqrt(R());
       vx = Math.cos(t) * s; vy = Math.sin(t) * s;
     }
-    const c = Math.random() < 0.5 ? pal[0] : pal[1];
+    const c = R() < 0.5 ? pal[0] : pal[1];
     const o = i * STRIDE;
     arr[o] = x; arr[o+1] = y; arr[o+2] = vx; arr[o+3] = vy;
     arr[o+4] = c[0]; arr[o+5] = c[1]; arr[o+6] = c[2];
-    arr[o+7] = rand(1.4, 2.4);
+    arr[o+7] = rf(1.4, 2.4);
   }
   writeParticles(arr, count);
 }
@@ -87,15 +89,17 @@ function rocketTrail(x0, y0, x1, y1) {
   writeParticles(arr, count);
 }
 
-function fire(x, y, remote) {
+function fire(x, y, remote, s) {
   if (!gpu) return;
-  x = x ?? rand(innerWidth * 0.15, innerWidth * 0.85);
-  y = y ?? rand(innerHeight * 0.12, innerHeight * 0.5);
-  if (!remote) Multi.send({ a: 'fire', x: x / innerWidth, y: y / innerHeight }, 50);
+  const seed = s ?? Multi.seed();
+  const R = Multi.rng(seed);
+  x = x ?? (innerWidth * (0.15 + R() * 0.7));
+  y = y ?? (innerHeight * (0.12 + R() * 0.38));
+  if (!remote) Multi.send({ a: 'fire', x: x / innerWidth, y: y / innerHeight, s: seed }, 50);
   Sfx.tone(300, 0.5, 'sine', 0.12, 0, 1200); // ひゅ〜
-  rocketTrail(x + rand(-30, 30), innerHeight, x, y);
+  rocketTrail(x + (R() * 60 - 30), innerHeight, x, y);
   setTimeout(() => {
-    burst(x, y);
+    burst(x, y, R);
     Sfx.noise(1.2, 0.8, 500);
     Sfx.noise(0.3, 0.4, 3000, 0.05, 'highpass');
   }, 350);
@@ -163,7 +167,7 @@ Multi.join('hanabi', (msg) => {
   if (!gpu) return;
   if (msg.a === 'fire') {
     const x = (msg.x ?? 0.5) * innerWidth, y = (msg.y ?? 0.3) * innerHeight;
-    fire(x, y, true); Multi.showPeer(msg, x, y);
+    fire(x, y, true, msg.s); Multi.showPeer(msg, x, y);
   } else if (msg.a === 'finale') {
     finale(); Multi.showPeer(msg, innerWidth / 2, innerHeight * 0.35);
   }

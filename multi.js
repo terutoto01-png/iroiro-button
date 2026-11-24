@@ -186,8 +186,21 @@ const Multi = (() => {
       if (typeof data[key] === 'number' && Number.isFinite(data[key])) out[key] = Math.round(data[key] * 1000) / 1000;
     }
     if (typeof data.i === 'number') out.i = Math.round(data.i);
+    if (typeof data.s === 'number' && Number.isFinite(data.s)) out.s = Math.abs(Math.trunc(data.s)) % 2147483647;
     if (typeof data.e === 'string') out.e = data.e;
     try { ws.send(JSON.stringify(out)); } catch (e) {}
+  }
+
+  // 全端末で同じ乱数列を作るためのシード付き PRNG（Mulberry32）
+  function seed() { return Math.floor(Math.random() * 2147483646) + 1; }
+  function rng(s) {
+    let a = (s >>> 0) || 1;
+    return () => {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
   }
 
   function showPeer(msg, x, y) {
@@ -210,5 +223,5 @@ const Multi = (() => {
 
   window.addEventListener('pagehide', () => { destroyed = true; closeSocket(); });
 
-  return { join, send, showPeer, get peers() { return peers; }, get enabled() { return enabled; } };
+  return { join, send, showPeer, seed, rng, get peers() { return peers; }, get enabled() { return enabled; } };
 })();

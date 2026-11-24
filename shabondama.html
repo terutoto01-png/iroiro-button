@@ -16,26 +16,28 @@
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🫧</span></button></div>
 <script src="common.js?v=18"></script>
-<script src="multi.js?v=2"></script>
+<script src="multi.js?v=3"></script>
 <script>
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
 const btn = document.getElementById('btn');
 fitCanvas(canvas, ctx); addEventListener('resize', () => fitCanvas(canvas, ctx));
 let bubbles = [], drops = [];
 
-function blow(atX, atY, remote) {
+function blow(atX, atY, remote, s) {
+  const seed = s ?? Multi.seed();
+  const R = Multi.rng(seed), rf = (a, b) => a + R() * (b - a);
   const r = btn.getBoundingClientRect();
   const bx = atX ?? (r.left + r.width / 2), by = atY ?? r.top;
-  const n = Math.floor(rand(5, 10));
+  const n = Math.floor(rf(5, 10));
   for (let i = 0; i < n; i++) {
     bubbles.push({
-      x: bx, y: by, vx: rand(-160, 160), vy: rand(-220, -90),
-      r: rand(18, 55), ph: rand(0, 6), hue: rand(0, 360), born: performance.now(),
+      x: bx, y: by, vx: rf(-160, 160), vy: rf(-220, -90),
+      r: rf(18, 55), ph: rf(0, 6), hue: rf(0, 360), born: performance.now(),
     });
   }
   if (bubbles.length > 80) bubbles.splice(0, bubbles.length - 80);
   Sfx.noise(0.5, 0.25, 900, 0, 'bandpass');
-  if (!remote) Multi.send({ a: 'blow', x: rand(0.2, 0.8) }, 80);
+  if (!remote) Multi.send({ a: 'blow', x: bx / innerWidth, s: seed }, 80);
 }
 btn.addEventListener('pointerdown', () => blow());
 
@@ -59,7 +61,7 @@ canvas.addEventListener('pointerdown', (e) => {
 Multi.join('shabondama', (msg) => {
   if (msg.a === 'blow') {
     const x = (msg.x ?? 0.5) * innerWidth, y = innerHeight - 130;
-    blow(x, y, true); Multi.showPeer(msg, x, y);
+    blow(x, y, true, msg.s); Multi.showPeer(msg, x, y);
   } else if (msg.a === 'pop') {
     const x = (msg.x ?? 0.5) * innerWidth, y = (msg.y ?? 0.5) * innerHeight;
     let best = -1, bd = 120;

@@ -93,6 +93,7 @@ export class Room extends DurableObject {
     const x2 = clampNum(msg.x2, 0, 1); if (x2 !== undefined) out.x2 = x2;
     const y2 = clampNum(msg.y2, 0, 1); if (y2 !== undefined) out.y2 = y2;
     if (typeof msg.i === 'number' && Number.isInteger(msg.i) && msg.i >= -10 && msg.i <= 100) out.i = msg.i;
+    if (typeof msg.s === 'number' && Number.isInteger(msg.s) && msg.s >= 0 && msg.s <= 2147483647) out.s = msg.s;
     const h = clampNum(msg.h, 0, 360); if (h !== undefined) out.h = h;
     if (typeof msg.e === 'string' && ALLOWED_EMOJIS.has(msg.e)) out.e = msg.e;
 
