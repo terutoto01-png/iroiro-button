@@ -9,16 +9,23 @@ const ALLOWED_EMOJIS = new Set([
   '🐶', '🐱', '🐰', '🐻', '🐼', '🐸', '🐷', '🐥', '🍎', '🍓', '🍌', '🍉', '🍩', '🍰',
   '🚗', '🚃', '🚀', '✈️', '🐟', '🐙', '🐳', '⭐', '🌙', '🌈', '❤️', '🌸', '🌻', '🦋', '🦖', '🎈',
 ]);
+const ALLOWED_PAGES = new Set(['hanabi', 'shabondama', 'beru', 'sutanpu', 'korokoro']);
 const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever']);
 const MAX_PEERS = 20;
 const MAX_MSG_BYTES = 320;
 const MAX_PER_SEC = 18;
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+function isAllowedOrigin(origin) {
+  if (!origin) return false;
+  if (origin === 'https://terutoto01-png.github.io') return true;
+  return /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$/.test(origin);
+}
+
+function corsHeaders(origin) {
+  const h = { 'Access-Control-Allow-Methods': 'GET, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' };
+  if (isAllowedOrigin(origin)) h['Access-Control-Allow-Origin'] = origin;
+  return h;
+}
 
 function clampNum(v, min, max) {
   if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
@@ -33,11 +40,11 @@ export class Room extends DurableObject {
 
   async fetch(request) {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
-      return new Response('Expected WebSocket', { status: 426, headers: CORS });
+      return new Response('Expected WebSocket', { status: 426 });
     }
     const existing = this.ctx.getWebSockets();
     if (existing.length >= MAX_PEERS) {
-      return new Response('Room full', { status: 503, headers: CORS });
+      return new Response('Room full', { status: 503 });
     }
 
     const pair = new WebSocketPair();
@@ -126,16 +133,23 @@ export class Room extends DurableObject {
 
 export default {
   async fetch(request, env) {
-    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
+    const origin = request.headers.get('Origin') || '';
+    const cors = corsHeaders(origin);
+    if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
     const url = new URL(request.url);
     if (url.pathname === '/health' || url.pathname === '/') {
       return new Response(JSON.stringify({ ok: true, service: 'iroiro-multi' }), {
-        headers: { ...CORS, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
-    const m = url.pathname.match(/^\/ws\/([a-zA-Z0-9_-]{1,48})$/);
-    if (!m) return new Response('Not found', { status: 404, headers: CORS });
-    const roomName = m[1].toLowerCase();
+    const m = url.pathname.match(/^\/ws\/([a-zA-Z0-9]+)(?:--([a-zA-Z0-9_-]{1,24}))?$/);
+    if (!m || !ALLOWED_PAGES.has(m[1].toLowerCase())) {
+      return new Response('Not found', { status: 404, headers: cors });
+    }
+    if (!isAllowedOrigin(origin)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    const roomName = (m[2] ? `${m[1]}--${m[2]}` : m[1]).toLowerCase();
     const id = env.ROOM.idFromName(roomName);
     return env.ROOM.get(id).fetch(request);
   },

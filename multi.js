@@ -10,8 +10,10 @@
 // ・オフラインやサーバー未設定時はそのまま1人プレイとして動く。
 
 const Multi = (() => {
-  // Cloudflare Workers 本番 URL（?ws=ws://localhost:8787 でローカル開発サーバーに切替可）
+  // Cloudflare Workers 本番 URL（?ws=ws://localhost:8787 のみ開発用に許可）
   const PROD_WS = 'wss://iroiro-multi.teruto-to01.workers.dev';
+  const SAFE_AVATARS = new Set(['🐶', '🐱', '🐰', '🐻', '🐼', '🐸', '🦊', '🐧', '🐷', '🐥', '🦁', '🐨', '🧒']);
+  const safeAvatar = (v) => (typeof v === 'string' && SAFE_AVATARS.has(v)) ? v : '🧒';
 
   const qs = new URLSearchParams(location.search);
   try {
@@ -21,14 +23,17 @@ const Multi = (() => {
       else sessionStorage.removeItem('iroiro-room');
     }
     if (qs.has('ws')) {
-      const w = qs.get('ws').trim();
-      if (/^wss?:\/\//.test(w)) sessionStorage.setItem('iroiro-ws', w.replace(/\/$/, ''));
+      const w = qs.get('ws').trim().replace(/\/$/, '');
+      if (/^wss?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(w)) sessionStorage.setItem('iroiro-ws', w);
       else sessionStorage.removeItem('iroiro-ws');
     }
   } catch (e) {}
 
   function wsBase() {
-    try { const s = sessionStorage.getItem('iroiro-ws'); if (s) return s; } catch (e) {}
+    try {
+      const s = sessionStorage.getItem('iroiro-ws');
+      if (s && /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(s)) return s;
+    } catch (e) {}
     return PROD_WS;
   }
 
@@ -148,7 +153,7 @@ const Multi = (() => {
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (!msg || typeof msg !== 'object') return;
       if (msg.t === 'hello') {
-        myAvatar = msg.avatar || '🧒'; myHue = msg.hue ?? 200; peers = msg.n || 1;
+        myAvatar = safeAvatar(msg.avatar); myHue = msg.hue ?? 200; peers = msg.n || 1;
         renderPill();
       } else if (msg.t === 'peers' || msg.t === 'pong') {
         if (typeof msg.n === 'number') { peers = msg.n; renderPill(); }
@@ -215,7 +220,7 @@ const Multi = (() => {
 
     const av = document.createElement('div');
     av.className = 'multi-peer-fx';
-    av.textContent = msg.av || '🧒';
+    av.textContent = safeAvatar(msg.av);
     av.style.left = cx + 'px'; av.style.top = cy + 'px';
     document.body.appendChild(av);
     setTimeout(() => av.remove(), 800);
