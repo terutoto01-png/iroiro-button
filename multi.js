@@ -10,8 +10,8 @@
 // ・オフラインやサーバー未設定時はそのまま1人プレイとして動く。
 
 const Multi = (() => {
-  // Cloudflare Workers デプロイ後にここへ URL を入れる（例: 'wss://iroiro-multi.xxxx.workers.dev'）
-  const PROD_WS = '';
+  // Cloudflare Workers 本番 URL（?ws=ws://localhost:8787 でローカル開発サーバーに切替可）
+  const PROD_WS = 'wss://iroiro-multi.teruto-to01.workers.dev';
 
   const qs = new URLSearchParams(location.search);
   try {
@@ -29,10 +29,6 @@ const Multi = (() => {
 
   function wsBase() {
     try { const s = sessionStorage.getItem('iroiro-ws'); if (s) return s; } catch (e) {}
-    const h = location.hostname;
-    const isLocal = h === 'localhost' || h === '127.0.0.1' || h.endsWith('.local') ||
-      /^192\.168\./.test(h) || /^10\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
-    if (isLocal) return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${h}:8787`;
     return PROD_WS;
   }
 
