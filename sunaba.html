@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🪣</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // すなのおしろ: ボタンで バケツを ぽんっ → すなの とうが できる。つづけると かべ・まど・はたが ついて おしろに なる。
 // できあがると しばらくして おおきな なみが ざぶーん（おしろは くずれて、あとに かいがらが のこる）。すなを さわると かいがら、🦀 を さわると チョキチョキ。
@@ -56,6 +56,9 @@ cv.addEventListener('pointerdown', (e) => {
   }
 });
 
+// マルチ: なかまが さわった 🦀 を、この がめんでも おなじ 🦀 として さわる
+iroGrab(() => crab ? [crab] : [], (c) => [c.x, c.y], 44);
+
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
@@ -73,7 +76,7 @@ function loop(now) {
   }
   // かに
   crabT -= dt;
-  if (!crab && crabT < 0 && !wave) { const side = Math.random() < 0.5; crab = { x: side ? -40 : W + 40, y: groundY + 50 + rand(0, 40), v: side ? 60 : -60, snip: 0, t: 0 }; }
+  if (!crab && crabT < 0 && !wave) { const side = Math.random() < 0.5; crab = iroTag({ x: side ? -40 : W + 40, y: groundY + 50 + rand(0, 40), v: side ? 60 : -60, snip: 0, t: 0 }); }
   if (crab) { crab.t += dt; crab.snip = Math.max(0, crab.snip - dt); crab.x += crab.v * dt; if (crab.x < -60 || crab.x > W + 60) { crab = null; crabT = rand(6, 12); } }
   for (const s of shells) s.hop = Math.max(0, s.hop - dt * 2.5);
   for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 600 * dt; s.life -= dt; }

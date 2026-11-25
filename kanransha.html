@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🎡</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // かんらんしゃ: ゆっくり まわる。ボタンで くるくる はやく（おんがく つき）。ゴンドラの どうぶつを さわると てを ふる。
 // からっぽの ゴンドラを さわると、したで まっている どうぶつが のりこむ。なんしゅうか まわると よるに なって ライトが ぴかぴか。
@@ -26,7 +26,7 @@ const N = 8, COLORS = ['#ff4f7b', '#ffd23f', '#4fc3f7', '#66bb44', '#ff9f1c', '#
 const ANIMALS = ['🐶', '🐱', '🐰', '🐻', '🐼', '🐨', '🐷', '🐸', '🐵', '🦊', '🐯', '🐹'];
 let Wh, rot = 0, spin = 0.15, boost = 0, night = 0, nightTo = 0, laps = 0, lapAcc = 0, noteT = 0, noteI = 0;
 let gond = [], queue = [], flyers = [], stars = [];
-for (let i = 0; i < N; i++) gond.push({ rider: i % 3 === 2 ? null : ANIMALS[i % ANIMALS.length], hop: 0, wave: 0, sway: 0 });
+for (let i = 0; i < N; i++) gond.push(iroTag({ rider: i % 3 === 2 ? null : ANIMALS[i % ANIMALS.length], hop: 0, wave: 0, sway: 0 }));
 for (let i = 0; i < 3; i++) queue.push(ANIMALS[(i + 8) % ANIMALS.length]);
 function layout() { const R = Math.min(W * 0.38, H * 0.3, 260); Wh = { x: W > 600 ? W / 2 : W * 0.47, y: Math.max(110 + R, H * 0.42), R }; stars = []; for (let i = 0; i < 40; i++) stars.push({ x: Math.random() * W, y: Math.random() * H * 0.6, p: rand(0, 6) }); }
 layout();
@@ -34,6 +34,8 @@ addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H =
 const gpos = (i) => { const a = rot + i * Math.PI * 2 / N; return { x: Wh.x + Math.cos(a) * Wh.R, y: Wh.y + Math.sin(a) * Wh.R }; };
 const ground = () => Wh.y + Wh.R + 70;
 const qx = (k) => Math.max(26, Wh.x - Wh.R * 0.45 - 34) - k * 44 + (Wh.x - Wh.R * 0.45 - 34 < 26 + 88 ? 88 : 0); // のりばの れつ（ひだりへ ならぶ）
+// マルチ: なかまが さわった ゴンドラを、この がめんでも おなじ ゴンドラとして さわる（まわる はやさが ずれても）
+iroGrab(() => gond, (g) => { const p = gpos(gond.indexOf(g)); return [p.x, p.y + 34]; }, 40);
 const MELODY = [523, 659, 784, 1047, 784, 659, 587, 698, 880, 698, 587, 523];
 
 btn.addEventListener('pointerdown', () => { boost = Math.min(3, boost + 1.2); Sfx.tone(MELODY[noteI++ % MELODY.length], 0.2, 'triangle', 0.08); });

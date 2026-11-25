@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">⚽</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // サッカー: ボールを ゆびで ゴールの ほうへ はじいて シュート（ボタンでも けれる）。キーパーが よこに うごいて とめることも。
 // ゴールすると かみふぶき。ポストに あたると カーン。3かい いれると キーパーが こうたい。キーパーを さわると ジャンプ。
@@ -29,6 +29,9 @@ function layout() { const gw = Math.min(W * 0.56, 280); G = { x: W / 2, y: 120, 
 function resetBall() { ball = { x: G.start.x, y: G.start.y, vx: 0, vy: 0, spin: 0 }; state = 'ready'; }
 layout();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); resetBall(); });
+// マルチ: なかまが さわった キーパーを、この がめんでも おなじ キーパーとして さわる（よこに うごいているので ずれる）
+iroTag(keeper);
+iroGrab(() => [keeper], (k) => [k.x, G.y + 10], 45);
 
 function kick(vx, vy) { if (state !== 'ready') return; ball.vx = vx; ball.vy = vy; state = 'fly'; st = 0; Sfx.tone(150, 0.12, 'sine', 0.3); Sfx.noise(0.08, 0.2, 900); }
 btn.addEventListener('pointerdown', () => { const tx = G.x + rand(-0.36, 0.36) * G.w, ty = G.y - 10, d = Math.hypot(tx - ball.x, ty - ball.y); kick((tx - ball.x) / d * 700, (ty - ball.y) / d * 700); });

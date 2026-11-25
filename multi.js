@@ -342,6 +342,7 @@ const Multi = (() => {
     }
     if (typeof data.i === 'number') out.i = Math.round(data.i);
     if (typeof data.s === 'number' && Number.isFinite(data.s)) out.s = Math.abs(Math.trunc(data.s)) % 2147483647;
+    if (typeof data.k === 'number' && Number.isFinite(data.k)) out.k = Math.abs(Math.trunc(data.k)) % 2147483647;
     if (typeof data.e === 'string') out.e = data.e;
     if (typeof data.p === 'string') out.p = data.p;
     if (data.m && typeof data.m === 'object') out.m = data.m;
@@ -393,7 +394,12 @@ const Multi = (() => {
       const W = win.innerWidth, H = win.innerHeight;
       const data = { a: 'in', i: slot * 4, x: r3(e.clientX / W), y: r3(e.clientY / H) };
       const el = e.target;
-      if (el && el.nodeType === 1 && doc.body) {
+      // うごく もの を つかんだ ときは「なんばんの もの か」を おくる（ページが iroGrab で おしえて くれる とき）
+      let k = null, kp = null;
+      try { const G = win.IroGrab; if (G) { k = G.pick(e.clientX, e.clientY); if (k !== null) kp = G.where(k); } } catch (err) { k = null; }
+      if (k !== null && kp) {
+        data.k = k; data.x2 = r3(kp[0] / W); data.y2 = r3(kp[1] / H);
+      } else if (el && el.nodeType === 1 && doc.body) {
         const idx = Array.prototype.indexOf.call(doc.body.getElementsByTagName('*'), el);
         const r = el.getBoundingClientRect();
         if (idx >= 0 && r.width > 0 && r.height > 0) {
@@ -472,7 +478,15 @@ const Multi = (() => {
         const old = theirs.get(key);
         if (old) { theirs.delete(key); push(key, old, 'pointercancel', old.rx, old.ry); }
         let cx = (msg.x ?? 0.5) * W, cy = (msg.y ?? 0.5) * H, target = null;
-        if (typeof msg.s === 'number') {
+        if (typeof msg.k === 'number') {
+          // なかまが つかんだ もの が、じぶんの がめんで いま いる ところ（＋ なかまの ゆびの ずれ）を おす
+          let p = null;
+          try { p = win.IroGrab ? win.IroGrab.where(msg.k) : null; } catch (err) {}
+          if (p) {
+            cx = p[0] + ((msg.x ?? 0.5) - (msg.x2 ?? 0.5)) * W; cy = p[1] + ((msg.y ?? 0.5) - (msg.y2 ?? 0.5)) * H;
+            target = doc.elementFromPoint(Math.max(0, Math.min(W - 1, cx)), Math.max(0, Math.min(H - 1, cy)));
+          }
+        } else if (typeof msg.s === 'number') {
           const el = doc.body.getElementsByTagName('*')[msg.s];
           if (el && tagCode(el) === msg.h) {
             const r = el.getBoundingClientRect();

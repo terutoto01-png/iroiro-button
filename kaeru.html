@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🐸</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // はっぱジャンプ: ボタンで カエルが つぎの はっぱへ ぴょん（どこまでも すすむ）。たまに すべって ぼちゃん → すぐ もどる。
 // とんでいる むしを さわると、したを のばして ぱくっ。みずを さわると ぽちゃん、ときどき さかなが はねる。
@@ -46,8 +46,10 @@ cv.addEventListener('pointerdown', (e) => {
     if (Math.random() < 0.35) fishes.push({ x: x + cam, y, t: 0, dir: Math.random() < 0.5 ? -1 : 1 });
   }
 });
-function newBug() { return { e: pick(['🦋', '🪰', '🐝', '🦋', '🐞']), x: rand(40, W - 40), y: rand(100, H * 0.42), a: rand(0, 6), sp: rand(0.8, 1.6), t: 0 }; }
+function newBug() { return iroTag({ e: pick(['🦋', '🪰', '🐝', '🦋', '🐞']), x: rand(40, W - 40), y: rand(100, H * 0.42), a: rand(0, 6), sp: rand(0.8, 1.6), t: 0 }); }
 for (let i = 0; i < 3; i++) bugs.push(newBug());
+// マルチ: なかまが さわった むしを、この がめんでも おなじ むしとして ぱくっ
+iroGrab(() => (!tongue && !frog.jump && frog.fall <= 0) ? bugs : [], (b) => [b.x, b.y], 46);
 for (let i = 0; i < 30; i++) deco.push({ i: i + rand(0.3, 0.7), e: pick(['🪷', '🌿', '🪷', '🌾']), dy: rand(-0.12, 0.25) });
 
 let last = performance.now();

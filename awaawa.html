@@ -19,7 +19,7 @@
 <canvas id="bg"></canvas>
 <canvas id="foam"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🧴</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // あわあわ: ボタンで おふろの あわが もこもこ ふえる。ゆびで こすると あわが きえて アヒルが でてくる。
 const bg = document.getElementById('bg'), bx = bg.getContext('2d');
@@ -64,7 +64,7 @@ function addFoam() {
     fx.drawImage(blob, x - r, y - r, r * 2, r * 2);
   }
   // ふわふわ とぶ シャボンだま
-  for (let i = 0; i < 4; i++) bubbles.push({ x: rand(40, W - 40), y: water, r: rand(10, 26), vy: -rand(40, 110), p: rand(0, 6), hue: rand(0, 360) });
+  for (let i = 0; i < 4; i++) bubbles.push(iroTag({ x: rand(40, W - 40), y: water, r: rand(10, 26), vy: -rand(40, 110), p: rand(0, 6), hue: rand(0, 360) }));
 }
 
 btn.addEventListener('pointerdown', () => {
@@ -96,7 +96,9 @@ foam.addEventListener('pointermove', (e) => { if (down) scrub(e.clientX, e.clien
 foam.addEventListener('pointerup', () => { down = false; });
 foam.addEventListener('pointercancel', () => { down = false; });
 
-const duck = { x: innerWidth * 0.35, y: 0, s: 90, dir: 1, jump: 0 };
+const duck = iroTag({ x: innerWidth * 0.35, y: 0, s: 90, dir: 1, jump: 0 });
+// マルチ: なかまが わった シャボンだま・さわった アヒルを、この がめんでも おなじ ものとして さわる
+iroGrab(() => [duck, ...bubbles.filter(b => !b.pop && !b.dead)], (o) => [o.x, o.y], (o) => o === duck ? duck.s * 0.6 : o.r + 30);
 let last = performance.now();
 (function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;

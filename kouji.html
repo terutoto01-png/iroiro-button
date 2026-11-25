@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🚧</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // こうじげんば: ボタンを おすたびに じゅんばんに はたらく。🚜 で でこぼこを たいらに → 🚚 で じゃり → ローラーで アスファルト → しろい せん。
 // みちが できたら くるまが とおる（ボタンで もっと くる）。くるまを さわると ぷっぷー、コーンを さわると ころん。
@@ -48,7 +48,9 @@ btn.addEventListener('pointerdown', () => {
   if (stage < 4) { if (!worker) { worker = { job: JOBS[stage], x: -80, sndT: 0 }; engine(); } return; }
   cars.push(newCar()); honk(60);
 });
-function newCar() { const dir = Math.random() < 0.5 ? 1 : -1; return { e: pick(CARS), dir, x: dir > 0 ? -60 : W + 60, lane: dir > 0 ? 0.25 : -0.25, v: rand(150, 240), hop: 0 }; }
+function newCar() { const dir = Math.random() < 0.5 ? 1 : -1; return iroTag({ e: pick(CARS), dir, x: dir > 0 ? -60 : W + 60, lane: dir > 0 ? 0.25 : -0.25, v: rand(150, 240), hop: 0 }); }
+// マルチ: なかまが さわった くるまを、この がめんでも おなじ くるまとして ぷっぷー
+iroGrab(() => cars, (c) => [c.x, road.y + c.lane * road.h - 10], 45);
 cv.addEventListener('pointerdown', (e) => {
   const x = e.clientX, y = e.clientY;
   for (const c of cars) if (Math.hypot(c.x - x, road.y + c.lane * road.h - 10 - y) < 45) { c.hop = 1; honk(c.x); return; }

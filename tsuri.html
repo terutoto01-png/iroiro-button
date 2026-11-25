@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🎣</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // つり: ボタンで はりを おとす → さかなが くいつく → ボタン れんだで まきあげる → ふねの バケツへ。
 // うみを さわると ふねが そこへ うごく。そこの 👢 や 🎁 も つれる。ときどき おおきな 🐋（なかなか あがらない）。5ひき つれたら みんな うみへ かえす。
@@ -33,7 +33,7 @@ hook = { st: 'up', x: 0, y: 0, caught: null };
 
 function newFish(kind) {
   const big = kind === 'whale', dir = Math.random() < 0.5 ? -1 : 1;
-  return { e: big ? '🐋' : pick(FISH), x: dir > 0 ? -60 : W + 60, y: big ? rand(wy + 120, floorY - 80) : rand(wy + 60, floorY - 30), vx: dir * (big ? 40 : rand(40, 90)), size: big ? 110 : rand(36, 52), w: big ? 2.5 : 1, ph: rand(0, 6), dart: 0 };
+  return iroTag({ e: big ? '🐋' : pick(FISH), x: dir > 0 ? -60 : W + 60, y: big ? rand(wy + 120, floorY - 80) : rand(wy + 60, floorY - 30), vx: dir * (big ? 40 : rand(40, 90)), size: big ? 110 : rand(36, 52), w: big ? 2.5 : 1, ph: rand(0, 6), dart: 0 });
 }
 for (let i = 0; i < 6; i++) { const f = newFish(); f.x = rand(40, W - 40); fish.push(f); }
 function fillBed() { bed = []; for (let i = 0; i < 2; i++) bed.push({ e: pick(['👢', '🎁', '👑', '💎', '🥫']), x: rand(40, W - 160), w: 1.5 }); }
@@ -59,6 +59,9 @@ cv.addEventListener('pointerdown', (e) => {
     Sfx.tone(rand(500, 700), 0.1, 'sine', 0.08, 0, 300);
   }
 });
+
+// マルチ: なかまが さわった さかなを、この がめんでも おなじ さかな として さわる
+iroGrab(() => fish.filter(f => f !== hook.caught), (f) => [f.x, f.y], (f) => f.size * 0.7);
 
 function landed() {
   const c = hook.caught; hook.caught = null; hook.st = 'up';

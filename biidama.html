@@ -18,7 +18,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🔮</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // ビーだま: iPad を かたむけると ころがる（センサーが ないときは したに おちる）
 // みぎしたの あなに ちかづくと すいこまれて、くるくる まわって おちる
@@ -50,8 +50,8 @@ btn.addEventListener('pointerdown', () => {
   const r = btn.getBoundingClientRect();
   for (let i = 0; i < 3; i++) {
     const a = Math.random() * Math.PI * 2;
-    balls.push({ x: r.left + r.width / 2 + Math.cos(a) * 90, y: r.top + r.height / 2 + Math.sin(a) * 90,
-                 vx: Math.cos(a) * 300, vy: Math.sin(a) * 300, r: rand(18, 32), hue: rand(0, 360), swirl: rand(0, 6) });
+    balls.push(iroTag({ x: r.left + r.width / 2 + Math.cos(a) * 90, y: r.top + r.height / 2 + Math.sin(a) * 90,
+                 vx: Math.cos(a) * 300, vy: Math.sin(a) * 300, r: rand(18, 32), hue: rand(0, 360), swirl: rand(0, 6) }));
   }
   if (balls.length > 45) balls.splice(0, balls.length - 45);
   Sfx.tone(rand(900, 1300), 0.12, 'sine', 0.25, 0, 2000);
@@ -65,6 +65,8 @@ canvas.addEventListener('pointerdown', (e) => {
   }
 });
 
+// マルチ: なかまが はじいた ビーだまを、この がめんでも おなじ ビーだまとして はじく（ころがって ずれても）
+iroGrab(() => balls.filter(b => !b.gone), (b) => [b.x, b.y], 96);
 function click(v) {
   const now = performance.now();
   if (v < 120 || now - lastClick < 40) return;

@@ -267,6 +267,7 @@ export class Room extends DurableObject {
     const y2 = clampNum(msg.y2, 0, 1); if (y2 !== undefined) out.y2 = y2;
     if (typeof msg.i === 'number' && Number.isInteger(msg.i) && msg.i >= -10 && msg.i <= 100) out.i = msg.i;
     if (typeof msg.s === 'number' && Number.isInteger(msg.s) && msg.s >= 0 && msg.s <= 2147483647) out.s = msg.s;
+    if (typeof msg.k === 'number' && Number.isInteger(msg.k) && msg.k >= 0 && msg.k <= 2147483647) out.k = msg.k; // つかんだ ものの ばんごう
     const h = clampNum(msg.h, 0, 360); if (h !== undefined) out.h = h;
     if (typeof msg.e === 'string' && ALLOWED_EMOJIS.has(msg.e)) out.e = msg.e;
     const pg = cleanPage(msg.p); if (pg) out.p = pg;

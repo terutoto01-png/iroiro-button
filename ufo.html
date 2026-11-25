@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🛸</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // ユーフォー: ボタンで ビームを だして、したの どうぶつを ふわふわ すいあげる！べつの ばしょへ うつして ぱらぱら おろすよ。
 // 5かい すると UFO ダンスパーティー！ そらを さわると UFO が うごく、どうぶつを さわると そのこを ビーム、🌙 で ながれぼし。
@@ -28,13 +28,13 @@ let groundY, ufo, friends = [], stars = [], meteors = [], sparks = [], drops = [
 
 function layout() {
   groundY = Math.min(H - 125, H * 0.78);
-  if (!ufo) ufo = { x: W * 0.48, y: Math.max(150, H * 0.28), tx: W * 0.48, ty: Math.max(150, H * 0.28), beam: 0, state: 'idle', target: null, carry: null, t: 0, wave: 0 };
+  if (!ufo) ufo = iroTag({ x: W * 0.48, y: Math.max(150, H * 0.28), tx: W * 0.48, ty: Math.max(150, H * 0.28), beam: 0, state: 'idle', target: null, carry: null, t: 0, wave: 0 });
   else { ufo.tx = Math.min(W - 60, Math.max(60, ufo.tx)); ufo.ty = Math.min(groundY - 150, Math.max(110, ufo.ty)); }
   stars = Array.from({ length: 55 }, () => ({ x: Math.random() * W, y: Math.random() * (groundY - 40), p: rand(0, 6), r: rand(1.2, 2.6) }));
   if (!friends.length) {
     const n = W < 540 ? 5 : 6;
     for (let i = 0; i < n; i++) {
-      friends.push({ e: CRITTERS[i % CRITTERS.length], x: W * (i + 0.7) / (n + 0.5), y: groundY - 22, dir: i % 2 ? 1 : -1, sp: rand(18, 36), hop: 0, rot: 0, lifted: false });
+      friends.push(iroTag({ e: CRITTERS[i % CRITTERS.length], x: W * (i + 0.7) / (n + 0.5), y: groundY - 22, dir: i % 2 ? 1 : -1, sp: rand(18, 36), hop: 0, rot: 0, lifted: false }));
     }
   } else {
     friends.forEach(f => { if (!f.lifted) f.y = groundY - 22; f.x = Math.min(W - 40, Math.max(40, f.x)); });
@@ -106,6 +106,9 @@ cv.addEventListener('pointermove', (e) => {
 });
 const up = (e) => { if (drag && drag.id === e.pointerId) drag = null; };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+
+// マルチ: なかまが さわった どうぶつ（と UFO）を、この がめんでも おなじ こ として さわる
+iroGrab(() => [ufo, ...friends.filter(f => !f.lifted)], (o) => [o.x, o.y], 60);
 
 let last = performance.now();
 function loop(now) {

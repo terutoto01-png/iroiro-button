@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">☔</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // あめふり: そらを さわると かさが ぱっと ひらいて、あめが ぽつぽつ はねる。みずたまりを さわると ぱしゃっ（🐸 が ぴょん）。
 // ボタンで あめが やんで おひさま と にじ。🐌 が のそのそ あるく（さわると からに かくれる）。もういちど おすと また あめ。
@@ -36,7 +36,7 @@ for (let i = 0; i < 160; i++) drops.push({ x: rand(0, W), y: rand(-H, H), v: ran
 
 btn.addEventListener('pointerdown', () => {
   raining = !raining;
-  if (!raining) { Sfx.chime(); popText('はれた！', W / 2, H * 0.3, '#ff9f1c', 48); if (!snail) snail = { x: -40, hide: 0 }; }
+  if (!raining) { Sfx.chime(); popText('はれた！', W / 2, H * 0.3, '#ff9f1c', 48); if (!snail) snail = iroTag({ x: -40, hide: 0 }); }
   else { Sfx.noise(1.2, 0.12, 200); popText('ぽつぽつ', W / 2, H * 0.3, '#fff', 40); }
 });
 cv.addEventListener('pointerdown', (e) => {
@@ -55,6 +55,8 @@ cv.addEventListener('pointerdown', (e) => {
   }
 });
 
+// マルチ: なかまが さわった 🐌 を、この がめんでも おなじ 🐌 として さわる（のそのそ あるいて ずれても）
+iroGrab(() => snail ? [snail] : [], (s) => [s.x, H - 86], 40);
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;
@@ -81,7 +83,7 @@ function loop(now) {
   frog.jump = Math.max(0, frog.jump - dt * 1.6);
   if (frog.jump > 0.95 && !frog.snd) { frog.snd = true; Sfx.tone(140, 0.15, 'square', 0.08, 0, 110); Sfx.tone(140, 0.15, 'square', 0.08, 0.2, 110); }
   if (frog.jump === 0) frog.snd = false;
-  if (snail) { snail.hide = Math.max(0, snail.hide - dt); if (!snail.hide) snail.x += 14 * dt; if (snail.x > W + 40) snail = raining ? null : { x: -40, hide: 0 }; }
+  if (snail) { snail.hide = Math.max(0, snail.hide - dt); if (!snail.hide) snail.x += 14 * dt; if (snail.x > W + 40) snail = raining ? null : iroTag({ x: -40, hide: 0 }); }
   draw(t);
   requestAnimationFrame(loop);
 }

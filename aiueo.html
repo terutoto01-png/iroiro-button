@@ -46,7 +46,7 @@
 <div class="stage"><button id="btn" class="big-btn"><span class="emoji" id="pic">🍎</span></button></div>
 <canvas id="ov" class="full"></canvas>
 <button id="hero" type="button" aria-label="うまれたことば"><span class="orb"><span class="em" id="heroEm"></span></span><span class="lbl" id="heroLbl"></span></button>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // あいうえお: えの ボタンを おすと その ことばの ひらがなが ぽん ぽん と とびだして よみあげる。
 // とびだした もじは したに つもる。さわると その もじを よんで はねる。ゆびで はじいて なげられる。
@@ -159,7 +159,7 @@ function btnCircle() {
 }
 
 function addLetter(ch, hue, x, y, vx, vy) {
-  const L = { ch, hue, x, y, vx, vy, a: (Math.random() - 0.5) * 0.6, va: (Math.random() - 0.5) * 8, sq: 0, glow: 0, born: performance.now(), dead: 0, grab: null, slot: null, celebrate: null };
+  const L = iroTag({ ch, hue, x, y, vx, vy, a: (Math.random() - 0.5) * 0.6, va: (Math.random() - 0.5) * 8, sq: 0, glow: 0, born: performance.now(), dead: 0, grab: null, slot: null, celebrate: null });
   letters.push(L);
   // おおすぎたら ふるい もじから ぱちんと きえる（わくに はまっている もじは けさない）
   const MAX = Math.floor(W * H / (R * R * 9));
@@ -422,6 +422,8 @@ heroEl.addEventListener('pointerdown', (e) => {
   spark(hero.x, hero.y, HUES[Math.floor(Math.random() * HUES.length)], 14);
 });
 
+// マルチ: なかまが つかんだ もじを、この がめんでも おなじ もじとして つかむ
+iroGrab(() => letters.filter(l => !l.dead && !l.grab && !l.celebrate), (l) => [l.x, l.y], () => R * 1.35);
 cv.addEventListener('pointerdown', (e) => {
   Sfx.ac();
   const x = e.clientX, y = e.clientY, now = performance.now();

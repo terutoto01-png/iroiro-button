@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🐣</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // おさんぽ: おかあさんガモの うしろを ヒナが ならんで ついてくる。がめんを さわると、ゆびの ほうへ あるく。
 // ボタンで ヒナが ふえる（12わ まで。そのあとは みんなで ぴょん）。みんなで いけに はいると およいで 💗。
@@ -35,6 +35,9 @@ const inPond = (x, y, m = 0) => ((x - pond.x) / (pond.rx + m)) ** 2 + ((y - pond
 layout();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
 for (let i = 0; i < 3; i++) chicks.push({ hop: 0, born: 1 });
+// マルチ: なかまが さわった おかあさんガモを、この がめんでも おなじ ところ（おかあさんの いま いる ところ）で さわる
+iroTag(mom);
+iroGrab(() => [mom], (m) => [m.x, m.y], 40);
 
 btn.addEventListener('pointerdown', () => {
   if (chicks.length < MAX) {

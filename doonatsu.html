@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🍩</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // ドーナツやさん: ボタンを おすと クリーム → チョコスプレー → トッピング の じゅんで どんどん できあがる！
 // 5こ はこに はいると リボンを かけて どうぶつが うれしそうに もっていく。ドーナツや マシン、どうぶつを さわっても はんのうする。
@@ -25,7 +25,7 @@ let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
 const GLAZES = ['#ff6fae', '#6b3e26', '#7cc45e', '#ffd23f', '#5ec8ff', '#b388ff'];
 const TOPS = ['🍓', '🍒', '⭐', '🍪', '🍬'];
 const CUSTOMERS = ['🐻', '🐰', '🐼', '🐱', '🐶'];
-let L, donuts = [], boxCount = 0, boxPhase = 'open', boxT = 0, cust = { e: '🐻', x: 0, hop: 0 };
+let L, donuts = [], boxCount = 0, boxPhase = 'open', boxT = 0, cust = iroTag({ e: '🐻', x: 0, hop: 0 });
 let beltOff = 0, boost = 0, nozzleAnim = [0, 0, 0], drops = [], sparks = [], hearts = [], ci = 0;
 
 function layout() {
@@ -46,7 +46,7 @@ layout();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); });
 
 function makeDonut(x) {
-  return { x, y: L.by - 28, glaze: null, sprinkles: [], top: null, hop: 1, wobble: 0 };
+  return iroTag({ x, y: L.by - 28, glaze: null, sprinkles: [], top: null, hop: 1, wobble: 0 });
 }
 donuts.push(makeDonut(L.st[0] - 20));
 
@@ -127,6 +127,8 @@ cv.addEventListener('pointerdown', (e) => {
   }
 });
 
+// マルチ: なかまが さわった ドーナツ・どうぶつを、この がめんでも おなじ ものとして さわる（ベルトで ながれて ずれても）
+iroGrab(() => [cust, ...donuts], (o) => o === cust ? [cust.x, L.by - 88] : [o.x, o.y], () => Math.max(54, L.r + 14));
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000), t = now / 1000; last = now;

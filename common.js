@@ -229,6 +229,36 @@ window.addEventListener('DOMContentLoaded', () => {
   document.body.appendChild(a);
 });
 
+// ---- マルチ: うごく ものを なかまと おなじ ものとして つかむ ----
+// 家族部屋では なかまの ゆびの うごきを じぶんの がめんに ながす（multi.js）。でも うごく もの（とぶ もじ・ふうせん など）は
+// がめんごとに すこしずつ いちが ずれるので、おなじ ばしょを おしても からぶりする。
+// そこで うごく ものには うまれた じゅんの ばんごうを つけ、「なんばんを つかんだか」を おくる。
+// うけとった がめんでは、その ばんごうの ものが いま いる ところを おす。
+//   iroTag(obj)                           … つくった ときに よぶ（ばんごうを つける）
+//   iroGrab(() => いまの いちらん, (o) => [x, y], はんけい) … ページで 1かい よぶ（ここを おしたら どれ？ を おしえる。はんけいは かず か (o) => かず）
+let iroGid = 0;
+function iroTag(o) { if (o && typeof o === 'object') o.__gid = ++iroGid; return o; }
+function iroGrab(list, pos, radius = 60) {
+  window.IroGrab = {
+    pick(x, y) {
+      // はんけいが かんすう なら ものごとに きく（おおきさが ちがう もの）。いちばん ちかい ものを えらぶ
+      let best = null, bd = Infinity;
+      for (const o of list() || []) {
+        if (!o || o.__gid === undefined) continue;
+        const p = pos(o); if (!p) continue;
+        const rr = typeof radius === 'function' ? radius(o) : radius;
+        const d = (p[0] - x) ** 2 + (p[1] - y) ** 2;
+        if (d <= rr * rr && d < bd) { bd = d; best = o; }
+      }
+      return best ? best.__gid : null;
+    },
+    where(id) {
+      for (const o of list() || []) if (o && o.__gid === id) return pos(o);
+      return null;
+    },
+  };
+}
+
 // ---- WebGPU の準備（使えないときは null を返す） ----
 async function initWebGPU(canvas) {
   try {

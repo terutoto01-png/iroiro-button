@@ -15,7 +15,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">💧</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // スライム（メタボール）: WebGPU フラグメントシェーダー
 const MAX = 24;
@@ -76,15 +76,18 @@ fn fs(@builtin(position) fc: vec4f) -> @location(0) vec4f {
 function addBlob() {
   const r = btn.getBoundingClientRect();
   if (blobs.length >= MAX) blobs.shift();
-  blobs.push({
+  blobs.push(iroTag({
     x: r.left + r.width / 2 + rand(-20, 20), y: r.top,
     vx: rand(-250, 250), vy: rand(-900, -600),
     r: rand(35, 70), hue: Math.random(), wob: Math.random() * 10,
-  });
+  }));
   Sfx.tone(rand(200, 300), 0.25, 'sine', 0.35, 0, rand(600, 900));
   Sfx.tone(rand(500, 700), 0.15, 'sine', 0.15, 0.08, 300);
 }
 btn.addEventListener('pointerdown', addBlob);
+
+// マルチ: なかまが たたいた スライムの ちかくを、この がめんでも おなじ スライムの ちかくとして たたく
+iroGrab(() => blobs, (b) => [b.x, b.y], 70 * 2.5);
 
 // たたくと ぷるん と はねる
 canvas.addEventListener('pointerdown', (e) => {

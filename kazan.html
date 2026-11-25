@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🌋</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // かざん: ボタンで ふんか。つづけて おすほど おおきく なる。とんだ ようがんは ひえて いわに なる。
 // ひえた いわを さわると われて、💎 や たまごが でてくる。たまごからは きょうりゅうが うまれて あるいていく。
@@ -47,6 +47,8 @@ btn.addEventListener('pointerdown', () => {
   for (let i = 0; i < 4 + pw * 2; i++) puffs.push({ x: V.x + rand(-20, 20), y: V.peak - 10, vx: rand(-30, 30), vy: rand(-120, -60) * (0.7 + pw * 0.2), r: rand(20, 34), life: 3 });
   if (pw >= 3) { flows.push({ dir: -1, k: 0 }, { dir: 1, k: 0 }); popText('どかーん！', W / 2, H * 0.2, '#ff3b00', 56); }
 });
+// マルチ: なかまが わった いわ・さわった きょうりゅうを、この がめんでも おなじ ものとして さわる
+iroGrab(() => [...rocks.filter(r => r.heat < 0.15 && !r.cracked), ...dinos], (o) => [o.x, o.y], 40);
 cv.addEventListener('pointerdown', (e) => {
   const x = e.clientX, y = e.clientY;
   for (const r of rocks) {
@@ -69,7 +71,7 @@ function loop(now) {
     b.vy += 900 * dt; b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.vy > 0 && b.y >= surface(b.x)) {
       b.done = true;
-      if (b.x > 10 && b.x < W - 10 && Math.random() < 0.35) { rocks.push({ x: b.x, y: surface(b.x), s: rand(16, 28), heat: 1, rot: rand(0, 6) }); if (rocks.length > 22) rocks.shift(); }
+      if (b.x > 10 && b.x < W - 10 && Math.random() < 0.35) { rocks.push(iroTag({ x: b.x, y: surface(b.x), s: rand(16, 28), heat: 1, rot: rand(0, 6) })); if (rocks.length > 22) rocks.shift(); }
       if (Math.random() < 0.2) Sfx.noise(0.08, 0.06, 1200);
     }
   }
@@ -83,7 +85,7 @@ function loop(now) {
   flows = flows.filter(f => f.k < 2.4);
   for (const it of items) {
     it.t += dt;
-    if (it.egg && it.t > 1.4 && !it.done) { it.done = true; const e = pick(['🦕', '🦖']); dinos.push({ e, x: it.x, y: it.y + 6, dir: it.x < V.x ? -1 : 1, jump: 1, t: 0 }); Sfx.tone(500, 0.2, 'sine', 0.1, 0, 900); popText('うまれた！', it.x, it.y - 50, '#2e7031', 32); }
+    if (it.egg && it.t > 1.4 && !it.done) { it.done = true; const e = pick(['🦕', '🦖']); dinos.push(iroTag({ e, x: it.x, y: it.y + 6, dir: it.x < V.x ? -1 : 1, jump: 1, t: 0 })); Sfx.tone(500, 0.2, 'sine', 0.1, 0, 900); popText('うまれた！', it.x, it.y - 50, '#2e7031', 32); }
     if (!it.egg && it.t > 2 && !it.done) it.done = true;
   }
   items = items.filter(it => !it.done);

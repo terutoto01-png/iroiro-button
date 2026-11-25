@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🐧</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // すべりだい: ボタンで ペンギンが こおりの さかを おなかで すべって、うみに どぼん。およいで いく。
 // れんだすると つぎつぎ すべって、さきの こが はしで もじもじ すると うしろが つかえて じゅうたい。さわると くるっ。たくさん とびこむと 🐳 が しおを ふく。
@@ -38,7 +38,7 @@ btn.addEventListener('pointerdown', () => {
   const last = birds[birds.length - 1];
   if (birds.length >= 9) return;
   const s0 = last ? Math.min(0, last.s - GAP) : 0;
-  birds.push({ e: Math.random() < 0.1 ? '🦭' : '🐧', s: s0, v: 0, st: 'slide', spin: 0, wait: 0 });
+  birds.push(iroTag({ e: Math.random() < 0.1 ? '🦭' : '🐧', s: s0, v: 0, st: 'slide', spin: 0, wait: 0 }));
   Sfx.tone(rand(700, 900), 0.1, 'sine', 0.1, 0, 1200);
 });
 cv.addEventListener('pointerdown', (e) => {
@@ -46,6 +46,9 @@ cv.addEventListener('pointerdown', (e) => {
   for (const b of swim) if (Math.hypot(b.x - e.clientX, b.y - e.clientY) < 40) { b.dive = 1; Sfx.tone(400, 0.2, 'sine', 0.1, 0, 200); return; }
   if (e.clientY > S.sea) { for (let i = 0; i < 8; i++) splash.push({ x: e.clientX, y: S.sea, vx: rand(-100, 100), vy: rand(-260, -100), life: 0.8 }); Sfx.noise(0.2, 0.15, 1500); }
 });
+
+// マルチ: なかまが さわった ペンギンを、この がめんでも おなじ こ として さわる
+iroGrab(() => [...birds, ...swim], (b) => b.s !== undefined ? [onSlope(b.s).x, onSlope(b.s).y - 20] : [b.x, b.y], 40);
 
 let last = performance.now();
 function loop(now) {
@@ -67,7 +70,7 @@ function loop(now) {
       if (b.wait <= 0) { b.wait = -1; b.st = 'slide'; b.v = 60; }
     } else if (b.st === 'fly') {
       b.vy += 900 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.spin = Math.max(b.spin, 0.01);
-      if (b.y > S.sea) { b.done = true; splashed++; swim.push({ e: b.e, x: b.x, y: S.sea + 6, vx: rand(50, 90), t: 0, dive: 0 }); Sfx.noise(0.5, 0.3, 1200); Sfx.tone(200, 0.2, 'sine', 0.12, 0, 90); for (let k = 0; k < 14; k++) splash.push({ x: b.x, y: S.sea, vx: rand(-160, 160), vy: rand(-380, -140), life: 1 }); if (splashed % 10 === 0) whale = { t: 0, x: W * 0.8 }; }
+      if (b.y > S.sea) { b.done = true; splashed++; swim.push({ e: b.e, x: b.x, y: S.sea + 6, vx: rand(50, 90), t: 0, dive: 0, __gid: b.__gid }); Sfx.noise(0.5, 0.3, 1200); Sfx.tone(200, 0.2, 'sine', 0.12, 0, 90); for (let k = 0; k < 14; k++) splash.push({ x: b.x, y: S.sea, vx: rand(-160, 160), vy: rand(-380, -140), life: 1 }); if (splashed % 10 === 0) whale = { t: 0, x: W * 0.8 }; }
     }
     b.bump = Math.max(0, (b.bump || 0) - dt);
   }

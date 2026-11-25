@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">⭐</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script type="module">
 // ころころだいぼうけん（3D）:
 // ・かおの ある おおきな たまが、したへ したへ ずっと ころがっていく。コースは じどうで つぎつぎ できる。
@@ -148,7 +148,7 @@ const FACES = { smile: faceTex('smile'), blink: faceTex('blink'), happy: faceTex
 const face = new THREE.Sprite(new THREE.SpriteMaterial({ map: FACES.smile, depthWrite: false }));
 scene.add(face);
 
-const ball = { pos: new V3(), vel: new V3(), hop: 0, hopV: 0, squash: 0, scale: 1, hidden: false };
+const ball = iroTag({ pos: new V3(), vel: new V3(), hop: 0, hopV: 0, squash: 0, scale: 1, hidden: false });
 let faceKind = 'smile', faceUntil = 0, nextBlink = 2;
 function setFace(k, dur = 0.9) { faceKind = k; faceUntil = time + dur; }
 
@@ -1040,6 +1040,13 @@ cv.addEventListener('pointerdown', (e) => {
   hop();
 });
 btn.addEventListener('pointerdown', () => { flashPress(btn); Sfx.ac(); if (!started) { started = true; return; } hop(true); });
+// マルチ: なかまが ちょんと した たまを、この がめんでも おなじ たまとして ちょん（ころがって がめんの いちが ずれても）
+// たまの まんなかを がめんに うつして、あたりの はんけい（1.9）も がめんの おおきさに なおす
+const scr = (v) => { const p = v.clone().project(camera); return [(p.x + 1) / 2 * innerWidth, (1 - p.y) / 2 * innerHeight]; };
+iroGrab(() => ball.hidden ? [] : [ball], () => scr(ballMesh.position), () => {
+  const a = scr(ballMesh.position), b = scr(ballMesh.position.clone().addScaledVector(new V3().setFromMatrixColumn(camera.matrixWorld, 0), 1.9));
+  return Math.hypot(b[0] - a[0], b[1] - a[1]);
+});
 
 // ---- まいフレーム ----
 let time = 0, last = performance.now();

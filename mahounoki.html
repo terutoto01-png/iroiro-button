@@ -18,7 +18,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji" id="icon">🌱</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // まほうの き:
 // ・🌱 を おすと たねから めが でて、えだが わかれながら ぐんぐん おおきな きに なる。
@@ -297,7 +297,7 @@ btn.addEventListener('pointerdown', () => {
     const free = freeTips().sort(() => Math.random() - 0.5);
     const n = Math.min(4, bloomTarget() - atts.length, free.length);
     for (let k = 0; k < n; k++) {
-      atts.push({ tip: free[k].i, kind: 'blossom', e: pick(S.blossoms), s: 0, sw: 0, swv: 0, born: t + k * 0.09 });
+      atts.push(iroTag({ tip: free[k].i, kind: 'blossom', e: pick(S.blossoms), s: 0, sw: 0, swv: 0, born: t + k * 0.09 }));
       Mus.pop(7 + k * 2);
     }
     if (atts.length >= bloomTarget() || free.length <= n) { stage = 'fruit'; setIcon(S.fruits[0]); }
@@ -371,6 +371,10 @@ const endDrag = (e) => { if (drag && drag.id === e.pointerId) drag = null; };
 cv.addEventListener('pointerup', endDrag);
 cv.addEventListener('pointercancel', endDrag);
 
+// マルチ: なかまが さわった とり・どうぶつ・はな・み・むしを、この がめんでも おなじ ものとして さわる
+iroGrab(() => [...birds, ...animals, ...atts, ...bugs, ...gfruits.filter(f => !f.eaten)],
+  (o) => animals.includes(o) ? [o.x, o.y - o.size * 0.4] : atts.includes(o) ? (({ x, y }) => [x, y])(attPos(o)) : [o.x, o.y],
+  () => Math.max(40, emojiS * 0.95));
 function tapAt(x, y) {
   // とり
   for (const b of birds) if (Math.hypot(x - b.x, y - b.y) < Math.max(32, b.size * 0.7)) { poke(b); return 'bird'; }
@@ -541,7 +545,7 @@ function dropAtt(a, vx) {
   const p = attPos(a);
   if (a.kind === 'blossom') { for (let k = 0; k < 6; k++) leavesF.push(fallingBit(p.x, p.y, 'petal', rand(-60, 60), rand(-60, 0))); return; }
   if (gfruits.length > 26) gfruits.shift();
-  gfruits.push({ e: a.e, x: p.x, y: p.y, vx, vy: -rand(40, 140), rot: 0, vr: rand(-6, 6), size: emojiS * 0.9, rest: false, eaten: 0, by: null, born: t });
+  gfruits.push(iroTag({ e: a.e, x: p.x, y: p.y, vx, vy: -rand(40, 140), rot: 0, vr: rand(-6, 6), size: emojiS * 0.9, rest: false, eaten: 0, by: null, born: t }));
   if (stage === 'fruit' || stage === 'ripe') {
     if (!atts.some(x => x.kind === 'fruit') && !atts.some(x => x.kind === 'blossom') && stage === 'fruit') { stage = 'ripe'; setIcon('🪄'); }
   }
@@ -555,7 +559,7 @@ function spawnAnimal() {
   const a = { e: pick(ANIMALS), x: left ? -size : W + size, y: 0, dir: left ? 1 : -1, size, state: 'walk', target: null,
     t: 0, hop: 0, hopV: 0, hy: 0, eatN: 0, full: 0, leaveT: rand(5, 9), sleepy: false, ph: Math.random() * 6.28 };
   a.y = gy(a.x); a.wx = rand(W * 0.15, W * 0.8);
-  animals.push(a);
+  animals.push(iroTag(a));
   return a;
 }
 function pokeAnimal(a) {
@@ -568,7 +572,7 @@ function spawnBird(x, y) {
   const left = Math.random() < 0.5;
   const b = { e: pick(['🐦', '🐤', '🐥', '🦜']), x: x ?? (left ? -30 : W + 30), y: y ?? rand(topLimit, groundY * 0.5),
     vx: 0, vy: 0, state: 'fly', tip: -1, tx: 0, ty: 0, size: emojiS * 0.78, flap: 0, hop: 0, dir: 1, sing: rand(3, 9), leave: false };
-  birds.push(b);
+  birds.push(iroTag(b));
   return b;
 }
 function pickPerch(b, far) {
@@ -590,7 +594,7 @@ function spawnBug(near, x, y) {
   if (bugs.length >= 5) return;
   const g = { e: Math.random() < 0.6 ? '🦋' : (tree.S.fruits.includes('🍯') || Math.random() < 0.5 ? '🐝' : '🐞'),
     x: x ?? (Math.random() < 0.5 ? -30 : W + 30), y: y ?? rand(topLimit + 40, groundY - 60), vx: 0, vy: 0, ph: Math.random() * 6.28, spin: 0, life: rand(14, 24), home: null };
-  bugs.push(g);
+  bugs.push(iroTag(g));
 }
 
 // ---------------------------------------------------------------- まいフレーム

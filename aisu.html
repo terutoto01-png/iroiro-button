@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🍨</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // アイスやさん: ボタンで アイスが うえから ぽとっと のる。どんどん たかく なって、ぐらぐら。
 // たかすぎたり かたむきすぎると たおれて、🐶 が ぺろぺろ たべに くる。アイスを さわると ぺろっ。ときどき にじいろ アイス。
@@ -55,6 +55,8 @@ cv.addEventListener('pointerdown', (e) => {
   }
 });
 
+// マルチ: なかまが ぺろっと した アイスを、この がめんでも おなじ アイスとして ぺろっ（ぐらぐら ゆれても）
+iroGrab(() => state === 'play' && stack.length ? [stack[stack.length - 1]] : [], () => { const p = scoopPos(stack.length - 1); return [p.x, p.y]; }, () => R * 1.4);
 function topple() {
   if (state !== 'play') return;
   state = 'fall'; Sfx.tone(400, 0.6, 'sawtooth', 0.06, 0, 120); Sfx.boing();
@@ -73,7 +75,7 @@ function loop(now) {
     if (f.y >= ty && state === 'play') {
       const below = stack.length ? tp.x : cone.x;
       const dx = Math.max(-R * 0.6, Math.min(R * 0.6, f.x - below));
-      stack.push({ dx, color: f.color, rainbow: f.rainbow, squash: 1 });
+      stack.push(iroTag({ dx, color: f.color, rainbow: f.rainbow, squash: 1 }));
       angV += dx * 0.004 + (ang > 0 ? 0.03 : -0.03);
       f.done = true;
       Sfx.tone(220 + stack.length * 30, 0.15, 'sine', 0.2, 0, 120); Sfx.noise(0.08, 0.12, 900);

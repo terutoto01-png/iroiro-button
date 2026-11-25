@@ -17,7 +17,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔨</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script src="game.js?v=2"></script>
 <script>
 // ぽこぽこ: あなから かおを だす どうぶつを タッチして ぽこっ。🐝 は さわると いたい（ハートが へる）。
@@ -48,6 +48,9 @@ const game = Game.create('pokopoko', {
 function updateBtn() { btn.classList.toggle('hide', game.state === 'play'); }
 btn.addEventListener('pointerdown', () => { game.press(); updateBtn(); });
 setInterval(updateBtn, 400);
+
+// マルチ: なかまが たたいた どうぶつを、この がめんでも おなじ どうぶつとして たたく
+iroGrab(() => holes.filter(h => h.state !== 'empty' && h.state !== 'hit' && h.up >= 0.4), (h) => [h.x, h.y - h.r * 0.8 * h.up], () => Math.max(0, ...holes.map(h => h.r)) * 1.1);
 
 cv.addEventListener('pointerdown', (e) => {
   const x = e.clientX, y = e.clientY;
@@ -86,7 +89,8 @@ let last = performance.now();
       const free = holes.filter(h => h.state === 'empty');
       if (free.length) {
         const h = pick(free), bee = Math.random() < 0.12 + lv * 0.18;
-        h.who = bee ? '🐝' : pick(ANIMALS); h.gold = !bee && Math.random() < 0.08; h.state = 'rise'; // しかけ: たまに きんいろの どうぶつ（3てん） h.t = 0; h.stay = (1.6 - lv * 0.8) * rand(0.85, 1.2);
+        iroTag(h); // マルチ: でてくる たびに あたらしい ばんごう
+        h.who = bee ? '🐝' : pick(ANIMALS); h.gold = !bee && Math.random() < 0.08; h.state = 'rise'; h.t = 0; h.stay = (1.6 - lv * 0.8) * rand(0.85, 1.2); // しかけ: たまに きんいろの どうぶつ（3てん）
         if (!bee) Sfx.tone(rand(800, 1100), 0.06, 'sine', 0.05);
         else Sfx.tone(220, 0.25, 'sawtooth', 0.04, 0, 240); // ぶーん
       }

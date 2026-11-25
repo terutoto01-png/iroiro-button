@@ -20,7 +20,7 @@
 <div class="sand"></div>
 <div class="weed" style="left:5%">🌿</div><div class="weed" style="left:80%; animation-delay:-1s">🌿</div><div class="weed" style="left:60%; font-size:60px; animation-delay:-2s">🪸</div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🐠</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
 const btn = document.getElementById('btn');
@@ -32,13 +32,16 @@ btn.addEventListener('pointerdown', () => {
   const dir = Math.random() < 0.5 ? 1 : -1;
   const e = pick(KINDS);
   const size = e === '🐳' || e === '🦈' ? rand(110, 160) : rand(50, 90);
-  fish.push({ e, size, dir, x: dir > 0 ? -size : innerWidth + size, y: rand(80, innerHeight - 300),
-              sp: rand(80, 180), ph: rand(0, 6), boost: 0 });
+  fish.push(iroTag({ e, size, dir, x: dir > 0 ? -size : innerWidth + size, y: rand(80, innerHeight - 300),
+              sp: rand(80, 180), ph: rand(0, 6), boost: 0 }));
   if (fish.length > 25) fish.shift();
   for (let i = 0; i < 6; i++) bubbles.push({ x: innerWidth / 2 + rand(-30, 30), y: innerHeight - 200, r: rand(3, 9), v: rand(60, 140) });
   Sfx.tone(rand(300, 500), 0.15, 'sine', 0.3, 0, rand(700, 1000));
   for (let i = 0; i < 3; i++) Sfx.tone(rand(800, 1400), 0.06, 'sine', 0.1, 0.1 + i * 0.08, 1800);
 });
+
+// マルチ: なかまが さわった さかなを、この がめんでも おなじ さかなとして さわる
+iroGrab(() => fish, (f) => [f.x, f.y], 160 * 0.7);
 
 // さかなを タッチすると びゅーん
 canvas.addEventListener('pointerdown', (ev) => {

@@ -16,7 +16,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🦋</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // むしとり: ゆびで あみを さっと うごかして、とんでいる むしを つかまえる（ボタンでも あみが さっと つかまえる）。
 // つかまえた むしは びんの なかで ぱたぱた。6ぴき たまるか、びんを さわると、ふたが あいて みんな そらへ かえっていく。たまに きんいろの むし。
@@ -41,10 +41,12 @@ function spot() {
 }
 function newBug() {
   const gold = Math.random() < 0.1, side = Math.random() < 0.5 ? -1 : 1;
-  return { e: gold ? '🪲' : pick(BUGS), gold, x: side < 0 ? -30 : W + 30, y: rand(120, H * 0.6), vx: -side * 60, vy: 0, a: side < 0 ? 0 : Math.PI, ph: rand(0, 6), t: 0, goT: 0 };
+  return iroTag({ e: gold ? '🪲' : pick(BUGS), gold, x: side < 0 ? -30 : W + 30, y: rand(120, H * 0.6), vx: -side * 60, vy: 0, a: side < 0 ? 0 : Math.PI, ph: rand(0, 6), t: 0, goT: 0 });
 }
 for (let i = 0; i < 5; i++) { const b = newBug(); b.x = rand(40, W - 40); bugs.push(b); }
 
+// マルチ: なかまが あみを あてた むしを、この がめんでも おなじ むしとして ねらう（あみは ゆびの 30 うえで つかまえる）
+iroGrab(() => bugs, (b) => [b.x, b.y + 30], 60);
 function catchBug(b) {
   bugs = bugs.filter(q => q !== b);
   b.fly = { sx: b.x, sy: b.y, t: 0 };

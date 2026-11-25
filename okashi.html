@@ -17,7 +17,7 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🍬</span></button></div>
-<script src="common.js?v=19"></script>
+<script src="common.js?v=20"></script>
 <script>
 // おかしが ふってきて つもる。さわると たべちゃう
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
@@ -28,12 +28,15 @@ let items = [], crumbs = [];
 
 btn.addEventListener('pointerdown', () => {
   for (let i = 0; i < 6; i++) {
-    items.push({ e: pick(SWEETS), x: rand(40, innerWidth - 40), y: rand(-300, -40), vx: rand(-60, 60), vy: rand(0, 100),
-                 r: rand(24, 36), rot: rand(0, 6), vr: rand(-4, 4) });
+    items.push(iroTag({ e: pick(SWEETS), x: rand(40, innerWidth - 40), y: rand(-300, -40), vx: rand(-60, 60), vy: rand(0, 100),
+                 r: rand(24, 36), rot: rand(0, 6), vr: rand(-4, 4) }));
   }
   if (items.length > 90) items.splice(0, items.length - 90);
   [0, 4, 7].forEach((s, i) => Sfx.tone(784 * Math.pow(2, s / 12), 0.15, 'sine', 0.12, i * 0.05));
 });
+
+// マルチ: なかまが たべた おかしを、この がめんでも おなじ おかしとして たべる
+iroGrab(() => items, (it) => [it.x, it.y], 36 * 1.2);
 
 canvas.addEventListener('pointerdown', (e) => {
   for (let i = items.length - 1; i >= 0; i--) {
