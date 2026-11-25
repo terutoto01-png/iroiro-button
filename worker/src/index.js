@@ -160,7 +160,7 @@ export class Room extends DurableObject {
       try { const st = await this.ctx.storage.get('state:' + pageRoom); if (st) hello.state = st; } catch {}
     }
     try { server.send(JSON.stringify(hello)); } catch {}
-    this.broadcastPeers(server);
+    this.broadcastPeers(null, server); // あたらしい人も かぞえる（hello を うけとったので おくらない）
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -290,17 +290,19 @@ export class Room extends DurableObject {
     if (att && att.p !== null && this.inPage(att.p, ws).length === 0) {
       try { await this.ctx.storage.delete('state:' + att.p); } catch {}
     }
-    this.broadcastPeers(ws);
+    this.broadcastPeers(ws, ws);
   }
 
   async webSocketClose(ws) { await this.gone(ws); }
   async webSocketError(ws) { await this.gone(ws); }
 
   // だれが どこに いるか を みんなへ。n は「じぶんと 同じページにいる人数（じぶんをふくむ）」（ふるいクライアント用）
-  broadcastPeers(exclude) {
-    const sockets = this.live(exclude);
-    const members = this.memberList(exclude);
+  // gone = もう いない人（かぞえない）、skip = かぞえるが おくらない人
+  broadcastPeers(gone, skip) {
+    const sockets = this.live(gone);
+    const members = this.memberList(gone);
     for (const s of sockets) {
+      if (s === skip) continue;
       const a = this.att(s);
       const n = a && a.p !== null ? members.filter(m => m.p === a.p).length : 1;
       try { s.send(JSON.stringify({ t: 'peers', n, members })); } catch {}
