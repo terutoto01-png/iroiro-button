@@ -12,6 +12,28 @@ if (!SHELL && window.top === window && /^https?:$/.test(location.protocol) && PA
 }
 // iPad の Safari では iframe の なかの env(safe-area-inset-*) が 0 に なることがあるので、シェルで はかった あたいを つかう
 if (SHELL) {
+  // グループ部屋では みんなで おなじ たねから らんすうを はじめる（めいろ・パズルなどの はいちが そろう）
+  try {
+    const s = SHELL.seed();
+    if (s) {
+      let a = s >>> 0;
+      Math.random = () => {
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+  } catch (e) {}
+  // なかまの「にせの ゆび」は pointerId が 9000 いじょう。ほんものでは ないので つかまえ（capture）は しない
+  for (const k of ['setPointerCapture', 'releasePointerCapture']) {
+    const orig = Element.prototype[k];
+    Element.prototype[k] = function (id) { if (id >= 9000) return; return orig.call(this, id); };
+  }
+  const hasCap = Element.prototype.hasPointerCapture;
+  Element.prototype.hasPointerCapture = function (id) { return id >= 9000 ? false : hasCap.call(this, id); };
+  // なかまの ゆびを うけとる / じぶんの ゆびを おくる（グループ部屋のとき）
+  try { SHELL.frameStart(window); } catch (e) {}
   try {
     const i = SHELL.insets();
     const st = document.documentElement.style;

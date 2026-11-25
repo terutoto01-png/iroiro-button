@@ -15,12 +15,12 @@ const ALLOWED_EMOJIS = new Set([
   '🚗', '🚃', '🚀', '✈️', '🐟', '🐙', '🐳', '⭐', '🌙', '🌈', '❤️', '🌸', '🌻', '🦋', '🦖', '🎈',
 ]);
 const ALLOWED_PAGES = new Set(['hanabi', 'shabondama', 'beru', 'sutanpu', 'korokoro', 'karakuri']);
-const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever', 'world', 'layout', 'klayout', 'ktap', 'look', 'sec']);
+const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever', 'world', 'layout', 'klayout', 'ktap', 'look', 'sec', 'in']);
 const STATE_ACTIONS = new Set(['world', 'layout', 'klayout', 'night']);
 const PAGE_RE = /^[a-z]{1,20}$/; // ページ名（ファイル名）。'' はメニュー
 const MAX_PEERS = 20;
 const MAX_MSG_BYTES = 4500;
-const MAX_PER_SEC = 18;
+const MAX_PER_SEC = 45; // ゆびの うごき（in）を おくるので おおめ
 const GO_LOCK_MS = 2000; // だれかが移動させたあと、しばらくは別の場所への移動を受け付けない（同時タップ・連打対策）
 
 const cleanPage = (v) => (v === '' || (typeof v === 'string' && PAGE_RE.test(v))) ? v : undefined;
@@ -154,7 +154,7 @@ export class Room extends DurableObject {
 
     const hello = { t: 'hello', id, avatar, hue, g: group ? 1 : 0, n: (group ? 0 : this.inPage(pageRoom, server).length) + 1, members: this.memberList(server) };
     if (group) {
-      try { const pl = await this.ctx.storage.get('place'); if (pl) { hello.place = pl.p; hello.pav = pl.av; hello.phu = pl.hu; } } catch {}
+      try { const pl = await this.ctx.storage.get('place'); if (pl) { hello.place = pl.p; hello.ps = pl.s || 0; hello.pav = pl.av; hello.phu = pl.hu; } } catch {}
     } else if (existing.length > 0) {
       // ふるい クライアント（hello の state を待つ）向けに、同じページの共有状態も添える
       try { const st = await this.ctx.storage.get('state:' + pageRoom); if (st) hello.state = st; } catch {}
@@ -215,15 +215,16 @@ export class Room extends DurableObject {
       const p = att.g ? cleanPage(msg.p) : att.p;
       if (p === undefined) return;
       if (msg.t === 'go' && att.g) {
+        const s = Number.isInteger(msg.s) && msg.s > 0 && msg.s < 2147483647 ? msg.s : 0;
         let place = null;
         try { place = (await this.ctx.storage.get('place')) || null; } catch {}
         if (place && place.p !== p && now - place.t < GO_LOCK_MS) {
           // ほかの人が さっき 移動させたばかり → その場所へ もどってもらう
-          try { ws.send(JSON.stringify({ t: 'go', p: place.p, av: place.av, hu: place.hu, from: place.id })); } catch {}
+          try { ws.send(JSON.stringify({ t: 'go', p: place.p, s: place.s || 0, av: place.av, hu: place.hu, from: place.id })); } catch {}
           return;
         }
-        try { await this.ctx.storage.put('place', { p, t: now, id: att.id, av: att.avatar, hu: att.hue }); } catch {}
-        const out = JSON.stringify({ t: 'go', p, av: att.avatar, hu: att.hue, from: att.id });
+        try { await this.ctx.storage.put('place', { p, s, t: now, id: att.id, av: att.avatar, hu: att.hue }); } catch {}
+        const out = JSON.stringify({ t: 'go', p, s, av: att.avatar, hu: att.hue, from: att.id });
         for (const peer of this.live(ws)) { try { peer.send(out); } catch {} }
       } else if (att.g) {
         // グループの場所がまだ決まっていなければ、さいしょに来た人の場所にする
@@ -258,6 +259,15 @@ export class Room extends DurableObject {
       const m = sanitizeKLayout(msg.m);
       if (!m) return;
       out.m = m;
+    } else if (msg.a === 'in' && Array.isArray(msg.m)) {
+      // ゆびの うごき: [x, y]（0〜1）を 16こ まで
+      const pts = [];
+      for (const p of msg.m.slice(0, 16)) {
+        if (!Array.isArray(p) || p.length !== 2) continue;
+        const px = clampNum(p[0], 0, 1), py = clampNum(p[1], 0, 1);
+        if (px !== undefined && py !== undefined) pts.push([px, py]);
+      }
+      out.m = pts;
     }
 
     // あとから来た人にも同じ世界・配置を合わせるため、ページごとに共有状態を記憶

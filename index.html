@@ -109,6 +109,8 @@ window.IroShell = {
   audio: () => Sfx.ac(),                        // おとは シェルの AudioContext を かす
   home: () => Shell.open('', { announce: true }),
   unlocked() {},
+  seed: () => Shell.seed,                       // この ページの らんすうの たね（グループ部屋のみ）
+  frameStart: (w) => Shell.frameStart(w),
   insets() {
     const cs = getComputedStyle(document.getElementById('insets-probe'));
     return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
@@ -374,7 +376,8 @@ addEventListener('resize', updateMore);
 const Shell = (() => {
   const pages = new Map();   // file → { emoji, c1, c2, el }（この きかいで ひらける ボタン）
   let isReady = false, queued = null;
-  let here = '', frameEl = null, followTm = 0, followEl = null;
+  let here = '', frameEl = null, followTm = 0, followEl = null, seed = 0;
+  const newSeed = () => Math.floor(Math.random() * 2147483646) + 1;
 
   function applyInsets() {
     if (!frameEl) return;
@@ -399,12 +402,14 @@ const Shell = (() => {
   }
 
   // p のページを ひらく（'' は メニュー）。announce = じぶんで えらんだ（グループ部屋なら みんなも つれていく）
-  function show(p, { announce = false, push = true, query = '' } = {}) {
+  function show(p, { announce = false, push = true, query = '', s = 0 } = {}) {
     clearFollow();
     if (p && !pages.has(p)) p = '';
-    if (p === here) { if (announce) Multi.setHere(p, true); return; }
+    if (p === here) { if (announce) Multi.setHere(p, true, seed); return; }
     closeFrame();
     here = p;
+    // らんすうの たね: じぶんで えらんだら あたらしく、つれていかれたら なかまと おなじ もの
+    seed = p ? ((!announce && s) || newSeed()) : 0;
     if (push) history.pushState({ p }, '', p ? '#/' + p : location.pathname + location.search);
     if (p) {
       if (Shell.markSeen) Shell.markSeen(p);
@@ -432,7 +437,7 @@ const Shell = (() => {
       dispatchEvent(new Event('iro-home'));
       try { window.focus(); } catch (e) {}
     }
-    Multi.setHere(p, announce);
+    Multi.setHere(p, announce, seed);
   }
 
   const AVS = new Set(['🐶', '🐱', '🐰', '🐻', '🐼', '🐸', '🦊', '🐧', '🐷', '🐥', '🦁', '🐨', '🧒']);
@@ -455,7 +460,8 @@ const Shell = (() => {
     b.querySelector('.ring').style.setProperty('--c', `hsl(${(msg && msg.hu) ?? 200}, 95%, 65%)`);
     document.body.appendChild(el);
     followEl = el;
-    followTm = setTimeout(() => { followTm = 0; show(p); }, 950);
+    const s = msg && Number.isInteger(msg.s) ? msg.s : 0;
+    followTm = setTimeout(() => { followTm = 0; show(p, { s }); }, 950);
     // おとが だせなくても いどうは する
     try { Sfx.tone(520, 0.12, 'sine', 0.2, 0, 900); Sfx.tone(700, 0.18, 'triangle', 0.16, 0.42, 1100); } catch (e) {}
   }
@@ -516,6 +522,9 @@ const Shell = (() => {
   return {
     pages,
     open: (p, opt) => show(p, opt),
+    // グループ部屋のときだけ たねを わたす（ひとりの ときは いままで どおりの らんすう）
+    get seed() { return Multi.group && Multi.enabled ? seed : 0; },
+    frameStart(w) { if (frameEl && frameEl.contentWindow === w && Multi.group) Multi.mirror(w); },
     get here() { return here; },
     // メニューで ボタンに ゆびを おいた / みている みだしが かわった ことを なかまへ
     look(p) { if (here === '' && Multi.group) Multi.send({ a: 'look', p }, 150); },
