@@ -6,18 +6,18 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>おかし</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: repeating-linear-gradient(45deg, #ffe3ef 0 30px, #fff0f6 30px 60px); }
   .big-btn { --c1: #ff6fae; --c2: #c23c7a; }
-  .bottom-center { bottom: auto; top: max(16px, env(safe-area-inset-top) + 8px); }
+  .bottom-center { bottom: auto; top: max(16px, var(--sat) + 8px); }
   .bottom-center .big-btn { width: min(26vw, 130px); height: min(26vw, 130px); }
 </style>
 </head>
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🍬</span></button></div>
-<script src="common.js?v=18"></script>
+<script src="common.js?v=19"></script>
 <script>
 // おかしが ふってきて つもる。さわると たべちゃう
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');

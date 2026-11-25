@@ -6,13 +6,13 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>ころころミュージック</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: #101338; }
   #cv { touch-action: none; }
   .big-btn { --c1: #4fd2ff; --c2: #1b6dc4; }
   #world {
-    position: fixed; left: max(18px, env(safe-area-inset-left)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 30;
+    position: fixed; left: max(18px, var(--sal)); bottom: max(20px, var(--sab)); z-index: 30;
     width: min(18vw, 84px); height: min(18vw, 84px); font-size: min(5.5vw, 26px);
     --c1: #ff9f1c; --c2: #b86600;
   }
@@ -22,8 +22,8 @@
 <canvas id="cv" class="full"></canvas>
 <button id="world" class="big-btn" aria-label="せかいをかえる"><span class="emoji" id="worldIcon">☀️</span></button>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">💎</span></button></div>
-<script src="common.js?v=18"></script>
-<script src="multi.js?v=7"></script>
+<script src="common.js?v=19"></script>
+<script src="multi.js?v=8"></script>
 <script>
 // ころころミュージック:
 // ・💎 ボタンで キラキラの ビーだま が ころがりおちて、もっきん・みずぐるま・バンパー・ハープを かなでる！

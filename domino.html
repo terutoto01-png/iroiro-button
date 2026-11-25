@@ -6,13 +6,13 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>ドミノ</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: #e9d3ae; }
   #cv { touch-action: none; }
   .big-btn { --c1: #7c5cff; --c2: #4b2fc4; }
   .corner .big-btn { width: min(26vw, 140px); height: min(26vw, 140px); }
-  .corner-left { position: fixed; left: max(20px, env(safe-area-inset-left)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 30; }
+  .corner-left { position: fixed; left: max(20px, var(--sal)); bottom: max(20px, var(--sab)); z-index: 30; }
   #clear { --c1: #4fc3f7; --c2: #1e88c7; width: min(18vw, 90px); height: min(18vw, 90px); font-size: min(5vw, 24px); }
 </style>
 </head>
@@ -20,7 +20,7 @@
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">👉</span></button></div>
 <div class="corner-left"><button id="clear" class="big-btn"><span class="emoji">🧽</span></button></div>
-<script src="common.js?v=18"></script>
+<script src="common.js?v=19"></script>
 <script>
 // ドミノ: ゆびで なぞった ところに ドミノが ならぶ（なぞった むきに そって）。みぎしたの ボタンで ころころ たおれる。
 // せんを なんぼん かいても、ボタンで ぜんぶの せんが いっせいに たおれる。たおれている あいだに おすと はやくなる。

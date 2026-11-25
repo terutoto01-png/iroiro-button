@@ -1,5 +1,25 @@
 // いろいろボタン 共通ヘルパー（file:// でも動くようにクラシックスクリプト）
 
+// ---- いれもの（シェル） ----
+// メニュー（index.html）が いれもので、ボタンの ページは その中の iframe で ひらく。
+// おと（AudioContext）と マルチの せつぞくは シェルが もちつづけるので、ページを いききしても きれない。
+// ・ページを ちょくせつ ひらいた ときは、シェルの なかで ひらきなおす（index.html#/hanabi）
+const SHELL = (() => { try { return (window.parent !== window && window.parent.IroShell) || null; } catch (e) { return null; } })();
+const PAGE_NAME = (location.pathname.split('/').pop() || '').replace(/\.html$/, '');
+if (!SHELL && window.top === window && /^https?:$/.test(location.protocol) && PAGE_NAME && PAGE_NAME !== 'index') {
+  document.documentElement.style.visibility = 'hidden';
+  location.replace('index.html' + location.search + '#/' + PAGE_NAME);
+}
+// iPad の Safari では iframe の なかの env(safe-area-inset-*) が 0 に なることがあるので、シェルで はかった あたいを つかう
+if (SHELL) {
+  try {
+    const i = SHELL.insets();
+    const st = document.documentElement.style;
+    st.setProperty('--sat', i.t + 'px'); st.setProperty('--sab', i.b + 'px');
+    st.setProperty('--sal', i.l + 'px'); st.setProperty('--sar', i.r + 'px');
+  } catch (e) {}
+}
+
 // ---- えもじ ----
 // Apple の きかい（iPad・iPhone・Mac）は じぶんの えもじ（Apple）で だす。Safari は この サイトの フォントの SVG えもじを
 // うまく かけず、きえて しまう ものが あったため。
@@ -18,7 +38,8 @@ const Sfx = (() => {
   try { const v = parseFloat(localStorage.getItem('iroiro-volume')); if (!isNaN(v)) level = v; } catch (e) {}
   function ac() {
     if (!ctx) {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // シェルの なかでは シェルの AudioContext を かりる（いちど タップで うごきだせば、つぎの ページでも すぐ おとが でる）
+      ctx = SHELL ? SHELL.audio() : new (window.AudioContext || window.webkitAudioContext)();
       master = ctx.createGain();
       master.gain.value = 0.7 * level;
       // れんだで おとが かさなっても われないように
@@ -78,8 +99,17 @@ const Sfx = (() => {
     if (v === 0 && 'speechSynthesis' in window) speechSynthesis.cancel();
     try { localStorage.setItem('iroiro-volume', String(v)); } catch (e) {}
   }
+  // シェルが この ページを とじる ときに よぶ。かりた AudioContext に のこる おとを とめる
+  function teardown() {
+    if (master) { try { master.disconnect(); } catch (e) {} }
+    voices = [];
+  }
+  // ほかの ページで かえた 音量を よみなおす
+  function reloadLevel() {
+    try { const v = parseFloat(localStorage.getItem('iroiro-volume')); if (!isNaN(v) && v !== level) setLevel(v); } catch (e) {}
+  }
   return {
-    ac, tone, noise, setLevel,
+    ac, tone, noise, setLevel, teardown, reloadLevel,
     get level() { return level; },
     out() { ac(); return master; }, // 自前で音を作るページはここにつなぐ
     pop()   { tone(rand(500, 800), 0.12, 'sine', 0.35, 0, rand(1200, 1800)); },
@@ -90,16 +120,24 @@ const Sfx = (() => {
 })();
 
 // ---- しゃべる（ブラウザの音声合成） ----
+// シェルの なかでは シェルの speechSynthesis を つかう（さいしょの タップで うごくように なった もの）
+const SPEECH_WIN = SHELL ? window.parent : window;
 function speak(text, rate = 1.0, pitch = 1.3) {
-  if (!('speechSynthesis' in window)) return;
-  speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
+  if (!('speechSynthesis' in SPEECH_WIN)) return;
+  const synth = SPEECH_WIN.speechSynthesis;
+  synth.cancel();
+  const u = new SPEECH_WIN.SpeechSynthesisUtterance(text);
   if (Sfx.level === 0) return;
   u.lang = 'ja-JP'; u.rate = rate; u.pitch = pitch; u.volume = Sfx.level;
-  const ja = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('ja'));
+  const ja = synth.getVoices().find(v => v.lang && v.lang.startsWith('ja'));
   if (ja) u.voice = ja;
-  speechSynthesis.speak(u);
+  synth.speak(u);
 }
+// シェルが ページを とじる ときに よぶ
+window.__iroTeardown = () => {
+  Sfx.teardown();
+  try { if ('speechSynthesis' in SPEECH_WIN) SPEECH_WIN.speechSynthesis.cancel(); } catch (e) {}
+};
 if ('speechSynthesis' in window) speechSynthesis.getVoices();
 
 // ---- キャンバスを画面いっぱいに（高DPI対応） ----
@@ -135,6 +173,12 @@ window.addEventListener('DOMContentLoaded', () => {
   vol.className = 'vol';
   let li = LEVELS.findIndex(l => l[0] === Sfx.level); if (li < 0) li = 0;
   vol.textContent = LEVELS[li][1];
+  // メニューへ もどった とき、ページで かえた 音量に あわせる
+  addEventListener('iro-volume', () => {
+    Sfx.reloadLevel();
+    li = LEVELS.findIndex(l => l[0] === Sfx.level); if (li < 0) li = 0;
+    vol.textContent = LEVELS[li][1];
+  });
   vol.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     li = (li + 1) % LEVELS.length;
@@ -154,7 +198,9 @@ window.addEventListener('DOMContentLoaded', () => {
   addEventListener('pointerup', (e) => {
     if (!downOn) return; downOn = false;
     const r = a.getBoundingClientRect(), m = 30;
-    if (e.clientX > r.left - m && e.clientX < r.right + m && e.clientY > r.top - m && e.clientY < r.bottom + m) location.href = 'index.html';
+    if (e.clientX > r.left - m && e.clientX < r.right + m && e.clientY > r.top - m && e.clientY < r.bottom + m) {
+      if (SHELL) SHELL.home(); else location.href = 'index.html';
+    }
   }, true);
   addEventListener('pointercancel', () => { downOn = false; }, true);
   a.addEventListener('click', (e) => e.preventDefault()); // にじゅうに うごかない ように
@@ -272,6 +318,7 @@ function makeTrain(kind) {
     if (done) return; done = true;
     try {
       const c = Sfx.ac();
+      if (SHELL) SHELL.unlocked();
       const b = c.createBuffer(1, 1, 22050), s = c.createBufferSource();
       s.buffer = b; s.connect(c.destination); s.start(0);
     } catch (e) {}
@@ -329,7 +376,8 @@ function drawEmoji(ctx, e, cx, cy, size) {
 
 // ---- PWA: Service Worker 登録 と 更新通知 ----
 (() => {
-  if (!('serviceWorker' in navigator)) return;
+  // シェルの なかの ページは シェルに まかせる
+  if (SHELL || !('serviceWorker' in navigator)) return;
   let updateToast = null;
 
   function showUpdateToast() {
@@ -347,7 +395,12 @@ function drawEmoji(ctx, e, cx, cy, size) {
 
   // メニュー（あそんでいる とちゅうで ない ところ）では 🔄 を おさなくても じどうで よみなおす。
   // あそびの ページでは とちゅうで きえると こまるので、いままで どおり 🔄 を だす だけ。
-  const onMenu = document.body && document.body.hasAttribute('data-scroll');
+  // シェルで ボタンを ひらいている あいだは メニューでは ない（もどってから よみなおす）
+  const isMenu = document.body && document.body.hasAttribute('data-scroll');
+  const playing = () => document.documentElement.classList.contains('playing');
+  const onMenu = () => isMenu && !playing();
+  let pending = false;
+  addEventListener('iro-home', () => { if (pending && reloadMenu()) pending = false; });
   function reloadMenu() {
     let lastR = 0;
     try { lastR = +sessionStorage.getItem('iroiro-autoreload') || 0; } catch (e) {}
@@ -357,7 +410,10 @@ function drawEmoji(ctx, e, cx, cy, size) {
     location.reload();
     return true;
   }
-  function onUpdate() { if (!(onMenu && reloadMenu())) showUpdateToast(); }
+  function onUpdate() {
+    if (isMenu && playing()) { pending = true; return; }
+    if (!(onMenu() && reloadMenu())) showUpdateToast();
+  }
 
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'UPDATE_READY') onUpdate();
@@ -368,7 +424,7 @@ function drawEmoji(ctx, e, cx, cy, size) {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
     navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {});
-    if (onMenu && hiddenAt && Date.now() - hiddenAt > 10 * 60 * 1000) reloadMenu();
+    if (onMenu() && hiddenAt && Date.now() - hiddenAt > 10 * 60 * 1000) reloadMenu();
   });
 
   navigator.serviceWorker.register('sw.js', { scope: './' })

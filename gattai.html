@@ -6,19 +6,19 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>がったい</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: linear-gradient(#ffe9f3, #e3f3ff); }
   #cv { touch-action: none; }
   .big-btn { --c1: #ff7ab8; --c2: #c94585; }
-  .bottom-center { bottom: max(16px, env(safe-area-inset-bottom) + 8px); }
+  .bottom-center { bottom: max(16px, var(--sab) + 8px); }
   .bottom-center .big-btn { width: min(24vw, 120px); height: min(24vw, 120px); font-size: min(7vw, 34px); }
 </style>
 </head>
 <body>
 <canvas id="cv" class="full"></canvas>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">⬇️</span></button></div>
-<script src="common.js?v=18"></script>
+<script src="common.js?v=19"></script>
 <script>
 // がったい: うえの クレーンから どうぶつを おとす。おなじ どうぶつが くっつくと ひとつ おおきい どうぶつに かわる。
 // ボタンで いまの ばしょに おとす / いれものの なかを タッチすると そこに おとす。

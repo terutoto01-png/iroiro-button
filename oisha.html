@@ -6,10 +6,10 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>おいしゃさんごっこ</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: linear-gradient(#e8f7ff, #d2efff 65%, #bfe3f5 65%); }
-  #tools { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, env(safe-area-inset-bottom) + 8px); z-index: 30;
+  #tools { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(16px, var(--sab) + 8px); z-index: 30;
            display: flex; gap: min(2.4vw, 16px); padding: 12px min(3vw, 18px); background: rgba(255,255,255,.7); border-radius: 28px; box-shadow: 0 6px 0 rgba(0,0,0,.08); }
   #tools .big-btn { width: min(13vw, 84px); height: min(13vw, 84px); font-size: min(4vw, 24px); --c1: #fff; --c2: #c9d6e3; transition: opacity .3s, transform .06s, box-shadow .06s; }
   #tools .big-btn.off { opacity: .35; }
@@ -26,7 +26,7 @@
   <button class="big-btn tool" data-k="ha"><span class="emoji">🪥</span></button>
   <button class="big-btn tool" data-k="seki"><span class="emoji">💊</span></button>
 </div>
-<script src="common.js?v=18"></script>
+<script src="common.js?v=19"></script>
 <script>
 // おいしゃさんごっこ: どうぶつの かんじゃさんが くる。🩺 で しんさつ すると どこが わるいか ふきだしで わかる。
 // あう どうぐで なおすと にっこり。ちがう どうぐ でも くびを ふるだけ（へらない）。

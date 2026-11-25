@@ -6,14 +6,14 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>どうぶつつみき</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: linear-gradient(#8fd3ff, #d4f1ff 70%); }
   #cv { touch-action: none; }
   .big-btn { --c1: #ff9f1c; --c2: #c47200; }
-  .bottom-center { bottom: max(14px, env(safe-area-inset-bottom) + 6px); }
+  .bottom-center { bottom: max(14px, var(--sab) + 6px); }
   .bottom-center .big-btn { width: min(24vw, 120px); height: min(24vw, 120px); font-size: min(7vw, 34px); }
-  #reset { position: fixed; left: max(14px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom) + 6px); z-index: 30;
+  #reset { position: fixed; left: max(14px, var(--sal)); bottom: max(14px, var(--sab) + 6px); z-index: 30;
            width: min(16vw, 76px); height: min(16vw, 76px); font-size: min(4.5vw, 22px); --c1: #fff; --c2: #b9c3cf; }
 </style>
 </head>
@@ -22,7 +22,7 @@
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">⬇️</span></button></div>
 <button id="reset" class="big-btn"><span class="emoji">🔄</span></button>
 <script src="lib/matter.min.js?v=0.19.0"></script> <!-- ぶつり けいさん（MIT、このリポジトリから はいしん） -->
-<script src="common.js?v=18"></script>
+<script src="common.js?v=19"></script>
 <script>
 // どうぶつつみき: うえの クレーンが どうぶつを つって うごく。ボタン（または がめんを タッチ）で おとして、だいの うえに つみあげる。
 // どうぶつごとに おおきさと かたちが ちがう。だいから おちても おしまいに しない（「わ〜」と きえるだけ）。

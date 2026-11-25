@@ -6,11 +6,11 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>ふみきり</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: linear-gradient(#bfe6ff 0 62%, #9bd27a 62%); }
   .big-btn { --c1: #ffcc00; --c2: #b38f00; color: #222; }
-  .bottom-center { left: auto; right: max(24px, env(safe-area-inset-right)); transform: none; bottom: max(24px, env(safe-area-inset-bottom) + 8px); z-index: 20; }
+  .bottom-center { left: auto; right: max(24px, var(--sar)); transform: none; bottom: max(24px, var(--sab) + 8px); z-index: 20; }
   .bottom-center .big-btn { width: min(26vw, 140px); height: min(26vw, 140px); }
   .rail { bottom: 32%; }
   #road { position: fixed; left: 30%; width: 22%; bottom: 0; height: 32%; background: #777; z-index: 1;
@@ -46,7 +46,7 @@
   <div id="arm"></div>
 </div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🚸</span></button></div>
-<script src="common.js?v=18"></script>
+<script src="common.js?v=19"></script>
 <script>
 const btn = document.getElementById('btn'), arm = document.getElementById('arm'), arrow = document.getElementById('arrow');
 const l1 = document.getElementById('l1'), l2 = document.getElementById('l2');

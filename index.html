@@ -6,7 +6,7 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>いろいろボタン</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -53,6 +53,47 @@
                  background-size: 100% 100%, 300% 100%; animation: bdayGlow 3s linear infinite, bob 2.4s ease-in-out infinite !important; }
   @keyframes bdayGlow { to { background-position: 0 0, 300% 0; } }
   @keyframes twinkle { 0%, 100% { scale: .8; rotate: -10deg; opacity: .75; } 50% { scale: 1.15; rotate: 12deg; opacity: 1; } }
+
+  /* ---- いれもの（シェル）: ボタンの ページは この うえの iframe で ひらく ---- */
+  iframe.page { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 1000; background: transparent;
+                opacity: 0; pointer-events: none; transition: opacity .15s; }
+  iframe.page.shown { opacity: 1; pointer-events: auto; }
+  /* ページを ひらいている あいだ、したの メニューは みえなくして うごきも とめる（スクロールの いちは そのまま） */
+  html.playing #grid, html.playing #jump, html.playing #more, html.playing #fade, html.playing body > .vol { visibility: hidden; }
+  html.playing .grid a, html.playing #more { animation-play-state: paused !important; }
+  html.playing .grid a::after { animation: none !important; }
+  #insets-probe { position: fixed; left: 0; top: 0; width: 0; height: 0; visibility: hidden; pointer-events: none;
+                  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+
+  /* ---- なかまに つれていかれる とき（なかまの どうぶつが ボタンに のって、いっしょに いく） ---- */
+  #follow { position: fixed; inset: 0; z-index: 1020; display: grid; place-items: center; pointer-events: none;
+            background: rgba(255,255,255,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            animation: fol-in .2s ease-out both; }
+  #follow.out { animation: fol-out .25s ease-in both; }
+  #follow .big-btn { position: relative; width: min(46vw, 230px); height: min(46vw, 230px); font-size: min(22vw, 110px);
+                     animation: fol-btn .9s cubic-bezier(.3,1.5,.5,1) both; }
+  #follow .rider { position: absolute; left: 50%; top: -6%; font-size: min(14vw, 70px); line-height: 1; translate: -50% 0;
+                   animation: fol-ride .9s ease-out both; filter: drop-shadow(0 4px 0 rgba(0,0,0,.18)); }
+  #follow .ring { position: absolute; inset: -14px; border-radius: 50%; border: 6px solid var(--c, #fff); animation: fol-ring .9s ease-out .35s both; }
+  @keyframes fol-in  { from { opacity: 0; } }
+  @keyframes fol-out { to { opacity: 0; } }
+  @keyframes fol-btn { 0% { scale: .2; } 60% { scale: 1; } 85% { scale: 1.06; } 100% { scale: 1.12; } }
+  @keyframes fol-ride { 0% { translate: -50% -260%; opacity: 0; } 30% { opacity: 1; } 55% { translate: -50% 0; } 68% { translate: -50% -28%; } 80%, 100% { translate: -50% 0; } }
+  @keyframes fol-ring { from { opacity: .9; scale: .9; } to { opacity: 0; scale: 1.6; } }
+
+  /* ---- メニューで なかまが どこに いるか ---- */
+  .peer-badge { position: absolute; left: -10%; top: -12%; font-size: .5em; line-height: 1; padding: .12em; border-radius: 50%;
+                background: #fff; box-shadow: 0 0 0 3px var(--c, #fff), 0 3px 0 rgba(0,0,0,.18); pointer-events: none;
+                animation: badge-in .35s cubic-bezier(.3,1.6,.5,1) both; }
+  .peer-badge + .peer-badge { left: 22%; }
+  @keyframes badge-in { from { scale: 0; } }
+  #jump button { position: relative; }
+  .peer-sec { position: absolute; right: calc(100% + 4px); top: 50%; translate: 0 -50%; font-size: .8em; line-height: 1; pointer-events: none;
+              animation: badge-in .35s cubic-bezier(.3,1.6,.5,1) both; }
+  .peer-sec + .peer-sec { right: calc(100% + 1.1em); }
+  .peer-look { position: fixed; z-index: 60; pointer-events: none; font-size: 40px; line-height: 1; translate: -50% -50%;
+               animation: look-pop 1s ease-out both; }
+  @keyframes look-pop { 0% { opacity: 0; scale: .3; } 25% { opacity: 1; scale: 1.15; } 70% { opacity: 1; scale: 1; } 100% { opacity: 0; scale: .9; translate: -50% -90%; } }
 </style>
 </head>
 <body data-no-back data-scroll>
@@ -60,9 +101,24 @@
 <div id="jump"></div>
 <div id="fade" class="hide"></div>
 <button id="more" class="big-btn hide" aria-label="した"><span>⬇️</span></button>
-<script src="common.js?v=18"></script>
-<script src="multi.js?v=7"></script>
+<div id="insets-probe"></div>
 <script>
+// ---- いれもの（シェル）の まどぐち。iframe の なかの ページ（common.js / multi.js）が つかう ----
+window.IroShell = {
+  multi: null,                                  // multi.js を よんだら いれる
+  audio: () => Sfx.ac(),                        // おとは シェルの AudioContext を かす
+  home: () => Shell.open('', { announce: true }),
+  unlocked() {},
+  insets() {
+    const cs = getComputedStyle(document.getElementById('insets-probe'));
+    return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  },
+};
+</script>
+<script src="common.js?v=19"></script>
+<script src="multi.js?v=8"></script>
+<script>
+IroShell.multi = Multi;
 // 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'mic' = マイク録音）
 const PAGES = [
   ['hanabi', '🎆', '#ff8a00', '#b85d00', 'gpu'], ['niji', '🌈', '#7b5cff', '#4b2fc4', 'gpu'],
@@ -180,15 +236,19 @@ try {
   bday = JSON.parse(localStorage.getItem('iroiro-bday') || 'null');
 } catch (e) {}
 const isBday = !!(bday && bday.md === md);
+let autoBday = false;
+// 🎂 の ページは メニューに なくても ひらける（tanjoubi.html?age=4 を ちょくせつ ひらいた とき など）
+Shell.pages.set('tanjoubi', { emoji: '🎂', c1: '#ff6fae', c2: '#c23c7a', el: null });
 if (isBday) {
   let shown = null; try { shown = localStorage.getItem('iroiro-bday-shown'); } catch (e) {}
-  if (shown !== String(today.getFullYear())) { location.replace('tanjoubi.html'); return; }
+  if (shown !== String(today.getFullYear())) autoBday = true; // メニューを つくってから ひらく
   const a = document.createElement('a');
   a.href = 'tanjoubi.html'; a.className = 'big-btn bday';
   a.innerHTML = '<span class="emoji">🎂</span>';
-  a.addEventListener('pointerdown', () => Sfx.pop());
-  onTap(a, () => { saveScroll(); location.href = 'tanjoubi.html'; });
+  a.addEventListener('pointerdown', () => { Sfx.pop(); Shell.look('tanjoubi'); });
+  onTap(a, () => { saveScroll(); Shell.open('tanjoubi', { announce: true }); });
   grid.appendChild(a);
+  Shell.pages.get('tanjoubi').el = a;
 }
 
 // うごかないと わかっているボタンは ださない。なかま ごとに みだしを つけて ならべる
@@ -214,10 +274,11 @@ GROUPS.forEach((g, gi) => {
     a.className = 'big-btn';
     a.style.setProperty('--c1', c1); a.style.setProperty('--c2', c2);
     a.innerHTML = `<span class="emoji">${emoji}</span>`;
-    a.addEventListener('pointerdown', () => Sfx.pop());
-    onTap(a, () => { saveScroll(); seen.add(file); saveSeen(); location.href = file + '.html'; });
+    a.addEventListener('pointerdown', () => { Sfx.pop(); Shell.look(file); });
+    onTap(a, () => { saveScroll(); Shell.open(file, { announce: true }); });
     if (!seen.has(file)) a.classList.add('new');
     grid.appendChild(a);
+    Shell.pages.set(file, { emoji, c1, c2, el: a });
   }
 });
 // いま みている なかまの ジャンプ ボタンを すこし おおきく
@@ -225,6 +286,7 @@ function markJump() {
   let cur = 0;
   heads.forEach((h, i) => { if (h.getBoundingClientRect().top < innerHeight * 0.4) cur = i; });
   [...jump.children].forEach((b, i) => b.classList.toggle('on', i === cur));
+  Shell.sec(cur);
 }
 addEventListener('scroll', markJump, { passive: true });
 markJump();
@@ -234,6 +296,11 @@ try {
   if (y > 0) scrollTo(0, y);
 } catch (e) {}
 updateMore();
+Shell.markSeen = (file) => { if (!seen.has(file)) { seen.add(file); saveSeen(); } const p = Shell.pages.get(file); if (p && p.el) p.el.classList.remove('new'); };
+// ページを ちょくせつ ひらいて きた とき（hanabi.html → index.html#/hanabi）は そのページを ひらく
+const start = (location.hash.match(/^#\/([a-z]+)$/) || [])[1];
+history.replaceState({ p: '' }, '', location.pathname + location.search);
+Shell.ready(autoBday ? 'tanjoubi' : (start && Shell.pages.has(start) ? start : ''));
 })();
 
 // ---- スクロールした いちを おぼえておく（このタブの あいだだけ） ----
@@ -300,6 +367,167 @@ onTap(more, () => {
 });
 addEventListener('scroll', updateMore, { passive: true });
 addEventListener('resize', updateMore);
+
+// ================= いれもの（シェル） =================
+// ボタンの ページは この うえの iframe で ひらく。メニューは したに のこるので、もどると すぐ もとの いち。
+// グループ部屋（?room=）では、だれかが ボタンに はいると みんな いっしょに いく（multi.js の go）。
+const Shell = (() => {
+  const pages = new Map();   // file → { emoji, c1, c2, el }（この きかいで ひらける ボタン）
+  let isReady = false, queued = null;
+  let here = '', frameEl = null, followTm = 0, followEl = null;
+
+  function applyInsets() {
+    if (!frameEl) return;
+    try {
+      const i = IroShell.insets(), st = frameEl.contentDocument.documentElement.style;
+      st.setProperty('--sat', i.t + 'px'); st.setProperty('--sab', i.b + 'px');
+      st.setProperty('--sal', i.l + 'px'); st.setProperty('--sar', i.r + 'px');
+    } catch (e) {}
+  }
+  addEventListener('resize', applyInsets);
+
+  function closeFrame() {
+    if (!frameEl) return;
+    try { frameEl.contentWindow.__iroTeardown && frameEl.contentWindow.__iroTeardown(); } catch (e) {}
+    frameEl.remove();
+    frameEl = null;
+  }
+
+  function clearFollow() {
+    clearTimeout(followTm); followTm = 0;
+    if (followEl) { const el = followEl; followEl = null; el.classList.add('out'); setTimeout(() => el.remove(), 260); }
+  }
+
+  // p のページを ひらく（'' は メニュー）。announce = じぶんで えらんだ（グループ部屋なら みんなも つれていく）
+  function show(p, { announce = false, push = true, query = '' } = {}) {
+    clearFollow();
+    if (p && !pages.has(p)) p = '';
+    if (p === here) { if (announce) Multi.setHere(p, true); return; }
+    closeFrame();
+    here = p;
+    if (push) history.pushState({ p }, '', p ? '#/' + p : location.pathname + location.search);
+    if (p) {
+      if (Shell.markSeen) Shell.markSeen(p);
+      const f = document.createElement('iframe');
+      f.className = 'page';
+      f.setAttribute('allow', 'autoplay; fullscreen; microphone; camera');
+      f.setAttribute('scrolling', 'no'); // iOS で iframe が なかみに あわせて のびないように
+      f.src = p + '.html' + query;
+      frameEl = f;
+      // よみこめたら メニューを かくして ページを だす（おそくても 1.5びょうで だす）
+      let shownOnce = false;
+      const reveal = () => {
+        if (shownOnce || frameEl !== f) return; shownOnce = true;
+        applyInsets();
+        f.classList.add('shown');
+        document.documentElement.classList.add('playing');
+        try { f.contentWindow.focus(); } catch (e) {}
+      };
+      f.addEventListener('load', reveal);
+      setTimeout(reveal, 1500);
+      document.body.appendChild(f);
+    } else {
+      document.documentElement.classList.remove('playing');
+      dispatchEvent(new Event('iro-volume'));
+      dispatchEvent(new Event('iro-home'));
+      try { window.focus(); } catch (e) {}
+    }
+    Multi.setHere(p, announce);
+  }
+
+  const AVS = new Set(['🐶', '🐱', '🐰', '🐻', '🐼', '🐸', '🦊', '🐧', '🐷', '🐥', '🦁', '🐨', '🧒']);
+  const safeAv = (v) => AVS.has(v) ? v : '🧒';
+
+  // なかまに つれていかれる（なかまの どうぶつが ボタンに のる えんしゅつの あと）
+  function follow(p, msg) {
+    if (!isReady) { queued = [p, msg]; return; }
+    if (p && !pages.has(p)) return; // この きかいでは ひらけない ボタン（WebGPU など）
+    if (p === here) { clearFollow(); return; }
+    clearFollow();
+    const info = p ? pages.get(p) : { emoji: '🏠', c1: '#29b6f6', c2: '#0277bd' };
+    const el = document.createElement('div');
+    el.id = 'follow';
+    el.innerHTML = '<div class="big-btn"><span class="emoji"></span><span class="ring"></span><span class="rider"></span></div>';
+    const b = el.firstElementChild;
+    b.style.setProperty('--c1', info.c1); b.style.setProperty('--c2', info.c2);
+    b.querySelector('.emoji').textContent = info.emoji;
+    b.querySelector('.rider').textContent = safeAv(msg && msg.av);
+    b.querySelector('.ring').style.setProperty('--c', `hsl(${(msg && msg.hu) ?? 200}, 95%, 65%)`);
+    document.body.appendChild(el);
+    followEl = el;
+    followTm = setTimeout(() => { followTm = 0; show(p); }, 950);
+    // おとが だせなくても いどうは する
+    try { Sfx.tone(520, 0.12, 'sine', 0.2, 0, 900); Sfx.tone(700, 0.18, 'triangle', 0.16, 0.42, 1100); } catch (e) {}
+  }
+
+  // ---- メニューで なかまが どこに いるか ----
+  let others = [];           // [{ id, av, hu, p }]（じぶんいがい）
+  const secOf = new Map();   // id → その なかまが メニューで みている なかま（みだし）の ばんごう
+  let mySec = -1;
+  function renderPresence() {
+    document.querySelectorAll('.peer-badge, .peer-sec').forEach(e => e.remove());
+    const jumpBtns = [...document.getElementById('jump').children];
+    for (const m of others) {
+      if (m.p) {
+        // ボタンの なかに いる なかま → その ボタンに どうぶつ
+        const pg = pages.get(m.p);
+        if (!pg || !pg.el) continue;
+        const s = document.createElement('span');
+        s.className = 'peer-badge'; s.textContent = safeAv(m.av); s.style.setProperty('--c', `hsl(${m.hu ?? 200}, 95%, 65%)`);
+        pg.el.appendChild(s);
+      } else if (m.p === '' && secOf.has(m.id) && jumpBtns[secOf.get(m.id)]) {
+        // メニューに いる なかま → いま みている みだしの ジャンプボタンの よこに
+        const s = document.createElement('span');
+        s.className = 'peer-sec'; s.textContent = safeAv(m.av);
+        jumpBtns[secOf.get(m.id)].appendChild(s);
+      }
+    }
+  }
+  function onMembers(list) {
+    const before = new Set(others.map(m => m.id));
+    others = list;
+    for (const id of [...secOf.keys()]) if (!list.some(m => m.id === id && m.p === '')) secOf.delete(id);
+    renderPresence();
+    // あたらしく きた なかまにも、じぶんが どこを みているか おしえる
+    if (here === '' && mySec >= 0 && list.some(m => !before.has(m.id))) Multi.send({ a: 'sec', i: mySec }, 0);
+  }
+  function onMenuAct(msg) {
+    if (msg.a === 'sec' && typeof msg.i === 'number') { secOf.set(msg.from, msg.i); renderPresence(); }
+    else if (msg.a === 'look' && msg.p && pages.has(msg.p) && pages.get(msg.p).el && here === '') {
+      // なかまが ボタンに ゆびを おいた → その ボタンに どうぶつが ぴょこっと
+      const r = pages.get(msg.p).el.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > innerHeight) return;
+      const e = document.createElement('div');
+      e.className = 'peer-look'; e.textContent = safeAv(msg.av);
+      e.style.left = (r.left + r.width / 2) + 'px'; e.style.top = (r.top + r.height * 0.3) + 'px';
+      document.body.appendChild(e);
+      setTimeout(() => e.remove(), 1000);
+    }
+  }
+
+  // ブラウザの もどる（スワイプ）も じぶんで えらんだ いどう
+  addEventListener('popstate', (e) => {
+    const p = (e.state && typeof e.state.p === 'string') ? e.state.p : '';
+    show(p, { announce: true, push: false });
+  });
+
+  Multi.init({ onGo: (p, msg) => follow(p, msg), onMembers, onMenuAct });
+
+  return {
+    pages,
+    open: (p, opt) => show(p, opt),
+    get here() { return here; },
+    // メニューで ボタンに ゆびを おいた / みている みだしが かわった ことを なかまへ
+    look(p) { if (here === '' && Multi.group) Multi.send({ a: 'look', p }, 150); },
+    sec(i) { if (i === mySec) return; mySec = i; if (here === '' && Multi.group) Multi.send({ a: 'sec', i }, 0); },
+    ready(startPage) {
+      isReady = true;
+      if (startPage) show(startPage, { query: location.search });
+      if (queued) { const [p, m] = queued; queued = null; follow(p, m); }
+    },
+    markSeen: null,
+  };
+})();
 </script>
 </body>
 </html>

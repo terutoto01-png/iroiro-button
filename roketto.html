@@ -6,11 +6,11 @@
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#ff6b9a">
 <title>ロケット</title>
-<link rel="stylesheet" href="common.css?v=22">
+<link rel="stylesheet" href="common.css?v=23">
 <style>
   body { background: linear-gradient(#0b1033, #24307a 60%, #6f86d6); }
   .big-btn { --c1: #ff3b3b; --c2: #a81c1c; }
-  .bottom-center { left: auto; right: max(30px, env(safe-area-inset-right)); transform: none; bottom: max(30px, env(safe-area-inset-bottom) + 12px); }
+  .bottom-center { left: auto; right: max(30px, var(--sar)); transform: none; bottom: max(30px, var(--sab) + 12px); }
   .bottom-center .big-btn { width: min(30vw, 150px); height: min(30vw, 150px); }
   #rocket { position: fixed; left: 50%; bottom: 60px; font-size: min(30vw, 160px); line-height: 1; z-index: 6;
             transform: translateX(-50%) rotate(-45deg); pointer-events: none; }
@@ -26,7 +26,7 @@
 <div id="rocket">🚀</div>
 <div id="count"></div>
 <div class="bottom-center"><button id="btn" class="big-btn"><span class="emoji">🔴</span></button></div>
-<script src="common.js?v=18"></script>
+<script src="common.js?v=19"></script>
 <script>
 const canvas = document.getElementById('cv'), ctx = canvas.getContext('2d');
 const btn = document.getElementById('btn'), rocket = document.getElementById('rocket'), count = document.getElementById('count');

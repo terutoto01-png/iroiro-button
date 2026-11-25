@@ -19,7 +19,7 @@ html.emoji-font, html.emoji-font body { font-family: "IroEmoji", "Hiragino Maru 
 canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
 
 .back {
-  position: fixed; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); z-index: 50;
+  position: fixed; top: max(12px, var(--sat)); left: max(12px, var(--sal)); z-index: 50;
   background: #fff; color: #444; text-decoration: none;
   font-size: 20px; font-weight: bold; padding: 8px 16px; border-radius: 999px;
   box-shadow: 0 4px 0 rgba(0,0,0,.2);
@@ -29,14 +29,14 @@ canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 .back::after, .vol::after { content: ''; position: absolute; inset: -14px; }
 .vol { position: fixed; }
 .vol {
-  position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); z-index: 50;
+  position: fixed; top: max(12px, var(--sat)); right: max(12px, var(--sar)); z-index: 50;
   background: #fff; border: none; font-size: 20px; padding: 8px 14px; border-radius: 999px;
   box-shadow: 0 4px 0 rgba(0,0,0,.2); cursor: pointer; font-family: inherit;
 }
 .vol:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
 
 .badge {
-  position: fixed; top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); z-index: 50;
+  position: fixed; top: max(14px, var(--sat)); right: max(14px, var(--sar)); z-index: 50;
   font-size: 12px; color: #fff; background: rgba(0,0,0,.35);
   padding: 4px 10px; border-radius: 999px;
 }
@@ -61,12 +61,12 @@ canvas.full { position: fixed; inset: 0; width: 100vw; height: 100vh; display: b
 }
 
 .bottom-center {
-  position: fixed; left: 50%; bottom: max(40px, env(safe-area-inset-bottom) + 12px); transform: translateX(-50%); z-index: 10;
+  position: fixed; left: 50%; bottom: max(40px, var(--sab) + 12px); transform: translateX(-50%); z-index: 10;
 }
 .bottom-center .big-btn:active, .bottom-center .big-btn.pressed { transform: translateY(10px); }
 
 .counter {
-  position: fixed; top: max(14px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 40;
+  position: fixed; top: max(14px, var(--sat)); left: 50%; transform: translateX(-50%); z-index: 40;
   font-size: 28px; font-weight: bold; color: #fff;
   text-shadow: 0 3px 0 rgba(0,0,0,.3);
 }
@@ -118,24 +118,24 @@ html.no-scroll, html.no-scroll body { touch-action: none; }
 html.can-scroll, html.can-scroll body { touch-action: pan-y; }
 
 /* ゆびで あそぶ ページ: ボタンは みぎしたに ちいさめに おく */
-.corner { position: fixed; right: max(20px, env(safe-area-inset-right)); bottom: max(20px, env(safe-area-inset-bottom)); z-index: 30; }
+.corner { position: fixed; right: max(20px, var(--sar)); bottom: max(20px, var(--sab)); z-index: 30; }
 .corner .big-btn { width: min(24vw, 120px); height: min(24vw, 120px); font-size: min(7vw, 34px); }
 
 /* ゲームの ハート・てんすう・きろく（うえの まんなか） */
-.hud { position: fixed; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 45; pointer-events: none;
+.hud { position: fixed; top: max(10px, var(--sat)); left: 50%; transform: translateX(-50%); z-index: 45; pointer-events: none;
        display: flex; gap: 18px; align-items: center; font-size: 30px; font-weight: bold; color: #fff;
        text-shadow: 0 3px 0 rgba(0,0,0,.35); white-space: nowrap; }
 .hud .score, .hud .best { display: inline-flex; align-items: center; gap: 4px; }
 .hud .best { font-size: 22px; opacity: .85; }
 /* せまい がめん（スマホ）では 🏠 と 🔊 の あいだに おさまる ように ちいさく */
 @media (max-width: 600px) {
-  .hud { gap: 8px; font-size: 21px; top: max(16px, env(safe-area-inset-top) + 4px); max-width: calc(100vw - 150px); }
+  .hud { gap: 8px; font-size: 21px; top: max(16px, var(--sat) + 4px); max-width: calc(100vw - 150px); }
   .hud .best { font-size: 15px; }
 }
 
 /* PWA 更新通知トースト */
 .update-toast {
-  position: fixed; left: 50%; bottom: max(28px, env(safe-area-inset-bottom) + 12px); transform: translate(-50%, 20px); z-index: 100;
+  position: fixed; left: 50%; bottom: max(28px, var(--sab) + 12px); transform: translate(-50%, 20px); z-index: 100;
   background: #fff; color: #444; border: none; border-radius: 999px;
   font-family: inherit; font-size: 18px; font-weight: bold;
   padding: 14px 26px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
