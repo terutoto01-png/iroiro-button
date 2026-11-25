@@ -22,6 +22,8 @@ const MAX_PEERS = 20;
 const MAX_MSG_BYTES = 4500;
 const MAX_PER_SEC = 45; // ゆびの うごき（in）を おくるので おおめ
 const GO_LOCK_MS = 2000; // だれかが移動させたあと、しばらくは別の場所への移動を受け付けない（同時タップ・連打対策）
+const WAIT_LOCK_MS = 4000; // みんなの じゅんびを まっている あいだも 受け付けない（ただし さいだい これだけ）
+const MIN_SHOW_MS = 800;  // いどうの えんしゅつを みせる さいていの じかん（みんな そろっても これより はやくは ひらかない）
 
 const cleanPage = (v) => (v === '' || (typeof v === 'string' && PAGE_RE.test(v))) ? v : undefined;
 
@@ -154,7 +156,7 @@ export class Room extends DurableObject {
 
     const hello = { t: 'hello', id, avatar, hue, g: group ? 1 : 0, n: (group ? 0 : this.inPage(pageRoom, server).length) + 1, members: this.memberList(server) };
     if (group) {
-      try { const pl = await this.ctx.storage.get('place'); if (pl) { hello.place = pl.p; hello.ps = pl.s || 0; hello.pav = pl.av; hello.phu = pl.hu; } } catch {}
+      try { const pl = await this.ctx.storage.get('place'); if (pl) { hello.place = pl.p; hello.ps = pl.s || 0; hello.pav = pl.av; hello.phu = pl.hu; hello.pn = pl.n || 0; hello.pw = pl.w ? 1 : 0; } } catch {}
     } else if (existing.length > 0) {
       // ふるい クライアント（hello の state を待つ）向けに、同じページの共有状態も添える
       try { const st = await this.ctx.storage.get('state:' + pageRoom); if (st) hello.state = st; } catch {}
@@ -218,23 +220,40 @@ export class Room extends DurableObject {
         const s = Number.isInteger(msg.s) && msg.s > 0 && msg.s < 2147483647 ? msg.s : 0;
         let place = null;
         try { place = (await this.ctx.storage.get('place')) || null; } catch {}
-        if (place && place.p !== p && now - place.t < GO_LOCK_MS) {
+        if (place && place.p !== p && (now - place.t < GO_LOCK_MS || (place.w && now - place.t < WAIT_LOCK_MS))) {
           // ほかの人が さっき 移動させたばかり → その場所へ もどってもらう
-          try { ws.send(JSON.stringify({ t: 'go', p: place.p, s: place.s || 0, av: place.av, hu: place.hu, from: place.id })); } catch {}
+          try { ws.send(JSON.stringify({ t: 'go', p: place.p, s: place.s || 0, n: place.n || 0, w: place.w ? 1 : 0, av: place.av, hu: place.hu, from: place.id })); } catch {}
           return;
         }
-        try { await this.ctx.storage.put('place', { p, s, t: now, id: att.id, av: att.avatar, hu: att.hue }); } catch {}
-        const out = JSON.stringify({ t: 'go', p, s, av: att.avatar, hu: att.hue, from: att.id });
-        for (const peer of this.live(ws)) { try { peer.send(out); } catch {} }
+        // n = いどうの ばんごう。みんなが その ページの じゅんびが できたら（ready）、start で いっせいに ひらく
+        const n = ((place && place.n) || 0) + 1;
+        try {
+          await this.ctx.storage.put('place', { p, s, n, w: 1, t: now, id: att.id, av: att.avatar, hu: att.hue });
+          await this.ctx.storage.put('ready', { n, ids: [] });
+        } catch {}
+        // じぶんにも かえす（いどうの ばんごうを しらせる）
+        const out = JSON.stringify({ t: 'go', p, s, n, w: 1, av: att.avatar, hu: att.hue, from: att.id });
+        for (const peer of this.live()) { try { peer.send(out); } catch {} }
       } else if (att.g) {
         // グループの場所がまだ決まっていなければ、さいしょに来た人の場所にする
         try {
-          if (!(await this.ctx.storage.get('place'))) await this.ctx.storage.put('place', { p, t: 0, id: att.id, av: att.avatar, hu: att.hue });
+          if (!(await this.ctx.storage.get('place'))) await this.ctx.storage.put('place', { p, t: 0, n: 0, w: 0, id: att.id, av: att.avatar, hu: att.hue });
         } catch {}
       }
       const st = await this.moveTo(ws, att, p);
       try { ws.send(JSON.stringify({ t: 'state', p, s: st })); } catch {}
       this.broadcastPeers(null);
+      return;
+    }
+
+    // いどうさきの じゅんびが できた
+    if (msg.t === 'ready' && att.g && Number.isInteger(msg.n)) {
+      try {
+        const rd = await this.ctx.storage.get('ready');
+        if (!rd || rd.n !== msg.n) return;
+        if (!rd.ids.includes(att.id)) { rd.ids.push(att.id); await this.ctx.storage.put('ready', rd); }
+      } catch { return; }
+      await this.checkStart();
       return;
     }
 
@@ -289,6 +308,27 @@ export class Room extends DurableObject {
     }
   }
 
+  // いまの へやの みんなが じゅんび できたら start を おくる（はやすぎる ときは えんしゅつの ぶん まつ）
+  async checkStart(exclude) {
+    let place, rd;
+    try { place = await this.ctx.storage.get('place'); rd = await this.ctx.storage.get('ready'); } catch { return; }
+    if (!place || !place.w || !rd || rd.n !== place.n) return;
+    const ids = this.live(exclude).map(s => this.att(s)?.id).filter(Boolean);
+    if (!ids.every(id => rd.ids.includes(id))) return;
+    const n = place.n;
+    const fire = async () => {
+      let pl;
+      try { pl = await this.ctx.storage.get('place'); } catch { return; }
+      if (!pl || pl.n !== n || !pl.w) return;
+      pl.w = 0;
+      try { await this.ctx.storage.put('place', pl); } catch {}
+      const out = JSON.stringify({ t: 'start', n });
+      for (const s of this.live()) { try { s.send(out); } catch {} }
+    };
+    const wait = MIN_SHOW_MS - (Date.now() - place.t);
+    if (wait > 0) setTimeout(fire, wait); else await fire();
+  }
+
   async gone(ws) {
     const att = this.att(ws);
     try { ws.close(); } catch {}
@@ -301,6 +341,8 @@ export class Room extends DurableObject {
       try { await this.ctx.storage.delete('state:' + att.p); } catch {}
     }
     this.broadcastPeers(ws, ws);
+    // まっていた ひとが いなくなったら、のこりの みんなで そろって いるか
+    if (att && att.g) await this.checkStart(ws);
   }
 
   async webSocketClose(ws) { await this.gone(ws); }

@@ -269,7 +269,7 @@ const Multi = (() => {
           } else {
             // みんなが いる ところへ いく（シェルが うごかして、あとで setHere → at が おくられる）
             raw({ t: 'at', p: here });
-            if (hooks.onGo) hooks.onGo(place, { av: msg.pav, hu: msg.phu, s: msg.ps });
+            if (hooks.onGo) hooks.onGo(place, { av: msg.pav, hu: msg.phu, s: msg.ps, n: msg.pn, w: msg.pw });
           }
           dirty = false;
         } else {
@@ -293,6 +293,8 @@ const Multi = (() => {
         if (frame) frame.port.state(s); else pendingState = s;
       } else if (msg.t === 'go') {
         if (group && typeof msg.p === 'string' && hooks.onGo) hooks.onGo(msg.p, msg);
+      } else if (msg.t === 'start') {
+        if (group && hooks.onStart) hooks.onStart(msg.n);
       } else if (msg.t === 'act') {
         if (here === '') { if (hooks.onMenuAct) hooks.onMenuAct(msg); }
         else if (msg.a === 'in') Mirror.receive(msg);
@@ -527,6 +529,10 @@ const Multi = (() => {
     get group() { return group; },
     get connected() { return isOpen(); },
     get myId() { return myId; },
+    get myAvatar() { return myAvatar; },
+    get myHue() { return myHue; },
+    // いどうさきの じゅんびが できた（グループ部屋で みんなで そろって ひらく ため）
+    ready(n) { if (group && Number.isInteger(n)) raw({ t: 'ready', n }); },
     get enabled() { return enabled; },
     get peersHere() { return peersHere(); },
     // ページ むけと おなじ もの

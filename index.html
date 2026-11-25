@@ -66,10 +66,10 @@
                   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 
   /* ---- なかまに つれていかれる とき（なかまの どうぶつが ボタンに のって、いっしょに いく） ---- */
-  #follow { position: fixed; inset: 0; z-index: 1020; display: grid; place-items: center; pointer-events: none;
+  #follow { position: fixed; inset: 0; z-index: 1020; display: grid; place-items: center; pointer-events: auto; touch-action: none;
             background: rgba(255,255,255,.55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
             animation: fol-in .2s ease-out both; }
-  #follow.out { animation: fol-out .25s ease-in both; }
+  #follow.out { animation: fol-out .25s ease-in both; pointer-events: none; }
   #follow .big-btn { position: relative; width: min(46vw, 230px); height: min(46vw, 230px); font-size: min(22vw, 110px);
                      animation: fol-btn .9s cubic-bezier(.3,1.5,.5,1) both; }
   #follow .rider { position: absolute; left: 50%; top: -6%; font-size: min(14vw, 70px); line-height: 1; translate: -50% 0;
@@ -376,7 +376,7 @@ addEventListener('resize', updateMore);
 const Shell = (() => {
   const pages = new Map();   // file → { emoji, c1, c2, el }（この きかいで ひらける ボタン）
   let isReady = false, queued = null;
-  let here = '', frameEl = null, followTm = 0, followEl = null, seed = 0;
+  let here = '', frameEl = null, followEl = null, seed = 0;
   const newSeed = () => Math.floor(Math.random() * 2147483646) + 1;
 
   function applyInsets() {
@@ -413,58 +413,10 @@ const Shell = (() => {
   }
 
   function clearFollow() {
-    clearTimeout(followTm); followTm = 0;
     if (followEl) { const el = followEl; followEl = null; el.classList.add('out'); setTimeout(() => el.remove(), 260); }
   }
-
-  // p のページを ひらく（'' は メニュー）。announce = じぶんで えらんだ（グループ部屋なら みんなも つれていく）
-  function show(p, { announce = false, push = true, query = '', s = 0 } = {}) {
-    clearFollow();
-    if (p && !pages.has(p)) p = '';
-    if (p === here) { if (announce) Multi.setHere(p, true, seed); return; }
-    closeFrame();
-    here = p;
-    // らんすうの たね: じぶんで えらんだら あたらしく、つれていかれたら なかまと おなじ もの
-    seed = p ? ((!announce && s) || newSeed()) : 0;
-    if (push) history.pushState({ p }, '', p ? '#/' + p : location.pathname + location.search);
-    if (p) {
-      if (Shell.markSeen) Shell.markSeen(p);
-      const f = pageFrame(), token = ++navToken, file = p + '.html';
-      frameEl = f;
-      f.dataset.page = p;
-      // history を ふやさない ように replace で いれかえる
-      f.contentWindow.location.replace(new URL(file + query, location.href).href);
-      // よみこめたら メニューを かくして ページを だす（おそくても 1.5びょうで だす）
-      let shownOnce = false;
-      const reveal = () => {
-        if (shownOnce || token !== navToken) return;
-        try { if (!f.contentWindow.location.pathname.endsWith('/' + file)) return; } catch (e) { return; }
-        shownOnce = true;
-        f.removeEventListener('load', reveal);
-        applyInsets();
-        f.classList.add('shown');
-        document.documentElement.classList.add('playing');
-        try { f.contentWindow.focus(); } catch (e) {}
-      };
-      f.addEventListener('load', reveal);
-      setTimeout(reveal, 1500);
-    } else {
-      document.documentElement.classList.remove('playing');
-      dispatchEvent(new Event('iro-volume'));
-      dispatchEvent(new Event('iro-home'));
-      try { window.focus(); } catch (e) {}
-    }
-    Multi.setHere(p, announce, seed);
-  }
-
-  const AVS = new Set(['🐶', '🐱', '🐰', '🐻', '🐼', '🐸', '🦊', '🐧', '🐷', '🐥', '🦁', '🐨', '🧒']);
-  const safeAv = (v) => AVS.has(v) ? v : '🧒';
-
-  // なかまに つれていかれる（なかまの どうぶつが ボタンに のる えんしゅつの あと）
-  function follow(p, msg) {
-    if (!isReady) { queued = [p, msg]; return; }
-    if (p && !pages.has(p)) return; // この きかいでは ひらけない ボタン（WebGPU など）
-    if (p === here) { clearFollow(); return; }
+  // いどうの えんしゅつ（だれかの どうぶつが ボタンに のる）。みんなの じゅんびが できるまで だしておく
+  function showFollow(p, av, hu) {
     clearFollow();
     const info = p ? pages.get(p) : { emoji: '🏠', c1: '#29b6f6', c2: '#0277bd' };
     const el = document.createElement('div');
@@ -473,15 +425,123 @@ const Shell = (() => {
     const b = el.firstElementChild;
     b.style.setProperty('--c1', info.c1); b.style.setProperty('--c2', info.c2);
     b.querySelector('.emoji').textContent = info.emoji;
-    b.querySelector('.rider').textContent = safeAv(msg && msg.av);
-    b.querySelector('.ring').style.setProperty('--c', `hsl(${(msg && msg.hu) ?? 200}, 95%, 65%)`);
+    b.querySelector('.rider').textContent = safeAv(av);
+    b.querySelector('.ring').style.setProperty('--c', `hsl(${hu ?? 200}, 95%, 65%)`);
     document.body.appendChild(el);
     followEl = el;
-    const s = msg && Number.isInteger(msg.s) ? msg.s : 0;
-    followTm = setTimeout(() => { followTm = 0; show(p, { s }); }, 950);
     // おとが だせなくても いどうは する
     try { Sfx.tone(520, 0.12, 'sine', 0.2, 0, 900); Sfx.tone(700, 0.18, 'triangle', 0.16, 0.42, 1100); } catch (e) {}
   }
+
+  // ---- みんなで そろって ひらく（グループ部屋） ----
+  // いどうが きまったら、みんな えんしゅつを だしながら うらで ページを よみこむ。
+  // よみこめたら ready を おくり、サーバーから start が きたら いっせいに ひらく（まつのは さいだい 3びょう）
+  let gate = null;
+  function makeGate(p, n, sync) {
+    if (gate) gate.cancel();
+    let resolve;
+    const g = {
+      p, n: Number.isInteger(n) ? n : null, sync, loaded: false, done: false,
+      promise: new Promise(r => { resolve = r; }),
+      open() { if (g.done) return; g.done = true; clearTimeout(g.tm); resolve(true); },
+      cancel() { if (g.done) return; g.done = true; clearTimeout(g.tm); resolve(false); },
+      tm: 0,
+    };
+    if (sync) g.tm = setTimeout(() => g.open(), 3000); else g.open();
+    gate = g;
+    return g;
+  }
+  function gateLoaded(g) {
+    g.loaded = true;
+    if (g.sync && g.n !== null && !g.done) Multi.ready(g.n);
+  }
+
+  // p のページを ひらく（'' は メニュー）。announce = じぶんで えらんだ（グループ部屋なら みんなも つれていく）
+  // sync = みんなで そろって ひらく、n = いどうの ばんごう、av/hu = えんしゅつに のる どうぶつ
+  function show(p, { announce = false, push = true, query = '', s = 0, sync, n, av, hu } = {}) {
+    if (p && !pages.has(p)) p = '';
+    if (sync === undefined) sync = announce && Multi.group && Multi.enabled && Multi.connected;
+    if (p === here) {
+      if (announce) Multi.setHere(p, true, seed);
+      if (Number.isInteger(n)) Multi.ready(n); // もう そこに いる
+      return;
+    }
+    here = p;
+    // らんすうの たね: じぶんで えらんだら あたらしく、つれていかれたら なかまと おなじ もの
+    seed = p ? ((!announce && s) || newSeed()) : 0;
+    if (push) history.pushState({ p }, '', p ? '#/' + p : location.pathname + location.search);
+    const g = makeGate(p, n, sync);
+    if (sync) showFollow(p, av ?? Multi.myAvatar, hu ?? Multi.myHue);
+    else clearFollow();
+    // ここで いどうを つたえる（go なら サーバーから いどうの ばんごうが かえってくる）
+    Multi.setHere(p, announce, seed);
+    if (p) {
+      if (Shell.markSeen) Shell.markSeen(p);
+      // まえの ページは おわらせて、メニューの うえで あたらしい ページを よみこむ
+      closeFrame();
+      document.documentElement.classList.remove('playing');
+      const f = pageFrame(), token = ++navToken, file = p + '.html';
+      frameEl = f;
+      f.dataset.page = p;
+      // history を ふやさない ように replace で いれかえる
+      f.contentWindow.location.replace(new URL(file + query, location.href).href);
+      let loadedOnce = false;
+      const loaded = () => {
+        if (loadedOnce || token !== navToken) return;
+        try { if (!f.contentWindow.location.pathname.endsWith('/' + file)) return; } catch (e) { return; }
+        loadedOnce = true;
+        f.removeEventListener('load', loaded);
+        applyInsets();
+        gateLoaded(g);
+        g.promise.then((go) => {
+          if (!go || token !== navToken) return;
+          clearFollow();
+          f.classList.add('shown');
+          document.documentElement.classList.add('playing');
+          try { f.contentWindow.focus(); } catch (e) {}
+        });
+      };
+      f.addEventListener('load', loaded);
+      setTimeout(loaded, 1500); // load が こなくても（おそくても）すすむ
+    } else {
+      // メニューは いつでも じゅんび できている。そろったら ページを とじる
+      gateLoaded(g);
+      g.promise.then((go) => {
+        if (!go || here !== '') return;
+        clearFollow();
+        closeFrame();
+        document.documentElement.classList.remove('playing');
+        dispatchEvent(new Event('iro-volume'));
+        dispatchEvent(new Event('iro-home'));
+        try { window.focus(); } catch (e) {}
+      });
+    }
+  }
+
+  const AVS = new Set(['🐶', '🐱', '🐰', '🐻', '🐼', '🐸', '🦊', '🐧', '🐷', '🐥', '🦁', '🐨', '🧒']);
+  const safeAv = (v) => AVS.has(v) ? v : '🧒';
+
+  // サーバーからの いどう（なかまが えらんだ / じぶんの go の へんじ / とちゅうから きた とき）
+  function onGo(p, msg) {
+    if (!isReady) { queued = [p, msg]; return; }
+    const n = msg && Number.isInteger(msg.n) ? msg.n : undefined;
+    // じぶんの go の へんじ: いどうの ばんごうを おぼえる（もう よみこめていたら ready）
+    if (msg && msg.from && msg.from === Multi.myId && gate && gate.p === p && gate.n === null && !gate.done) {
+      if (n !== undefined) { gate.n = n; if (gate.loaded) Multi.ready(n); }
+      return;
+    }
+    // この きかいでは ひらけない ボタン（WebGPU など）: ここに いるが、みんなを またせない
+    if (p && !pages.has(p)) { if (n !== undefined) Multi.ready(n); return; }
+    const sync = !!(msg && msg.w) && Multi.connected;
+    const s = msg && Number.isInteger(msg.s) ? msg.s : 0;
+    show(p, { s, sync, n, av: msg && msg.av, hu: msg && msg.hu });
+    // そろえない（もう はじまっている）ときも、えんしゅつは みせる
+    if (!sync && p !== '' && followEl === null) {
+      showFollow(p, msg && msg.av, msg && msg.hu);
+      setTimeout(() => { if (here === p) clearFollow(); }, 900);
+    }
+  }
+  function onStart(n) { if (gate && gate.n === n) gate.open(); }
 
   // ---- メニューで なかまが どこに いるか ----
   let others = [];           // [{ id, av, hu, p }]（じぶんいがい）
@@ -534,7 +594,7 @@ const Shell = (() => {
     show(p, { announce: true, push: false });
   });
 
-  Multi.init({ onGo: (p, msg) => follow(p, msg), onMembers, onMenuAct });
+  Multi.init({ onGo, onStart, onMembers, onMenuAct });
 
   return {
     pages,
@@ -549,7 +609,7 @@ const Shell = (() => {
     ready(startPage) {
       isReady = true;
       if (startPage) show(startPage, { query: location.search });
-      if (queued) { const [p, m] = queued; queued = null; follow(p, m); }
+      if (queued) { const [p, m] = queued; queued = null; onGo(p, m); }
     },
     markSeen: null,
   };
