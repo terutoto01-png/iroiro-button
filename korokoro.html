@@ -225,13 +225,13 @@ function buildWorld() {
   const wide = W > 640, narrow = W < 500;
   const xL = wide ? 0.14 : 0.07, xR = wide ? 0.86 : 0.93;
   const rScale = Math.min(W, playH);
-  const bumpR = Math.max(16, Math.min(32, rScale * (narrow ? 0.044 : 0.048)));
-  const wheelR = Math.max(32, Math.min(68, rScale * (narrow ? 0.09 : 0.105)));
+  const bumpR = Math.max(16, rScale * (narrow ? 0.044 : 0.048));
+  const wheelR = Math.max(32, rScale * (narrow ? 0.09 : 0.105));
 
   bars = []; wheels = []; bumpers = []; harp = []; portals = []; cannons = []; tramps = [];
   PS = {
-    bumpR, wheelR: wheelR * 0.85, cannonR: narrow ? 28 : 34, trampHW: Math.max(60, Math.min(110, W * 0.13)),
-    pinR: Math.max(24, Math.min(38, rScale * 0.056)), poutR: Math.max(19, Math.min(30, rScale * 0.042)),
+    bumpR, wheelR: wheelR * 0.85, cannonR: Math.max(24, rScale * 0.052), trampHW: Math.max(46, W * 0.13),
+    pinR: Math.max(22, rScale * 0.055), poutR: Math.max(18, rScale * 0.042),
   };
   const mkBar = (u1, v1, u2, v2, hue, pitch) => ({
     x1: sx(u1), y1: sy(v1), x2: sx(u2), y2: sy(v2),
@@ -457,8 +457,17 @@ function addPart(k, x, y, quiet) {
     if (old.held) old.held.heldBy = null;
     burst(c.x, c.y, 200, 8);
   }
-  settle(h);
-  if (!quiet) {
+  if (quiet) {
+    // どうき・よみこみ じは ほかの ぶひんに おしのけられず、おくられた いちを そのまま まもる
+    const o = h.o, top = playTop + 10;
+    if (h.type === 'tramp') { o.cx = clampN(o.cx, o.hw + 4, W - o.hw - 4); o.y = clampN(o.y, top + 20, playBot - 10); o.bendX = o.cx; trampSync(o); }
+    else if (h.type === 'bump') { o.x = clampN(o.x, o.r + 4, W - o.r - 4); o.y = clampN(o.y, top + o.r, playBot - o.r); bumpPitch(o); }
+    else if (h.type === 'wheel') { o.x = clampN(o.x, o.r + 4, W - o.r - 4); o.y = clampN(o.y, top + o.r, playBot - o.r); o.target = 2.6 * (o.x < W / 2 ? 1 : -1); o.ang = (Date.now() / 1000 * o.target) % (Math.PI * 2); o.omega = o.target; }
+    else if (h.type === 'cannon') { o.x = clampN(o.x, o.r + 4, W - o.r - 4); o.y = clampN(o.y, top + o.r, playBot - o.r); }
+    else if (h.type === 'portal') { o.in.x = clampN(o.in.x, o.in.r + 4, W - o.in.r - 4); o.in.y = clampN(o.in.y, top + o.in.r, playBot - o.in.r); }
+    else settle(h);
+  } else {
+    settle(h);
     const c = partCenter(h);
     Music.playBumper(0.7); burst(c.x, c.y, 50, 12); addRing(c.x, c.y, 50, 60);
     saveMake();
@@ -607,7 +616,7 @@ function applyMakeData(d) {
   for (const [a, b] of arr(d.w)) addPart('wheel', X(a), Y(b), true);
   for (const [a, b] of arr(d.t)) addPart('tramp', X(a), Y(b), true);
   for (const [a, b] of arr(d.c)) addPart('cannon', X(a), Y(b), true);
-  for (const [a, b, c, e] of arr(d.p)) { addPart('portal', X(a), Y(b), true); const o = portals[portals.length - 1]; o.out.x = X(c); o.out.y = Y(e); settle({ type: 'pout', o }); }
+  for (const [a, b, c, e] of arr(d.p)) { addPart('portal', X(a), Y(b), true); const o = portals[portals.length - 1]; o.out.x = clampN(X(c), o.out.r + 4, W - o.out.r - 4); o.out.y = clampN(Y(e), playTop + 10 + o.out.r, playBot - o.out.r); }
   if (Array.isArray(d.s) && star) { star.x = X(d.s[0]); star.y = Y(d.s[1]); settle({ type: 'star', o: star }); }
   for (const b of bumpers) b.hit = 0;
   for (const tr of tramps) tr.bend = 0;

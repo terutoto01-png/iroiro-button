@@ -56,18 +56,22 @@ function layout() {
   playBot = (bRect.top > 0 ? bRect.top : H - 140) - 8;
   playH = playBot - playTop;
   placeBot = H - 14;
-  BR = Math.max(11, Math.min(15, Math.min(W, playH) * 0.02));
+  // がめん はばに あわせて ぶひんサイズも そろえる（iPad 780px きじゅん → PC と iPad で すきまが ずれない）
+  KS = Math.max(0.72, W / 780);
+  DOM_S = 30 * KS; DOM_H = 58 * KS; SAW_L = 190 * KS; BELL_R = 24 * KS; SPR_W = 34 * KS;
+  BR = Math.max(11, Math.min(22, Math.min(W, playH) * 0.022));
 }
 const U = x => x / W, V = y => (y - playTop) / playH;
 const X = u => u * W, Y = v => playTop + v * playH;
 
 // ---- ぶひんを つくる ----
 function mkRail(x1, y1, x2, y2) { return { x1, y1, x2, y2, hue: rand(0, 360), glow: 0 }; }
-const DOM_N = 5, DOM_S = 30, DOM_H = 58;
+const DOM_N = 5;
+let KS = 1, DOM_S = 30, DOM_H = 58, SAW_L = 190, BELL_R = 24, SPR_W = 34;
 function mkDomino(x, y, dir = 1) { return { x, y, dir, a: new Array(DOM_N).fill(0), w: new Array(DOM_N).fill(0), state: 'stand', t: 0, hue: rand(0, 360) }; }
-const SAW_L = 190, SAW_TH = 0.34;
+const SAW_TH = 0.34;
 function mkSeesaw(x, y, th = -SAW_TH) { return { x, y, th, home: th > 0 ? 1 : -1, w: 0, free: 0, hue: rand(0, 360) }; } // home = おもりの ある がわ（なにも のって ない と こっちに もどる）
-function mkBell(x, y) { return { x, y, r: 24, sw: 0, sv: 0, glow: 0 }; }
+function mkBell(x, y) { return { x, y, r: BELL_R, sw: 0, sv: 0, glow: 0 }; }
 function mkLift(x, y, h = 260, dir = 1) { return { x, y, h, dir, ph: 0, glow: 0 }; }
 function mkSpring(x, y, ang = 0) { return { x, y, ang, comp: 0, cv: 0, hue: rand(0, 360) }; }
 const listOf = { rail: () => rails, domino: () => dominos, seesaw: () => seesaws, bell: () => bells, lift: () => lifts, spring: () => springs };
@@ -99,7 +103,7 @@ function liftWalls(l) { // じょうご と うえの すべりだい
 }
 function springPad(s) { // ばねの いた（ふたつの はし）と うえむきの むき
   const top = 34 - s.comp * 16, nx = Math.sin(s.ang), ny = -Math.cos(s.ang);
-  const cx = s.x + nx * top, cy = s.y + ny * top, tx = -ny * 34, ty = nx * 34;
+  const cx = s.x + nx * top, cy = s.y + ny * top, tx = -ny * SPR_W, ty = nx * SPR_W;
   return { x1: cx - tx, y1: cy - ty, x2: cx + tx, y2: cy + ty, nx, ny, cx, cy };
 }
 
@@ -181,7 +185,7 @@ function launchSpring(s, b) {
   const tv = Math.max(-sp * 0.75, Math.min(sp * 0.75, (b.vx * -p.ny + b.vy * p.nx) * 1.1));
   b.vx = p.nx * sp + -p.ny * tv; b.vy = p.ny * sp + p.nx * tv;
   // あたった ところの まま いたの うえに のせる（まんなかに ワープ させない）
-  const along = Math.max(-34, Math.min(34, (b.x - p.cx) * -p.ny + (b.y - p.cy) * p.nx));
+  const along = Math.max(-SPR_W, Math.min(SPR_W, (b.x - p.cx) * -p.ny + (b.y - p.cy) * p.nx));
   b.x = p.cx + -p.ny * along + p.nx * (b.r + 8); b.y = p.cy + p.nx * along + p.ny * (b.r + 8);
   s.comp = 1; s.cv = 0;
   springBoing(s); burst(p.cx, p.cy, s.hue, 8);
@@ -652,8 +656,8 @@ function drawSpring(s) {
   ctx.strokeStyle = '#9aa6bf'; ctx.lineWidth = 4; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(0, -2);
   const n = 6; for (let i = 1; i <= n; i++) ctx.lineTo((i % 2 ? 1 : -1) * 13, -2 - (top - 6) * i / n);
   ctx.lineTo(0, -top + 2); ctx.stroke();
-  ctx.fillStyle = `hsl(${s.hue},85%,58%)`; ctx.beginPath(); ctx.roundRect(-36, -top - 6, 72, 11, 5); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(-30, -top - 4, 60, 3);
+  ctx.fillStyle = `hsl(${s.hue},85%,58%)`; ctx.beginPath(); ctx.roundRect(-SPR_W - 2, -top - 6, SPR_W * 2 + 4, 11, 5); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(-SPR_W + 4, -top - 4, SPR_W * 2 - 8, 3);
   ctx.restore();
 }
 function drawStar(t) {
@@ -678,13 +682,13 @@ function drawBall(b) {
 }
 // トレイの え（まんなか に おさまる ちいさい ぶひん）
 function drawIcon(k, x, y, s, t) {
-  ctx.save(); ctx.translate(x, y); const sc = s / 72; ctx.scale(sc, sc);
+  ctx.save(); ctx.translate(x, y); const sc = s / 72, isc = sc / KS; ctx.scale(sc, sc);
   if (k === 'rail') drawRail({ x1: -24, y1: -12, x2: 24, y2: 12, hue: 200, glow: 0 }, false);
-  else if (k === 'domino') { ctx.translate(0, 14); ctx.scale(0.4, 0.4); drawDomino({ x: 0, y: 0, dir: 1, a: [0, 0, 0, 0.25, 0.5], w: [], hue: 0 }); }
-  else if (k === 'seesaw') { ctx.scale(0.3, 0.3); drawSeesaw({ x: 0, y: -10, th: -SAW_TH, hue: 25 }); }
-  else if (k === 'bell') { ctx.scale(0.8, 0.8); drawBell({ x: 0, y: 0, r: 24, sw: Math.sin(t * 3) * 0.2, glow: 0 }); }
+  else if (k === 'domino') { ctx.translate(0, 14); ctx.scale(0.4 / KS, 0.4 / KS); drawDomino({ x: 0, y: 0, dir: 1, a: [0, 0, 0, 0.25, 0.5], w: [], hue: 0 }); }
+  else if (k === 'seesaw') { ctx.scale(0.3 / KS, 0.3 / KS); drawSeesaw({ x: 0, y: -10, th: -SAW_TH, hue: 25 }); }
+  else if (k === 'bell') { ctx.scale(0.8 / KS, 0.8 / KS); drawBell({ x: 0, y: 0, r: BELL_R, sw: Math.sin(t * 3) * 0.2, glow: 0 }); }
   else if (k === 'lift') { ctx.scale(0.36, 0.36); drawLift({ x: 0, y: 70, h: 150, dir: 1, ph: t, glow: 0 }); }
-  else if (k === 'spring') { ctx.scale(0.62, 0.62); drawSpring({ x: 0, y: 26, ang: 0, comp: 0, hue: 345 }); }
+  else if (k === 'spring') { ctx.scale(0.62 / KS, 0.62 / KS); drawSpring({ x: 0, y: 26 * KS, ang: 0, comp: 0, hue: 345 }); }
   else if (k === 'clear') { ctx.restore(); drawEmoji(ctx, '🧽', x, y, s * 0.6); return; }
   ctx.restore();
 }
