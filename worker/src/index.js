@@ -9,11 +9,47 @@ const ALLOWED_EMOJIS = new Set([
   '🐶', '🐱', '🐰', '🐻', '🐼', '🐸', '🐷', '🐥', '🍎', '🍓', '🍌', '🍉', '🍩', '🍰',
   '🚗', '🚃', '🚀', '✈️', '🐟', '🐙', '🐳', '⭐', '🌙', '🌈', '❤️', '🌸', '🌻', '🦋', '🦖', '🎈',
 ]);
-const ALLOWED_PAGES = new Set(['hanabi', 'shabondama', 'beru', 'sutanpu', 'korokoro']);
-const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever', 'world', 'layout']);
+const ALLOWED_PAGES = new Set(['hanabi', 'shabondama', 'beru', 'sutanpu', 'korokoro', 'karakuri']);
+const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever', 'world', 'layout', 'klayout', 'ktap']);
 const MAX_PEERS = 20;
-const MAX_MSG_BYTES = 2400;
+const MAX_MSG_BYTES = 4500;
 const MAX_PER_SEC = 18;
+
+function sanitizeKLayout(m) {
+  if (!m || typeof m !== 'object') return undefined;
+  const rows = (arr, spec, maxLen) => {
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    for (let i = 0; i < Math.min(arr.length, maxLen); i++) {
+      const p = arr[i];
+      if (!Array.isArray(p) || p.length !== spec.length) continue;
+      const clean = [];
+      let ok = true;
+      for (let j = 0; j < spec.length; j++) {
+        const [mn, mx] = spec[j];
+        const v = clampNum(p[j], mn, mx);
+        if (v === undefined) { ok = false; break; }
+        clean.push(v);
+      }
+      if (ok) out.push(clean);
+    }
+    return out;
+  };
+  let st = null;
+  if (Array.isArray(m.st) && m.st.length === 2) {
+    const sx = clampNum(m.st[0], 0, 1), sy = clampNum(m.st[1], -0.1, 1.6);
+    if (sx !== undefined && sy !== undefined) st = [sx, sy];
+  }
+  return {
+    r: rows(m.r, [[0, 1], [-0.1, 1.6], [0, 1], [-0.1, 1.6]], 40),
+    d: rows(m.d, [[0, 1], [-0.1, 1.6], [-1, 1]], 8),
+    s: rows(m.s, [[0, 1], [-0.1, 1.6], [-1, 1]], 8),
+    b: rows(m.b, [[0, 1], [-0.1, 1.6]], 8),
+    l: rows(m.l, [[0, 1], [-0.1, 1.6], [0.05, 1.6], [-1, 1]], 4),
+    p: rows(m.p, [[0, 1], [-0.1, 1.6], [-1, 1]], 8),
+    st,
+  };
+}
 
 function sanitizeLayout(m) {
   if (!m || typeof m !== 'object') return undefined;
@@ -145,14 +181,19 @@ export class Room extends DurableObject {
       const m = sanitizeLayout(msg.m);
       if (!m) return;
       out.m = m;
+    } else if (msg.a === 'klayout') {
+      const m = sanitizeKLayout(msg.m);
+      if (!m) return;
+      out.m = m;
     }
 
     // あとから来た人にも同じ世界・配置を合わせるため共有状態を記憶
-    if (msg.a === 'world' || msg.a === 'layout' || msg.a === 'night') {
+    if (msg.a === 'world' || msg.a === 'layout' || msg.a === 'klayout' || msg.a === 'night') {
       try {
         const st = (await this.ctx.storage.get('state')) || {};
         if (msg.a === 'world' && out.i !== undefined) { st.world = out.i; if (out.i !== 3) delete st.layout; }
         else if (msg.a === 'layout') { st.world = 3; st.layout = out.m; }
+        else if (msg.a === 'klayout') { st.klayout = out.m; }
         else if (msg.a === 'night' && out.i !== undefined) { st.night = out.i ? 1 : 0; }
         await this.ctx.storage.put('state', st);
       } catch {}

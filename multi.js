@@ -155,7 +155,7 @@ const Multi = (() => {
       if (msg.t === 'hello') {
         myAvatar = safeAvatar(msg.avatar); myHue = msg.hue ?? 200; peers = msg.n || 1;
         renderPill();
-        if (msg.state && helloHandler) helloHandler(msg.state);
+        if (helloHandler) helloHandler(msg.state || {}, msg);
       } else if (msg.t === 'peers' || msg.t === 'pong') {
         if (typeof msg.n === 'number') { peers = msg.n; renderPill(); }
       } else if (msg.t === 'act' && handler) {
