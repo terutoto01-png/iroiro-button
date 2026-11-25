@@ -389,10 +389,26 @@ const Shell = (() => {
   }
   addEventListener('resize', applyInsets);
 
+  // iframe は 1こ だけ つくって つかいまわす。けして つくりなおすと、とじた ページの メモリが もどらない ため
+  // （Edge で はかって: けす→つくる は 1しゅう 10MB ずつ ふえつづけ、つかいまわしは ふえなかった）
+  let frameReal = null, navToken = 0;
+  function pageFrame() {
+    if (frameReal) return frameReal;
+    const f = document.createElement('iframe');
+    f.className = 'page';
+    f.setAttribute('allow', 'autoplay; fullscreen; microphone; camera');
+    f.setAttribute('scrolling', 'no'); // iOS で iframe が なかみに あわせて のびないように
+    document.body.appendChild(f);
+    return (frameReal = f);
+  }
   function closeFrame() {
     if (!frameEl) return;
     try { frameEl.contentWindow.__iroTeardown && frameEl.contentWindow.__iroTeardown(); } catch (e) {}
-    frameEl.remove();
+    frameEl.classList.remove('shown');
+    delete frameEl.dataset.page;
+    navToken++;
+    // なにも ない ページへ（まえの ページを おわらせて メモリを かえす）
+    try { frameEl.contentWindow.location.replace('about:blank'); } catch (e) {}
     frameEl = null;
   }
 
@@ -413,16 +429,18 @@ const Shell = (() => {
     if (push) history.pushState({ p }, '', p ? '#/' + p : location.pathname + location.search);
     if (p) {
       if (Shell.markSeen) Shell.markSeen(p);
-      const f = document.createElement('iframe');
-      f.className = 'page';
-      f.setAttribute('allow', 'autoplay; fullscreen; microphone; camera');
-      f.setAttribute('scrolling', 'no'); // iOS で iframe が なかみに あわせて のびないように
-      f.src = p + '.html' + query;
+      const f = pageFrame(), token = ++navToken, file = p + '.html';
       frameEl = f;
+      f.dataset.page = p;
+      // history を ふやさない ように replace で いれかえる
+      f.contentWindow.location.replace(new URL(file + query, location.href).href);
       // よみこめたら メニューを かくして ページを だす（おそくても 1.5びょうで だす）
       let shownOnce = false;
       const reveal = () => {
-        if (shownOnce || frameEl !== f) return; shownOnce = true;
+        if (shownOnce || token !== navToken) return;
+        try { if (!f.contentWindow.location.pathname.endsWith('/' + file)) return; } catch (e) { return; }
+        shownOnce = true;
+        f.removeEventListener('load', reveal);
         applyInsets();
         f.classList.add('shown');
         document.documentElement.classList.add('playing');
@@ -430,7 +448,6 @@ const Shell = (() => {
       };
       f.addEventListener('load', reveal);
       setTimeout(reveal, 1500);
-      document.body.appendChild(f);
     } else {
       document.documentElement.classList.remove('playing');
       dispatchEvent(new Event('iro-volume'));
