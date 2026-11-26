@@ -17,22 +17,28 @@
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🎳</span></button></div>
 <script src="common.js?v=20"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // ボウリング: ボールを ゆびで うえへ はじいて ピンを たおす（ボタンでも まっすぐ ころがる）。
 // 2かい なげたら ならべなおし。ぜんぶ たおすと ピンが おどりだす。
+// 家族部屋で 2人の とき: 子が なげる（ぶつりは 子の がめんが けいさん）。親は みているだけ（子の がめんの ボールと ピンを なめらかに うつす）。
+//   1かい（2とう）おわると じどうで こうたい。いれかえボタンでも こうたい。
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
 let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
 let L, ball, pins = [], throwN = 0, phase = 'ready', pt = 0, flick = null, dance = 0, sparks = [];
+let role = 'solo';           // 'solo' | 'ko'（なげる） | 'oya'（みている）
+const PHASES = ['ready', 'roll', 'sweep', 'reset', 'dance', 'wait'];
+let sentAt = 0, peerPins = [], pinViews = new Map();
 
 function layout() {
   const lw = Math.min(W * 0.66, 340);
   L = { x: W / 2, w: lw, top: 70, bot: H - 20, ps: lw / 5.2 };
-  L.pr = L.ps * 0.3; L.br = L.ps * 0.42; L.start = { x: W / 2, y: H - Math.max(170, L.br + 150) };
+  L.hy = L.top + 60 + L.ps * 3; L.pr = L.ps * 0.3; L.br = L.ps * 0.42; L.start = { x: W / 2, y: H - Math.max(170, L.br + 150) };
 }
 function rack() {
   pins = [];
   const hy = L.top + 60 + L.ps * 3;
-  for (let r = 0; r < 4; r++) for (let i = 0; i <= r; i++) pins.push({ x: L.x + (i - r / 2) * L.ps, y: hy - r * L.ps * 0.9, vx: 0, vy: 0, down: false, rot: 0, hx: 0, hy: 0 });
+  for (let r = 0; r < 4; r++) for (let i = 0; i <= r; i++) pins.push({ id: pins.length, x: L.x + (i - r / 2) * L.ps, y: hy - r * L.ps * 0.9, vx: 0, vy: 0, down: false, rot: 0, hx: 0, hy: 0 });
   pins.forEach(p => { p.hx = p.x; p.hy = p.y; });
 }
 function newBall() { ball = { x: L.start.x, y: L.start.y, vx: 0, vy: 0, roll: false, spin: 0 }; phase = 'ready'; }
@@ -40,13 +46,13 @@ layout(); rack(); newBall();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); rack(); newBall(); throwN = 0; });
 
 function roll(vx, vy) {
-  if (phase !== 'ready') return;
+  if (phase !== 'ready' || role === 'oya') return;
   ball.vx = vx; ball.vy = vy; ball.roll = true; phase = 'roll'; pt = 0; throwN++;
   Sfx.noise(1.5, 0.08, 300);
 }
-btn.addEventListener('pointerdown', () => { const head = pins[0]; roll((head.x + pick([-1, 1]) * L.ps * 0.22 - ball.x) * 0.55 + rand(-25, 25), -650); });
+btn.addEventListener('pointerdown', () => { if (role === 'oya') return; const head = pins[0]; roll((head.x + pick([-1, 1]) * L.ps * 0.22 - ball.x) * 0.55 + rand(-25, 25), -650); });
 cv.addEventListener('pointerdown', (e) => {
-  if (phase !== 'ready') return;
+  if (phase !== 'ready' || role === 'oya') return;
   if (Math.hypot(e.clientX - ball.x, e.clientY - ball.y) < L.br + 50) { try { cv.setPointerCapture(e.pointerId); } catch (err) {} flick = { id: e.pointerId, hist: [{ x: e.clientX, y: e.clientY, t: performance.now() }] }; }
 });
 cv.addEventListener('pointermove', (e) => {
@@ -64,6 +70,56 @@ const release = (e) => {
 };
 cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
 
+// みている 親の がめん: 子から とどいた いちを なめらかに うつす
+const dance_ = () => {
+  phase = 'dance'; pt = 0; dance = 0; Sfx.yay(); setTimeout(() => Sfx.chime(), 300);
+  popText(throwN === 1 ? 'ストライク！' : 'ぜんぶ！', W / 2, H * 0.4, '#ffd23f', 52);
+  for (let i = 0; i < 50; i++) sparks.push({ x: L.x, y: L.top + 100, vx: rand(-300, 300), vy: rand(-400, 100), life: 1.4, hue: rand(0, 360) });
+};
+function viewMsg(m) {
+  if (role !== 'oya' || !Array.isArray(m.m) || m.m.length < 4) return;
+  const a = m.m, ph = PHASES[m.k] || 'ready', ps = L.ps;
+  if (ph === 'roll' && phase !== 'roll') { Sfx.noise(1.5, 0.08, 300); }
+  const old = phase;
+  throwN = m.s || 0;
+  if (ph === 'dance' && old !== 'dance') dance_();
+  else if (ph !== 'dance') { if (old === 'dance') pins.forEach(p => p.jump = 0); phase = ph; }
+  ball.tx = L.x + a[0] * ps; ball.ty = L.hy + (a[1] <= 0 ? a[1] * ps : a[1] * (L.start.y - L.hy)); ball.roll = !!a[2];
+  const seen = new Set(), n = a[3];
+  for (let i = 0; i < n; i++) {
+    const id = a[4 + i * 5], tx = L.x + a[5 + i * 5] * ps, ty = L.hy + a[6 + i * 5] * ps, rot = a[7 + i * 5], down = !!a[8 + i * 5];
+    seen.add(id);
+    let p = pinViews.get(id);
+    if (!p) { p = { id, x: tx, y: ty, hx: tx, hy: ty, rot, down, jump: 0 }; pinViews.set(id, p); }
+    if (down && !p.down) { Sfx.tone(rand(700, 1000), 0.1, 'triangle', 0.15); Sfx.noise(0.12, 0.2, 2500); }
+    p.tx = tx; p.ty = ty; p.rot = rot; p.down = down;
+    if (ph === 'ready') { p.hx = tx; p.hy = ty; }
+  }
+  for (const id of [...pinViews.keys()]) if (!seen.has(id)) pinViews.delete(id);
+  pins = [...pinViews.values()];
+}
+function sendView(now) {
+  if (role !== 'ko' || now - sentAt < 80) return;
+  sentAt = now;
+  const ps = L.ps, yb = ball.y - L.hy;
+  // ボールの たて: ピンより むこうは ピンの おおきさ たんい、てまえは スタートまでの わりあい（画面の たかさが ちがっても そろう）
+  const m = [(ball.x - L.x) / ps, yb <= 0 ? yb / ps : yb / (L.start.y - L.hy), ball.roll ? 1 : 0, pins.length];
+  for (const p of pins) m.push(p.id, (p.x - L.x) / ps, (p.y - L.hy) / ps, p.rot, p.down ? 1 : 0);
+  Multi.send({ a: 'g', i: 1, k: PHASES.indexOf(phase), s: throwN, m }, 0);
+}
+Multi.duo('booringu', {
+  onRole(r) {
+    if (r === role) return;
+    role = r; flick = null; sparks = []; pinViews = new Map(); dance = 0; pt = 0; throwN = 0;
+    rack(); newBall();
+    btn.parentNode.style.visibility = r === 'oya' ? 'hidden' : '';
+    if (r === 'oya') pins.forEach(p => { p.tx = p.x; p.ty = p.y; pinViews.set(p.id, p); });
+  },
+  onMsg(m) { if (m.a === 'g' && m.i === 1) viewMsg(m); },
+});
+// こうたい: 1かい おわったら 子の がめんが よぶ
+const nextTurn = () => { if (role === 'ko') { phase = 'wait'; Multi.swap(); } };
+
 function collide(a, ra, ma, b, rb, mb) {
   const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
   if (d >= ra + rb || d === 0) return false;
@@ -80,6 +136,15 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.02, (now - last) / 1000), t = now / 1000; last = now;
   pt += dt;
+  if (role === 'oya') {
+    const k = Math.min(1, dt * 16);
+    if (ball.tx !== undefined) { ball.spin += Math.hypot(ball.tx - ball.x, ball.ty - ball.y) * 0.05; ball.x += (ball.tx - ball.x) * k; ball.y += (ball.ty - ball.y) * k; }
+    for (const p of pins) { p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; }
+    if (phase === 'dance') { dance += dt; pins.forEach((p, i) => { p.jump = Math.abs(Math.sin(dance * 6 + i)); }); if (Math.floor(dance * 4) !== Math.floor((dance - dt) * 4)) Sfx.tone([523, 659, 784, 659][Math.floor(dance * 4) % 4], 0.15, 'square', 0.05); }
+    for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 400 * dt; s.life -= dt; }
+    sparks = sparks.filter(s => s.life > 0);
+    draw(t); requestAnimationFrame(loop); return;
+  }
   if (ball.roll) {
     ball.x += ball.vx * dt; ball.y += ball.vy * dt; ball.spin += Math.hypot(ball.vx, ball.vy) * dt * 0.05;
     const gutter = Math.abs(ball.x - L.x) > L.w / 2 - L.br * 0.6;
@@ -101,15 +166,16 @@ function loop(now) {
     else { phase = 'sweep'; pt = 0; }
   }
   if (phase === 'sweep' && pt > 0.9) { pins = pins.filter(p => !p.down); newBall(); }
-  if (phase === 'reset' && pt > 1.1) { rack(); newBall(); throwN = 0; Sfx.tone(400, 0.2, 'sine', 0.08, 0, 600); }
+  if (phase === 'reset' && pt > 1.1) { rack(); newBall(); throwN = 0; Sfx.tone(400, 0.2, 'sine', 0.08, 0, 600); nextTurn(); }
   if (phase === 'dance') {
     dance += dt;
     pins.forEach((p, i) => { p.down = false; p.x += (p.hx - p.x) * dt * 3; p.y += (p.hy - p.y) * dt * 3; p.jump = Math.abs(Math.sin(dance * 6 + i)); });
     if (Math.floor(dance * 4) !== Math.floor((dance - dt) * 4)) Sfx.tone([523, 659, 784, 659][Math.floor(dance * 4) % 4], 0.15, 'square', 0.05);
-    if (dance > 3.5) { pins.forEach(p => p.jump = 0); rack(); newBall(); throwN = 0; }
+    if (dance > 3.5) { pins.forEach(p => p.jump = 0); rack(); newBall(); throwN = 0; nextTurn(); }
   }
   for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.vy += 400 * dt; s.life -= dt; }
   sparks = sparks.filter(s => s.life > 0);
+  sendView(now);
   draw(t);
   requestAnimationFrame(loop);
 }
@@ -145,7 +211,7 @@ function draw(t) {
   rg.addColorStop(0, '#9fb4ff'); rg.addColorStop(1, '#2f3fb8');
   ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(ball.x, ball.y, L.br, 0, 7); ctx.fill();
   ctx.fillStyle = '#1a2266'; for (let k = 0; k < 3; k++) { const a = ball.spin + k * 0.7; ctx.beginPath(); ctx.arc(ball.x + Math.cos(a) * L.br * 0.4, ball.y - L.br * 0.3 + Math.sin(a) * L.br * 0.15, L.br * 0.12, 0, 7); ctx.fill(); }
-  if (phase === 'ready' && !flick) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 4); drawEmoji(ctx, '👆', ball.x + L.br + 26, ball.y + 10, 36); ctx.globalAlpha = 1; }
+  if (phase === 'ready' && !flick && role !== 'oya') { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 4); drawEmoji(ctx, '👆', ball.x + L.br + 26, ball.y + 10, 36); ctx.globalAlpha = 1; }
   for (const s of sparks) { ctx.fillStyle = `hsla(${s.hue},90%,60%,${s.life})`; ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, 7); ctx.fill(); }
 }
 requestAnimationFrame(loop);

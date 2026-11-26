@@ -26,9 +26,15 @@
 <script src="common.js?v=20"></script>
 <script src="gpu-particles.js?v=3"></script>
 <script src="game.js?v=2"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // いんせきよけ: ゆびで ロケットを うごかして、ふってくる いんせきを よける。ほしを とると てんすう。
 // ほしを 5こ とると じどうで バリア。ぶつかると ハートが へる。ボタンは はじめる・もういちど だけ。
+// 家族部屋で 2人の とき: 子は いままで どおり ロケットを うごかす。親は いんせきを タッチして こわせる。
+//   いんせき・ほしの でかたと あたりは 子の がめんが きめて、ようすを 親へ おくる（親の がめんは それを うつす だけ）。
+let role = 'solo';           // 'solo' | 'ko'（ロケット） | 'oya'（いんせきを こわす）
+let nid = 0;                 // いんせき・ほしの ばんごう
+const remote = { st: 0, shield: 0, list: new Map(), broken: new Set(), prevSt: 0 }; // 親の がめんで みる 子の ようす
 const fg = document.getElementById('fg'), fgx = fg.getContext('2d'), btn = document.getElementById('btn');
 let dpr = 1, ship = { x: innerWidth / 2, y: innerHeight * 0.78, tx: innerWidth / 2, ty: innerHeight * 0.78 };
 let rocks = [], stars = [], elapsed = 0, gauge = 0, shield = 0, spawnR = 0, spawnS = 0, sys = null, boom = 0;
@@ -77,7 +83,65 @@ const game = Game.create('inseki', {
   onStart() { rocks = []; stars = []; elapsed = 0; gauge = 0; shield = 0; updateBtn(); },
   onOver() { explode(ship.x, ship.y, 160, -1, 1.8); boom = 1; },
 });
-function updateBtn() { btn.classList.toggle('hide', game.state === 'play'); }
+const gstate = () => role === 'oya' ? ['ready', 'play', 'over'][remote.st] : game.state;
+function updateBtn() { btn.classList.toggle('hide', gstate() === 'play'); }
+let sendT = 0;
+const tell = (o) => { if (role === 'ko') Multi.send({ a: 'g', ...o }, 0); };
+const hudEl = document.querySelector('.hud');
+Multi.duo('inseki', {
+  onRole(r) {
+    if (r === role) return;
+    role = r; rocks = []; stars = []; gauge = 0; shield = 0; elapsed = 0; game.state = 'ready';
+    remote.st = 0; remote.prevSt = 0; remote.list.clear(); remote.broken.clear();
+    btn.parentElement.style.display = r === 'oya' ? 'none' : ''; hudEl.style.display = r === 'oya' ? 'none' : '';
+    updateBtn();
+  },
+  onMsg(m) {
+    if (m.a !== 'g') return;
+    if (role === 'oya') {
+      const W = innerWidth, H = innerHeight;
+      if (m.i === 1) { // 子の ようす
+        ship.tx = m.x * W; ship.ty = m.y * H;
+        remote.st = m.k & 3; gauge = m.k >> 2; remote.shield = m.s & 1;
+        if (remote.st === 2 && remote.prevSt !== 2) { explode(ship.x, ship.y, 160, -1, 1.8); boom = 1; }
+        if (remote.st === 1 && remote.prevSt !== 1) { elapsed = 0; remote.broken.clear(); }
+        remote.prevSt = remote.st;
+        const now = performance.now(), seen = new Set(), a = m.m || [];
+        for (let j = 0; j + 3 < a.length; j += 4) {
+          const id = a[j]; if (remote.broken.has(id)) continue;
+          seen.add(id);
+          const x = a[j + 1] * W, y = a[j + 2] * H;
+          let e = remote.list.get(id);
+          if (!e) { e = { id, x, y, vx: 0, vy: 0, r: a[j + 3] * Math.min(W, H), rot: id * 1.7, star: a[j + 3] === 0, t: now, sx: x, sy: y }; remote.list.set(id, e); }
+          else { const dt = Math.max(0.03, (now - e.t) / 1000); e.vx = (x - e.sx) / dt; e.vy = (y - e.sy) / dt; e.sx = x; e.sy = y; e.t = now; e.r = a[j + 3] * Math.min(W, H); }
+        }
+        for (const id of [...remote.list.keys()]) if (!seen.has(id)) remote.list.delete(id);
+      } else if (m.i === 4) { // できごと
+        const x = (m.x ?? 0) * W, y = (m.y ?? 0) * H;
+        if (m.k === 0) { explode(x, y, 70, -1, 1.2); boom = 0.6; Sfx.tone(300, 0.3, 'sawtooth', 0.12, 0, 120); }
+        else if (m.k === 1) { explode(x, y, 24, 0.14, 0.6); Sfx.tone(1320, 0.12, 'sine', 0.12); Sfx.tone(1760, 0.15, 'sine', 0.08, 0.06); }
+        else if (m.k === 2) { explode(x, y, 50, 0.55); Sfx.tone(800, 0.1, 'square', 0.06); }
+        else if (m.k === 3) remote.broken.delete(m.s);
+        else if (m.k === 5) { explode(ship.x, ship.y, 60, 0.55, 0.8); Sfx.tone(300, 0.6, 'sine', 0.2, 0, 1200); Sfx.chime(); }
+      }
+    } else if (role === 'ko' && m.i === 5 && game.state === 'play') { // 親が タッチした いんせき
+      const r = rocks.find(q => q.id === m.s && !q.dead);
+      if (!r) return;
+      r.dead = true; explode(r.x, r.y, 60, 0.55, 1.1); Sfx.tone(800, 0.1, 'square', 0.06); Sfx.tone(500, 0.12, 'triangle', 0.08, 0.05);
+      tell({ i: 4, k: 3, s: r.id, x: r.x / innerWidth, y: r.y / innerHeight });
+    }
+  },
+});
+// 親: いんせきを タッチ → すぐ くだけて、子へ ばんごうを おくる
+function oyaTouch(e) {
+  if (role !== 'oya' || remote.st !== 1) return;
+  let best = null, bd = 1e9;
+  for (const r of rocks) { const d = Math.hypot(r.x - e.clientX, r.y - e.clientY); if (d < r.r + 40 && d < bd) { best = r; bd = d; } }
+  if (!best) return;
+  best.dead = true; remote.broken.add(best.id); remote.list.delete(best.id);
+  explode(best.x, best.y, 60, 0.55, 1.1); Sfx.tone(800, 0.1, 'square', 0.06); Sfx.tone(500, 0.12, 'triangle', 0.08, 0.05);
+  Multi.send({ a: 'g', i: 5, s: best.id }, 0);
+}
 const resize = () => { dpr = fitCanvas(fg, fgx); };
 resize(); addEventListener('resize', resize);
 
@@ -93,12 +157,12 @@ function explode(x, y, n, hue, spread = 1) {
 }
 
 // ゆびで うごかす（どこを さわっても）
-const move = (e) => { ship.tx = e.clientX; ship.ty = Math.max(innerHeight * 0.45, Math.min(innerHeight - 70, e.clientY - 60)); };
-fg.addEventListener('pointerdown', (e) => { fg.setPointerCapture(e.pointerId); if (game.state !== 'play') { game.press(); return; } move(e); });
+const move = (e) => { if (role === 'oya') return; ship.tx = e.clientX; ship.ty = Math.max(innerHeight * 0.45, Math.min(innerHeight - 70, e.clientY - 60)); };
+fg.addEventListener('pointerdown', (e) => { if (role === 'oya') { oyaTouch(e); return; } fg.setPointerCapture(e.pointerId); if (game.state !== 'play') { game.press(); return; } move(e); });
 fg.addEventListener('pointermove', (e) => { if (e.buttons || e.pointerType !== 'mouse') move(e); });
 btn.addEventListener('pointerdown', () => { game.press(); updateBtn(); });
 function autoShield() { // ほしが 5こ たまったら じどうで バリア！
-  gauge = 0; shield = 5;
+  gauge = 0; shield = 5; tell({ i: 4, k: 5 });
   Sfx.tone(300, 0.6, 'sine', 0.2, 0, 1200); Sfx.chime();
   explode(ship.x, ship.y, 60, 0.55, 0.8);
 }
@@ -116,47 +180,67 @@ function autoShield() { // ほしが 5こ たまったら じどうで バリア
   sys.params.drag = 0.6;
   let fly = 0;
   sys.start((dt, t) => {
-    const W = innerWidth, H = innerHeight, playing = game.state === 'play';
+    const W = innerWidth, H = innerHeight, gs = gstate(), playing = gs === 'play';
     if (playing) elapsed += dt;
     const level = Math.min(1, elapsed / 90);
     fly += dt * (120 + level * 300);
     boom = Math.max(0, boom - dt * 1.5);
     shield = Math.max(0, shield - dt);
+    if (role === 'oya') shield = remote.shield ? 1 : 0;
     updateBtn();
     // ロケットは ゆびに ついてくる
     ship.x += (ship.tx - ship.x) * Math.min(1, dt * 10);
     ship.y += (ship.ty - ship.y) * Math.min(1, dt * 10);
 
-    if (playing) {
+    if (role !== 'oya' && playing) {
       spawnR += dt * (0.8 + level * 2.4);
-      while (spawnR > 1) { spawnR--; const r = rand(24, 48); rocks.push({ x: rand(r, W - r), y: -r, vy: rand(200, 300) + level * 320, vx: rand(-40, 40), r, rot: rand(0, 6), vr: rand(-2, 2) }); }
+      while (spawnR > 1) { spawnR--; const r = rand(24, 48); rocks.push({ id: ++nid, x: rand(r, W - r), y: -r, vy: rand(200, 300) + level * 320, vx: rand(-40, 40), r, rot: rand(0, 6), vr: rand(-2, 2) }); }
       spawnS += dt * 0.7;
-      while (spawnS > 1) { spawnS--; stars.push({ x: rand(40, W - 40), y: -30, vy: rand(160, 240) }); }
+      while (spawnS > 1) { spawnS--; stars.push({ id: ++nid, x: rand(40, W - 40), y: -30, vy: rand(160, 240) }); }
     }
-    for (const r of rocks) { r.y += r.vy * dt; r.x += r.vx * dt; r.rot += r.vr * dt; }
-    for (const s of stars) s.y += s.vy * dt;
+    if (role === 'oya') { // 子の がめんの ようすを そのまま うつす
+      const now = performance.now();
+      rocks = []; stars = [];
+      for (const e of remote.list.values()) {
+        const k = Math.min(0.25, (now - e.t) / 1000), x = e.sx + e.vx * k, y = e.sy + e.vy * k;
+        if (e.star) stars.push({ x, y });
+        else rocks.push({ id: e.id, x, y, r: e.r, rot: e.rot + now * 0.001 * ((e.id % 5) - 2) });
+      }
+    } else {
+      for (const r of rocks) { r.y += r.vy * dt; r.x += r.vx * dt; r.rot += r.vr * dt; }
+      for (const s of stars) s.y += s.vy * dt;
+    }
     // あたり
-    if (playing) {
+    if (role !== 'oya' && playing) {
       for (const r of rocks) {
         if (r.dead) continue;
         const d = Math.hypot(r.x - ship.x, r.y - ship.y);
-        if (shield > 0 && d < r.r + 70) { r.dead = true; explode(r.x, r.y, 50, 0.55); game.add(1); Sfx.tone(800, 0.1, 'square', 0.06); continue; }
-        if (d < r.r * 0.8 + 26) { r.dead = true; explode(r.x, r.y, 70, -1, 1.2); boom = 0.6; game.hit(); }
+        if (shield > 0 && d < r.r + 70) { r.dead = true; explode(r.x, r.y, 50, 0.55); game.add(1); Sfx.tone(800, 0.1, 'square', 0.06); tell({ i: 4, k: 2, x: r.x / W, y: r.y / H }); continue; }
+        if (d < r.r * 0.8 + 26) { r.dead = true; explode(r.x, r.y, 70, -1, 1.2); boom = 0.6; game.hit(); tell({ i: 4, k: 0, x: r.x / W, y: r.y / H }); }
       }
       for (const s of stars) {
         if (!s.dead && Math.hypot(s.x - ship.x, s.y - ship.y) < 60) {
           s.dead = true; game.add(1); gauge = Math.min(GAUGE, gauge + 1); updateBtn();
-          explode(s.x, s.y, 24, 0.14, 0.6); Sfx.tone(1320, 0.12, 'sine', 0.12); Sfx.tone(1760, 0.15, 'sine', 0.08, 0.06);
+          explode(s.x, s.y, 24, 0.14, 0.6); tell({ i: 4, k: 1, x: s.x / W, y: s.y / H }); Sfx.tone(1320, 0.12, 'sine', 0.12); Sfx.tone(1760, 0.15, 'sine', 0.08, 0.06);
           if (gauge >= GAUGE) autoShield();
         }
       }
     }
     rocks = rocks.filter(r => !r.dead && r.y < H + 80);
     stars = stars.filter(s => !s.dead && s.y < H + 40);
+    // 子の がめんの ようすを 親へ（1びょうに 15かい）
+    sendT += dt;
+    if (role === 'ko' && sendT > 0.066) {
+      sendT = 0;
+      const m = [];
+      for (const r of rocks) if (m.length < 92 && !r.dead) m.push(r.id, +(r.x / W).toFixed(4), +(r.y / H).toFixed(4), +(r.r / Math.min(W, H)).toFixed(4)); // おおきさは みじかい ほうの ながさ に たいする わりあい
+      for (const s of stars) if (m.length < 92 && !s.dead) m.push(s.id, +(s.x / W).toFixed(4), +(s.y / H).toFixed(4), 0);
+      Multi.send({ a: 'g', i: 1, x: ship.x / W, y: ship.y / H, k: ['ready', 'play', 'over'].indexOf(game.state) + gauge * 4, s: shield > 0 ? 1 : 0, m }, 0);
+    }
     // ほのおの しっぽ
     const list = [];
     for (const r of rocks) list.push({ x: r.x + rand(-r.r * 0.4, r.r * 0.4), y: r.y - r.r * 0.5, vx: rand(-20, 20), vy: -rand(40, 120), r: 1, g: rand(0.35, 0.7), b: 0.1, life: rand(0.25, 0.5), size: r.r * rand(0.25, 0.45) });
-    if (game.state !== 'over') list.push({ x: ship.x + rand(-6, 6), y: ship.y + 46, vx: rand(-30, 30), vy: rand(200, 320), r: 0.5, g: 0.8, b: 1, life: rand(0.2, 0.4), size: rand(6, 10) }); // ロケットの ふんしゃ
+    if (gs !== 'over') list.push({ x: ship.x + rand(-6, 6), y: ship.y + 46, vx: rand(-30, 30), vy: rand(200, 320), r: 0.5, g: 0.8, b: 1, life: rand(0.2, 0.4), size: rand(6, 10) }); // ロケットの ふんしゃ
     if (shield > 0) for (let i = 0; i < 4; i++) { const a = Math.random() * Math.PI * 2; list.push({ x: ship.x + Math.cos(a) * 70, y: ship.y + Math.sin(a) * 70, vx: 0, vy: 0, r: 0.4, g: 0.8, b: 1, life: 0.3, size: 8 }); }
     sys.emit(list);
 
@@ -175,8 +259,8 @@ function autoShield() { // ほしが 5こ たまったら じどうで バリア
       drawEmoji(fgx, '🪨', 0, 0, r.r * 2);
       fgx.restore();
     }
-    if (game.state !== 'over') {
-      const blink = game.safe() && playing && Math.floor(t * 12) % 2 === 0;
+    if (gs !== 'over') {
+      const blink = role !== 'oya' && game.safe() && playing && Math.floor(t * 12) % 2 === 0;
       if (!blink) { fgx.save(); fgx.translate(ship.x, ship.y); fgx.rotate(-Math.PI / 4 + (ship.tx - ship.x) * 0.002); drawEmoji(fgx, '🚀', 0, 0, 90); fgx.restore(); }
       if (shield > 0) {
         fgx.strokeStyle = `rgba(140,220,255,${0.5 + 0.3 * Math.sin(t * 10)})`; fgx.lineWidth = 6;
@@ -190,7 +274,7 @@ function autoShield() { // ほしが 5こ たまったら じどうで バリア
         drawEmoji(fgx, '⭐', ship.x + (i - 2) * 22, ship.y + 70, 20);
       }
       fgx.globalAlpha = 1;
-    } else if (!playing) {
+    } else if (!playing && role !== 'oya') {
       fgx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5);
       drawEmoji(fgx, '👆', W / 2, H * 0.62 + Math.abs(Math.sin(t * 3)) * -20, 70);
       fgx.globalAlpha = 1;

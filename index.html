@@ -118,7 +118,7 @@ window.IroShell = {
 };
 </script>
 <script src="common.js?v=20"></script>
-<script src="multi.js?v=10"></script>
+<script src="multi.js?v=11"></script>
 <script>
 IroShell.multi = Multi;
 // 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'mic' = マイク録音）
@@ -154,7 +154,7 @@ const PAGES = [
   ['tsurii', '🎄', '#e8394a', '#9e1d2a'], ['awaawa', '🛁', '#4fc3f7', '#1e88c7'],
   ['gacha', '🎰', '#ff4d6d', '#b3203e'], ['domino', '👉', '#7c5cff', '#4b2fc4'],
   ['toire', '🚽', '#29b6f6', '#0277bd'], ['shinkai', '🪼', '#3fa9ff', '#1a5fb3', 'gpu'],
-  ['shoberu', '🚜', '#ffb300', '#b87d00'], ['pokopoko', '🐹', '#ff8a3d', '#b8561c'],
+  ['shoberu', '🚜', '#ffb300', '#b87d00'],
   ['gattai', '🐘', '#ff7ab8', '#c94585'],
   ['pinball', '🕹️', '#ff5e7e', '#b8304d'], ['meiro', '🗺️', '#66bb44', '#3f8a26'],
   ['aiueo', '💬', '#ff8fb8', '#c25784'],
@@ -203,7 +203,7 @@ const GROUPS = [
   { e: '🐶', bg: '#ffe6cc', bd: '#f0ac6a', items: ['doubutsu', 'nigeru', 'sakana', 'nadenade', 'kyouryuu', 'tamago', 'osanpo', 'tsuri', 'kaeru', 'mushitori', 'suberidai', 'iruka'] },
   { e: '👆', bg: '#e2f7d9', bd: '#8fce73', items: ['fukifuki', 'nijipen', 'katachi', 'mizuyari', 'biyoon', 'awaawa', 'domino', 'sentaku', 'hamigaki', 'tako', 'sutanpu', 'karakuri', 'aiueo'] },
   { e: '🎵', bg: '#eadfff', bd: '#ae8ff0', items: ['ongaku', 'taiko', 'onara', 'kao', 'kusuguri', 'beru', 'korokoro'] },
-  { e: '🎮', bg: '#d9f5f2', bd: '#6fcfc4', items: ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'pyonpyon', 'tsumiki', 'inseki', 'pokopoko', 'gattai', 'booringu', 'sakkaa', 'daibouken'] },
+  { e: '🎮', bg: '#d9f5f2', bd: '#6fcfc4', items: ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'pyonpyon', 'tsumiki', 'inseki', 'gattai', 'booringu', 'sakkaa', 'daibouken'] },
 ];
 const grid = document.getElementById('grid'), jump = document.getElementById('jump');
 
@@ -217,7 +217,7 @@ async function hasWebGPU() {
 const can = { gpu: await hasWebGPU(), hic: HIC.supported, mic: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) };
 // ---- ひらいた ことの ある ボタン（この ブラウザに おぼえておく） ----
 // はじめて この しくみが うごく ときは、ふるい ボタンは「ひらいた こと あり」に しておき、さいきん ふえた ぶんだけ ✨ に する
-const NEWEST = ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'yukidaruma', 'hakushon', 'tsurii', 'awaawa', 'gacha', 'domino', 'toire', 'shinkai', 'shoberu', 'pokopoko', 'gattai', 'hikouki', 'doonatsu', 'iruka', 'beru', 'ufo', 'korokoro', 'mahounoki', 'karakuri', 'daibouken', 'aiueo'];
+const NEWEST = ['pinball', 'meiro', 'katahame', 'kenkenpa', 'daruma', 'oisha', 'yukidaruma', 'hakushon', 'tsurii', 'awaawa', 'gacha', 'domino', 'toire', 'shinkai', 'shoberu', 'gattai', 'hikouki', 'doonatsu', 'iruka', 'beru', 'ufo', 'korokoro', 'mahounoki', 'karakuri', 'daibouken', 'aiueo'];
 let seen;
 try { seen = JSON.parse(localStorage.getItem('iroiro-seen')); } catch (e) {}
 if (!Array.isArray(seen)) { seen = PAGES.map(p => p[0]).filter(f => !NEWEST.includes(f)); saveSeen(); }

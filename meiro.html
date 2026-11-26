@@ -18,18 +18,29 @@
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔄</span></button></div>
 <script src="common.js?v=20"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // めいろ: ゆびで ネズミを うごかして チーズまで つれていく。ゴールすると つぎは すこし おおきな めいろ。
 // ゆびの ほうへ 1マスずつ すすむ（かべは とおれない）。🔄 で あたらしい めいろ。
+// 家族部屋で 2人の とき: おなじ めいろを それぞれの ネズミで すすむ。めいろは つくった がわ（子 / 🔄 を おした ひと / ゴールした ひと）が
+//   たね（seed）を おくって、りょうほうで おなじ めいろを つくる。あいての ネズミは うすく あいての いろで ふちどり。どちらかが ついたら そろって つぎへ。
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
 let dpr = fitCanvas(cv, ctx);
 const HEROES = [['🐭', '🧀'], ['🐰', '🥕'], ['🐶', '🦴'], ['🐻', '🍯'], ['🐸', '🪷'], ['🐝', '🌻']];
+let role = 'solo', peerMaze = false, nextMz = null, curSeed = 0;
+const other = { x: 0, y: 0, rx: 0, ry: 0 };
+const duo = () => role !== 'solo';
 let level = 0, N = 4, M = 5, walls, pos, goal, hero, trail = [], anim = null, cleared = 0, sparks = [], hint = 1;
 
-function makeMaze() {
-  N = Math.min(9, 4 + level);            // よこ
+// よこ・たての マスの かず（たては がめんの ながさで かわるので、つくる がわが きめて おくる）
+function dimsFor(lv) {
+  const n = Math.min(9, 4 + lv);
   const aspect = (btn.getBoundingClientRect().top - 92) / (innerWidth - 40);
-  M = Math.max(N, Math.min(13, Math.round(N * aspect))); // たて
+  return [n, Math.max(n, Math.min(13, Math.round(n * aspect)))];
+}
+function makeMaze(seed, dims) {
+  const R = Multi.rng(seed), pickR = (a) => a[Math.floor(R() * a.length)];
+  [N, M] = dims; curSeed = seed;
   // walls[y][x] = { r: みぎに かべ, d: したに かべ }
   walls = Array.from({ length: M }, () => Array.from({ length: N }, () => ({ r: true, d: true })));
   const seen = Array.from({ length: M }, () => Array(N).fill(false));
@@ -38,13 +49,43 @@ function makeMaze() {
     const [x, y] = stack[stack.length - 1];
     const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [x + dx, y + dy, dx, dy]).filter(([nx, ny]) => nx >= 0 && ny >= 0 && nx < N && ny < M && !seen[ny][nx]);
     if (!nb.length) { stack.pop(); continue; }
-    const [nx, ny, dx, dy] = pick(nb);
+    const [nx, ny, dx, dy] = pickR(nb);
     if (dx === 1) walls[y][x].r = false; if (dx === -1) walls[ny][nx].r = false;
     if (dy === 1) walls[y][x].d = false; if (dy === -1) walls[ny][nx].d = false;
     seen[ny][nx] = true; stack.push([nx, ny]);
   }
-  pos = { x: 0, y: 0 }; goal = { x: N - 1, y: M - 1 }; hero = pick(HEROES); trail = [{ x: 0, y: 0 }]; anim = null; cleared = 0;
+  pos = { x: 0, y: 0 }; goal = { x: N - 1, y: M - 1 }; hero = pickR(HEROES); trail = [{ x: 0, y: 0 }]; anim = null; cleared = 0; nextMz = null;
+  other.x = other.rx = 0; other.y = other.ry = 0;
 }
+// たね（2台の Math.random は さいしょ おなじ なので、じかんも まぜる）
+const newSeed = () => (Multi.seed() + Date.now()) % 2147483646 + 1;
+// じぶんで あたらしい めいろを つくって、2人の ときは たねを あいてに おくる
+function newMaze() {
+  const seed = newSeed(), dims = dimsFor(level);
+  makeMaze(seed, dims);
+  sendMaze();
+}
+function sendMaze() { if (duo() && walls) Multi.send({ a: 'g', i: 1, s: curSeed, k: level, m: [N, M] }, 0); }
+Multi.duo('meiro', {
+  swap: false,
+  onRole(r) {
+    if (r === role) return;
+    role = r; if (r !== 'oya') peerMaze = false;
+    if (r === 'oya') { if (!peerMaze) walls = null; Multi.send({ a: 'g', i: 9 }, 0); } // 子の めいろが とどくまで まつ（とどいて いなければ ねだる）
+    else if (r === 'ko' || !walls) newMaze();         // 子が つくって おくる
+  },
+  onMsg(m) {
+    if (m.a !== 'g') return;
+    if (m.i === 9) { if (role === 'ko') sendMaze(); }
+    else if (m.i === 1) { level = m.k; makeMaze(m.s, m.m); peerMaze = true; }
+    else if (m.i === 2) { if (walls) { other.x = m.k; other.y = m.s; } }
+    else if (m.i === 3) {
+      if (!walls) return;
+      if (cleared) { if (role === 'oya') nextMz = { seed: m.s, level: m.k, dims: m.m }; return; } // おなじ ときに ついたら 子の たねを つかう
+      celebrate(); nextMz = { seed: m.s, level: m.k, dims: m.m };
+    }
+  },
+});
 function geo() {
   const W = innerWidth, H = innerHeight, top = 80, bottom = btn.getBoundingClientRect().top - 12; // ボタンに かからない
   const cs = Math.min((W - 40) / N, (bottom - top) / M);
@@ -56,9 +97,10 @@ const open = (x, y, dx, dy) => {
   if (dy === 1) return y < M - 1 && !walls[y][x].d;
   if (dy === -1) return y > 0 && !walls[y - 1][x].d;
 };
-makeMaze();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
-btn.addEventListener('pointerdown', () => { makeMaze(); Sfx.tone(700, 0.15, 'sine', 0.1, 0, 1000); });
+if (!walls && role !== 'oya') newMaze(); // 家族部屋の やくが さきに きまって いたら もう つくってある
+setInterval(() => { if (role === 'oya' && !walls) Multi.send({ a: 'g', i: 9 }, 0); }, 700); // 子の ぶんが とどくまで ねだりつづける（つながる まえに おくった ぶんは なくなる）
+btn.addEventListener('pointerdown', () => { if (role === 'oya' && !walls) return; newMaze(); Sfx.tone(700, 0.15, 'sine', 0.1, 0, 1000); });
 
 // ゆびの ほうへ 1マスずつ
 let finger = null;
@@ -68,7 +110,7 @@ const lift = () => { finger = null; };
 cv.addEventListener('pointerup', lift); cv.addEventListener('pointercancel', lift);
 let bump = 0;
 function tryStep() {
-  if (!finger || anim || cleared) return;
+  if (!walls || !finger || anim || cleared) return;
   const { cs, ox, oy } = geo();
   const cx = ox + (pos.x + 0.5) * cs, cy = oy + (pos.y + 0.5) * cs;
   const dx = finger.x - cx, dy = finger.y - cy;
@@ -82,6 +124,7 @@ function tryStep() {
       const back = trail.length > 1 && trail[trail.length - 2].x === pos.x && trail[trail.length - 2].y === pos.y;
       if (back) trail.pop(); else trail.push({ ...pos });
       Sfx.tone(500 + trail.length * 12, 0.05, 'sine', 0.07);
+      if (duo()) Multi.send({ a: 'g', i: 2, k: pos.x, s: pos.y }, 0);
       return;
     }
   }
@@ -91,11 +134,13 @@ function tryStep() {
 let last = performance.now();
 (function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000); last = now;
-  const W = innerWidth, H = innerHeight, t = now / 1000, { cs, ox, oy } = geo();
+  const W = innerWidth, H = innerHeight, t = now / 1000;
+  if (!walls) { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H); requestAnimationFrame(loop); return; }
+  const { cs, ox, oy } = geo();
   bump -= dt;
   if (anim) { anim.t += dt / 0.11; if (anim.t >= 1) { anim = null; if (pos.x === goal.x && pos.y === goal.y) win(); } }
   tryStep();
-  if (cleared) { cleared += dt; if (cleared > 2.2) { level++; makeMaze(); } }
+  if (cleared) { cleared += dt; if (cleared > 2.2) { if (role === 'oya' && !nextMz) { /* 子の たねを まつ */ } else { level = nextMz.level; makeMaze(nextMz.seed, nextMz.dims); } } }
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
@@ -117,6 +162,13 @@ let last = performance.now();
   // ゴール
   const gs = 1 + Math.sin(t * 4) * 0.08;
   drawEmoji(ctx, hero[1], ox + (goal.x + 0.5) * cs, oy + (goal.y + 0.5) * cs, cs * 0.7 * gs);
+  // あいての ネズミ（うすく あいての いろで ふちどり）
+  if (duo()) {
+    const k = Math.min(1, dt * 12); other.rx += (other.x - other.rx) * k; other.ry += (other.y - other.ry) * k;
+    const qx = ox + (other.rx + 0.5) * cs, qy = oy + (other.ry + 0.5) * cs, hu = Multi.roleInfo.other?.hu ?? 200;
+    ctx.save(); ctx.globalAlpha = 0.5; drawEmoji(ctx, hero[0], qx, qy, cs * 0.72);
+    ctx.globalAlpha = 0.85; ctx.strokeStyle = `hsl(${hu}, 95%, 55%)`; ctx.lineWidth = Math.max(3, cs * 0.08); ctx.beginPath(); ctx.arc(qx, qy, cs * 0.42, 0, 7); ctx.stroke(); ctx.restore();
+  }
   // しゅじんこう
   let hx = pos.x, hy = pos.y, hop = 0;
   if (anim) { const k = anim.t; hx = anim.fx + (pos.x - anim.fx) * k; hy = anim.fy + (pos.y - anim.fy) * k; hop = Math.sin(k * Math.PI) * cs * 0.15; }
@@ -132,6 +184,12 @@ let last = performance.now();
 })(last);
 
 function win() {
+  const lv = level + 1, dims = dimsFor(lv), seed = newSeed();
+  nextMz = { seed, level: lv, dims };
+  if (duo()) Multi.send({ a: 'g', i: 3, s: seed, k: lv, m: dims }, 0);
+  celebrate();
+}
+function celebrate() {
   cleared = 0.001; finger = null;
   const { cs, ox, oy } = geo(), x = ox + (goal.x + 0.5) * cs, y = oy + (goal.y + 0.5) * cs;
   for (let i = 0; i < 80; i++) { const a = rand(0, 7), v = rand(100, 450); sparks.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 100, life: rand(0.6, 1.2), hue: rand(0, 360) }); }

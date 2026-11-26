@@ -23,6 +23,7 @@
 <button id="reset" class="big-btn"><span class="emoji">🔄</span></button>
 <script src="lib/matter.min.js?v=0.19.0"></script> <!-- ぶつり けいさん（MIT、このリポジトリから はいしん） -->
 <script src="common.js?v=20"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // どうぶつつみき: うえの クレーンが どうぶつを つって うごく。ボタン（または がめんを タッチ）で おとして、だいの うえに つみあげる。
 // どうぶつごとに おおきさと かたちが ちがう。だいから おちても おしまいに しない（「わ〜」と きえるだけ）。
@@ -41,6 +42,13 @@ let fences = [], U, engine, ground, groundW, groundY, bodies = [], hand = null, 
 let best = 0, sparks = [], lastDrop = null;
 let bird = null, plane = null, seen = { bird: false, plane: false, moon: false }; // たかさの しかけ
 let calmT = 0, calmHeight = 0, landed = new Set();
+// 家族部屋: 子 = ぶつりを けいさん する がわ、親 = とどいた いちを うつす がわ。どちらも じぶんの クレーンで おとせる
+let role = 'solo', curH = 0, bodyId = 0, sendT = 0;
+const duo = () => role !== 'solo';
+const remote = { bodies: new Map(), h: 0, calm: 0, best: 0, bird: { x: 0, y: 0, p: -1 }, plane: -9, moon: 0 };
+const oc = { x: 0, k: 99 }; // x は だいの まんなかから（ユニット）
+const craneWX = () => +((innerWidth * (0.1 + crane * 0.8) - innerWidth / 2) / U).toFixed(3); // あいての クレーン（よこの いちと どうぶつ）
+const ownHue = (o) => { const i = Multi.roleInfo || {}; const h = o === 0 ? (i.ko || {}).hu : (role === 'ko' ? (i.other || {}).hu : (i.me || {}).hu); return h ?? 200; };
 try { best = parseFloat(localStorage.getItem(KEY)) || 0; } catch (e) {}
 let cheerAt = best > 0 ? best + 0.05 : 1.5; // まえの きろくを こえたら おいわい
 
@@ -57,6 +65,7 @@ function setup() {
   Composite.add(engine.world, [ground, ...fences]);
   bodies = []; cam = 0; camT = 0; hand = null; next = pickAnimal(); newHand();
   bird = null; plane = null; seen = { bird: false, plane: false, moon: false }; calmHeight = 0;
+  curH = 0; bodyId = 0; remote.bodies.clear(); remote.h = 0; remote.calm = 0; remote.bird.p = -1; remote.plane = -9; remote.moon = 0;
 }
 function pickAnimal() { return pick(ANIMALS); }
 function newHand() { hand = { a: next, t: 0 }; next = pickAnimal(); }
@@ -65,38 +74,114 @@ addEventListener('resize', setup);
 
 function drop(x) {
   if (!hand || cool > 0) return;
-  const [e, w, h] = hand.a, W = innerWidth;
+  if (role === 'oya') { Multi.send({ a: 'g', i: 3, k: ANIMALS.indexOf(hand.a), m: [+((x - innerWidth / 2) / U).toFixed(3)] }, 0); hand = null; cool = 0.9; Sfx.tone(520, 0.1, 'sine', 0.12, 0, 300); return; } // 親は 子の がめんで おとす
+  place(x, hand.a, 0);
+  hand = null; cool = 0.9;
+  Sfx.tone(520, 0.1, 'sine', 0.12, 0, 300); // ひゅっ
+}
+function place(x, an, owner) {
+  const [e, w, h] = an, W = innerWidth;
   const bw = w * U, bh = h * U;
   const cx = Math.max(bw / 2 + 4, Math.min(W - bw / 2 - 4, x));
   const b = Bodies.rectangle(cx, hangY(bh) + bh / 2 - cam, bw, bh, {
     chamfer: { radius: Math.min(bw, bh) * 0.18 }, friction: 1, frictionStatic: 2, frictionAir: 0.035, restitution: 0, // ころがりにくく、ゆっくり おちる
     density: 0.0018 * (w * h > 1.3 ? 1.4 : 1),
   });
-  b.emoji = e; b.bw = bw; b.bh = bh; b.born = performance.now(); b.wob = 0;
+  b.emoji = e; b.kind = ANIMALS.indexOf(an); b.owner = owner; b.id = ++bodyId; b.bw = bw; b.bh = bh; b.born = performance.now(); b.wob = 0;
   Composite.add(engine.world, b); bodies.push(b); lastDrop = b;
-  hand = null; cool = 0.9;
-  Sfx.tone(520, 0.1, 'sine', 0.12, 0, 300); // ひゅっ
 }
 const craneY = () => 70;
 // どうぶつを つるす たかさ（がめんの y）。タワーの てっぺんの すこし うえ まで ロープを のばす（たかい ところから おとさない）
 function hangY(bh) {
-  const topScreen = groundY - height() * U + cam;
+  const topScreen = groundY - curH * U + cam;
   return Math.max(craneY() + 40, Math.min(topScreen - U * 0.7 - bh, innerHeight * 0.55));
 }
 btn.addEventListener('pointerdown', () => drop(innerWidth * (0.1 + crane * 0.8)));
 cv.addEventListener('pointerdown', (e) => { if (e.clientY > btn.getBoundingClientRect().top - 10) return; crane = Math.max(0, Math.min(1, (e.clientX / innerWidth - 0.1) / 0.8)); drop(e.clientX); });
-resetBtn.addEventListener('pointerdown', () => {
+function doReset() {
   for (const b of bodies) burst(b.position.x, b.position.y + cam, 10, Math.random() * 360);
+  for (const e of remote.bodies.values()) burst(innerWidth / 2 + e.x * U, groundY + e.y * U + cam, 10, Math.random() * 360);
   Sfx.noise(0.4, 0.4, 3000, 0, 'bandpass'); Sfx.tone(800, 0.2, 'sine', 0.1, 0, 1600);
   setup();
+}
+resetBtn.addEventListener('pointerdown', () => { doReset(); if (duo()) Multi.send({ a: 'g', i: 7 }, 0); }); // どちらが おしても りょうほうで
+
+// ---- 家族部屋 ----
+const sendEv = (k, wx, wy) => Multi.send({ a: 'g', i: 5, k, m: [wx ?? 0, wy ?? 0] }, 0);
+const toWorld = (x, y) => [(x - innerWidth / 2) / U, (y - groundY) / U];
+Multi.duo('tsumiki', {
+  swap: false,
+  onRole(r) {
+    if (r === role) return;
+    role = r; setup();
+  },
+  onMsg(m) {
+    if (m.a !== 'g') return;
+    const W = innerWidth, H = innerHeight;
+    if (m.i === 7) { doReset(); return; }
+    if (role === 'ko') {
+      if (m.i === 1) { oc.x = (m.m || [])[0] || 0; oc.k = m.k ?? 99; }
+      else if (m.i === 3 && ANIMALS[m.k]) {
+        place(W / 2 + ((m.m || [])[0] || 0) * U, ANIMALS[m.k], 1);
+        Sfx.tone(520, 0.1, 'sine', 0.12, 0, 300);
+      }
+    } else if (role === 'oya') {
+      const a = m.m || [];
+      if (m.i === 9) {
+        oc.x = a[8] || 0; oc.k = m.k ?? 99;
+        remote.h = a[0] || 0; remote.calm = a[1] || 0; remote.best = a[2] || 0;
+        remote.bird.x = a[3] || 0; remote.bird.y = a[4] || 0; remote.bird.p = a[5] ?? -1; remote.plane = a[6] ?? -9; remote.moon = a[7] || 0;
+      } else if (m.i >= 10 && m.i <= 12) {
+        const now = performance.now();
+        for (let j = 0; j + 3 < a.length; j += 4) {
+          const pk = Math.round(a[j]), id = Math.floor(pk / 64), low = pk % 64;
+          let e = remote.bodies.get(id);
+          if (!e) { e = { x: a[j + 1], y: a[j + 2], a: a[j + 3] }; remote.bodies.set(id, e); }
+          e.tx = a[j + 1]; e.ty = a[j + 2]; e.ta = a[j + 3]; e.kind = low & 15; e.owner = (low >> 4) & 1; e.wob = (low >> 5) & 1; e.at = now;
+        }
+      } else if (m.i === 5) {
+        const X = W / 2 + (a[0] || 0) * U, Y = groundY + (a[1] || 0) * U;
+        if (m.k === 1) { Sfx.chime(); popText('👑', W / 2, H * 0.3, '#ffd23f', 64); }
+        else if (m.k === 2) { Sfx.chime(); popText('🌙', W / 2, H * 0.25, '#fff', 70); }
+        else if (m.k === 3) { Sfx.tone(700, 0.4, 'sine', 0.1, 0, 200); popText('わ〜！', Math.max(60, Math.min(W - 60, X)), H * 0.55, '#ff6fa8', 40); }
+        else if (m.k === 4) { Sfx.tone(200 + Math.random() * 80, 0.12, 'sine', 0.25, 0, 120); burst(X, Y + cam, 8, 40); }
+        else if (m.k === 5) { Sfx.tone(1800, 0.1, 'sine', 0.08); Sfx.tone(2200, 0.1, 'sine', 0.08, 0.12); }
+        else if (m.k === 6) Sfx.noise(1.8, 0.2, 500);
+      }
+    }
+  },
 });
+// 子の がめんの ようすを 親へ（1びょうに 8かいくらい）
+function sendState() {
+  Multi.send({ a: 'g', i: 9, k: hand ? ANIMALS.indexOf(hand.a) : 99, m: [
+    curH, calmHeight, best,
+    bird ? (bird.x - innerWidth / 2) / U : 0, bird ? ((bird.y ?? 0) - cam - groundY) / U : 0, bird ? (bird.perched ? 1 : 0) : -1,
+    plane ? plane.x / innerWidth : -9, seen.moon ? 1 : 0, craneWX(),
+  ].map(v => +v.toFixed(3)) }, 0);
+  const list = bodies.slice(-72);
+  for (let c = 0; c * 18 < list.length; c++) {
+    const m = [];
+    for (const b of list.slice(c * 18, c * 18 + 18)) {
+      const [wx, wy] = toWorld(b.position.x, b.position.y);
+      m.push(b.id * 64 + (b.wob > 0.35 ? 32 : 0) + b.owner * 16 + b.kind, +wx.toFixed(3), +wy.toFixed(3), +b.angle.toFixed(3));
+    }
+    Multi.send({ a: 'g', i: 10 + c, m }, 0);
+  }
+}
 
 // ---- たかさの しかけ ----
+function remoteSky(t, W, H) {
+  const r = remote;
+  if (r.bird.p >= 0) { ctx.save(); ctx.translate(W / 2 + r.bird.x * U, groundY + r.bird.y * U + cam + (r.bird.p ? 0 : Math.sin(t * 20) * 4)); ctx.scale(-1, 1); drawEmoji(ctx, '🐦', 0, 0, 30); ctx.restore(); }
+  if (r.plane > -5) drawEmoji(ctx, '✈️', r.plane * W, H * 0.22, 48);
+  if (r.moon) drawEmoji(ctx, '🌙', W * 0.8, 120 + Math.sin(t * 0.5) * 4, 56);
+}
 function skyEvents(dt, t, W, H) {
+  if (role === 'oya') { remoteSky(t, W, H); return; }
   const h = calmHeight;
-  if (h > 3.5 && !seen.bird) { seen.bird = true; bird = { x: -40, t: 0 }; Sfx.tone(1800, 0.1, 'sine', 0.08); Sfx.tone(2200, 0.1, 'sine', 0.08, 0.12); }
-  if (h > 6 && !seen.plane) { seen.plane = true; plane = { x: W + 80 }; Sfx.noise(1.8, 0.2, 500); }
-  if (h > 9 && !seen.moon) { seen.moon = true; Sfx.chime(); popText('🌙', W / 2, H * 0.25, '#fff', 70); }
+  if (h > 3.5 && !seen.bird) { seen.bird = true; bird = { x: -40, t: 0 }; Sfx.tone(1800, 0.1, 'sine', 0.08); Sfx.tone(2200, 0.1, 'sine', 0.08, 0.12); if (duo()) sendEv(5); }
+  if (h > 6 && !seen.plane) { seen.plane = true; plane = { x: W + 80 }; Sfx.noise(1.8, 0.2, 500); if (duo()) sendEv(6); }
+  if (h > 9 && !seen.moon) { seen.moon = true; Sfx.chime(); popText('🌙', W / 2, H * 0.25, '#fff', 70); if (duo()) sendEv(2); }
   // 🐦: とんできて いちばん うえの どうぶつに とまる
   if (bird) {
     const top = topBody();
@@ -129,7 +214,7 @@ let last = performance.now(), acc = 0;
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   const W = innerWidth, H = innerHeight, t = now / 1000;
   acc += dt;
-  while (acc > 1 / 120) { Engine.update(engine, 1000 / 120); acc -= 1 / 120; }
+  while (acc > 1 / 120) { if (role !== 'oya') Engine.update(engine, 1000 / 120); acc -= 1 / 120; }
   cool -= dt;
   if (!hand && cool <= 0) newHand();
   crane += craneDir * dt * 0.17; if (crane > 1) { crane = 1; craneDir = -1; } if (crane < 0) { crane = 0; craneDir = 1; }
@@ -140,23 +225,37 @@ let last = performance.now(), acc = 0;
       b.gone = true; Composite.remove(engine.world, b);
       Sfx.tone(700, 0.4, 'sine', 0.1, 0, 200);
       popText('わ〜！', Math.max(60, Math.min(W - 60, b.position.x)), H * 0.55, '#ff6fa8', 40);
+      if (duo()) sendEv(3, ...toWorld(b.position.x, groundY + H * 0.2));
     }
     // ついた とき の おと（はじめて とまった とき）
     if (!landed.has(b) && !b.gone && performance.now() - b.born > 300 && b.speed < 0.8) {
       landed.add(b); Sfx.tone(200 + Math.random() * 80, 0.12, 'sine', 0.25, 0, 120); burst(b.position.x, b.bounds.max.y + cam, 8, 40);
+      if (duo()) sendEv(4, ...toWorld(b.position.x, b.bounds.max.y));
     }
     b.wob = Math.min(1, Math.abs(b.angularVelocity) * 6 + (b.speed > 3 ? 0.5 : 0));
   }
   bodies = bodies.filter(b => !b.gone);
 
   // たかさ と きろく
-  const h = height();
-  calmT = calm() && landed.size ? calmT + dt : 0;
-  if (calmT > 0.6) calmHeight = h;
-  if (calmT > 0.6 && h > best + 0.05) {
-    if (h >= cheerAt) { cheerAt = h + 1; Sfx.chime(); popText('👑', W / 2, H * 0.3, '#ffd23f', 64); } // きろく こうしん（1だん ぶん ごとに）
-    best = h; try { localStorage.setItem(KEY, best.toFixed(2)); } catch (e) {}
+  const h = role === 'oya' ? remote.h : height();
+  curH = h;
+  if (role === 'oya') { calmHeight = remote.calm; best = remote.best; } // 親は 子の きろくを みるだけ
+  else {
+    calmT = calm() && landed.size ? calmT + dt : 0;
+    if (calmT > 0.6) calmHeight = h;
+    if (calmT > 0.6 && h > best + 0.05) {
+      if (h >= cheerAt) { cheerAt = h + 1; Sfx.chime(); popText('👑', W / 2, H * 0.3, '#ffd23f', 64); if (duo()) sendEv(1); } // きろく こうしん（1だん ぶん ごとに）
+      best = h; try { localStorage.setItem(KEY, best.toFixed(2)); } catch (e) {}
+    }
   }
+  if (role === 'oya') { // とどいた いちへ なめらかに
+    const k = Math.min(1, dt * 12), nw = performance.now();
+    for (const [id, e] of remote.bodies) {
+      if (nw - e.at > 700) { remote.bodies.delete(id); continue; }
+      e.x += (e.tx - e.x) * k; e.y += (e.ty - e.y) * k; e.a += (e.ta - e.a) * k;
+    }
+  }
+  if (duo()) { sendT += dt; if (sendT > 0.12) { sendT = 0; if (role === 'ko') sendState(); else Multi.send({ a: 'g', i: 1, k: hand ? ANIMALS.indexOf(hand.a) : 99, m: [craneWX()] }, 0); } }
   // カメラ: たかく なったら うえへ（クレーンと すきまを のこす）
   const topY = groundY - h * U;
   camT = Math.max(0, (craneY() + U * 3.2) - topY);
@@ -186,19 +285,34 @@ let last = performance.now(), acc = 0;
     drawEmoji(ctx, '👑', W - 30, by - 18, 30);
   }
   // どうぶつ
-  for (const b of bodies) {
-    ctx.save(); ctx.translate(b.position.x, b.position.y); ctx.rotate(b.angle);
-    const s = Math.max(b.bw, b.bh);
-    ctx.scale(b.bw / s * 1.12, b.bh / s * 1.12); // かたちに あわせて すこし のばす
-    drawEmoji(ctx, b.emoji, 0, 0, s * 0.95);
+  const drawBody = (emoji, x, y, ang, bw, bh, owner, wob, topY) => {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+    if (duo()) { ctx.strokeStyle = `hsla(${ownHue(owner)}, 85%, 55%, .55)`; ctx.lineWidth = 5; ctx.beginPath(); ctx.roundRect(-bw / 2, -bh / 2, bw, bh, Math.min(bw, bh) * 0.18); ctx.stroke(); } // おとした ひとの いろで うすく ふちどり
+    const s = Math.max(bw, bh);
+    ctx.scale(bw / s * 1.12, bh / s * 1.12); // かたちに あわせて すこし のばす
+    drawEmoji(ctx, emoji, 0, 0, s * 0.95);
     ctx.restore();
-    if (b.wob > 0.35) drawEmoji(ctx, '💦', b.position.x + b.bw * 0.45, b.bounds.min.y + 4, 22); // ぐらぐら
+    if (wob) drawEmoji(ctx, '💦', x + bw * 0.45, topY + 4, 22); // ぐらぐら
+  };
+  for (const b of bodies) drawBody(b.emoji, b.position.x, b.position.y, b.angle, b.bw, b.bh, b.owner, b.wob > 0.35, b.bounds.min.y);
+  if (role === 'oya') for (const e of remote.bodies.values()) {
+    const [em, w, hh] = ANIMALS[e.kind]; const x = W / 2 + e.x * U, y = groundY + e.y * U;
+    drawBody(em, x, y, e.a, w * U, hh * U, e.owner, e.wob, y - hh * U * 0.5);
   }
   ctx.restore();
   // クレーン
   const cx = W * (0.1 + crane * 0.8), cy = craneY();
   ctx.strokeStyle = '#8a929e'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(10, cy - 18); ctx.lineTo(W - 10, cy - 18); ctx.stroke();
-  ctx.fillStyle = '#ffb300'; ctx.beginPath(); ctx.roundRect(cx - 22, cy - 30, 44, 24, 8); ctx.fill();
+  ctx.fillStyle = duo() ? `hsl(${ownHue(role === 'oya' ? 1 : 0)}, 90%, 58%)` : '#ffb300'; ctx.beginPath(); ctx.roundRect(cx - 22, cy - 30, 44, 24, 8); ctx.fill();
+  if (duo()) { // あいての クレーン
+    const ox = Math.max(10, Math.min(W - 10, W / 2 + oc.x * U));
+    ctx.fillStyle = `hsl(${ownHue(role === 'oya' ? 0 : 1)}, 90%, 58%)`; ctx.beginPath(); ctx.roundRect(ox - 22, cy - 30, 44, 24, 8); ctx.fill();
+    if (ANIMALS[oc.k]) {
+      const [oe, ow, oh] = ANIMALS[oc.k], obw = ow * U, obh = oh * U, os = Math.max(obw, obh), oy = hangY(obh);
+      ctx.strokeStyle = '#8a929e'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ox, cy - 6); ctx.lineTo(ox, oy); ctx.stroke();
+      ctx.save(); ctx.translate(ox, oy + obh / 2); ctx.rotate(Math.sin(t * 3 + 1) * 0.08); ctx.scale(obw / os * 1.12, obh / os * 1.12); drawEmoji(ctx, oe, 0, 0, os * 0.95); ctx.restore();
+    }
+  }
   if (hand) {
     hand.t = Math.min(1, hand.t + dt * 5);
     const [e, w, hh] = hand.a, bw = w * U * (0.6 + 0.4 * hand.t), bh = hh * U * (0.6 + 0.4 * hand.t), s = Math.max(bw, bh);

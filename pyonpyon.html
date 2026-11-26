@@ -24,9 +24,13 @@
 <script src="gpu-particles.js?v=3"></script>
 <script src="field-scene.js?v=2"></script>
 <script src="game.js?v=2"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // ぴょんぴょんラン: はしりつづけて、ボタンで とんで いわを よける。ほしを とると てんすう。
 // ぶつかると ハートが へる（3かいで おしまい）。だんだん はやく なる。くうちゅうで もう1かい とべる。
+// 家族部屋で 2人の とき: 子は いままで どおり はしって とぶ。親は みちを タッチして、その さきに ジャンプだいを おける。
+//   じゃまもの・ほし・はやさ・あたりは 子の がめんが きめて、ようすを 親へ おくる（親の がめんは それを うつす だけ）。
+//   ジャンプだいの いちは みちと いっしょに うごく（せかいの ざひょう）。のると ぴょーんと おおきく とぶ。
 const fg = document.getElementById('fg'), fgx = fg.getContext('2d'), btn = document.getElementById('btn');
 const RUNNERS = ['🐕', '🐆', '🐇', '🐈', '🦖', '🐖', '🐓', '🦔', '🐎'];
 // じゃまもの: ひとめで「あぶない！」と わかる もの（あかく ひかる）
@@ -35,17 +39,75 @@ const OBST = [{ e: '🚧', w: 70, h: 66 }, { e: '🧱', w: 62, h: 58 }, { e: '�
 const SK = () => Math.min(1, Math.max(0.5, innerWidth / 820));
 let runner = pick(RUNNERS), dist = 0, speed = 0, elapsed = 0, dpr = 1;
 let y = 0, vy = 0, jumps = 0, tumble = 0, obst = [], stars = [], bob = 0;
+let role = 'solo';           // 'solo' | 'ko'（はしる） | 'oya'（ジャンプだいを おく）
+let rampSafe = 0; // ジャンプだいで とんだ すぐあとは いわに あたらない（いわの まえに おかれても とびこえる）
+let nid = 0, ramps = [], stock = 2, stockT = 0, sendT = 0, tapT = 0;
+const STOCK_MAX = 3;         // ジャンプだいは すこしずつ ふえる（れんだで うまらない ように）
+const remote = { st: 0, prevSt: 0, sp: 0, t: 0, obst: [], stars: [], ramps: [], stock: 0 }; // 親の がめんで みる 子の ようす
+const tell = (o) => { if (role === 'ko') Multi.send({ a: 'g', ...o }, 0); };
 
 const game = Game.create('pyonpyon', {
-  onStart() { obst = []; stars = []; speed = 420 * SK(); elapsed = 0; y = 0; vy = 0; jumps = 0; tumble = 0; runner = pick(RUNNERS); },
+  onStart() { obst = []; stars = []; ramps = []; stock = 2; stockT = 0; speed = 420 * SK(); elapsed = 0; y = 0; vy = 0; jumps = 0; tumble = 0; runner = pick(RUNNERS); },
   onOver() { tumble = 0.01; vy = -700; },
 });
 const resize = () => { dpr = fitCanvas(fg, fgx); };
 resize(); addEventListener('resize', resize);
 
+const hudEl = document.querySelector('.hud');
+Multi.duo('pyonpyon', {
+  onRole(r) {
+    if (r === role) return;
+    role = r; obst = []; stars = []; ramps = []; stock = 2; stockT = 0; y = 0; vy = 0; jumps = 0; tumble = 0; game.state = 'ready';
+    remote.st = 0; remote.prevSt = 0; remote.obst = []; remote.stars = []; remote.ramps = []; remote.stock = 0;
+    btn.parentElement.style.display = r === 'oya' ? 'none' : ''; hudEl.style.display = r === 'oya' ? 'none' : '';
+  },
+  onMsg(m) {
+    if (m.a !== 'g') return;
+    if (role === 'oya') {
+      if (m.i === 1) { // 子の ようす
+        const a = m.m || [], now = performance.now(), rx0 = innerWidth * 0.22; // ばしょは はしる こ から の きょり（せかいの ざひょう）
+        remote.st = m.k & 3; remote.stock = m.k >> 2; remote.sp = a[0]; remote.t = now;
+        const ri = a[1]; if (RUNNERS[ri]) runner = RUNNERS[ri];
+        y = -(a[6] || 0); vy = a[5] || 0;
+        if (remote.st === 2 && remote.prevSt !== 2) { tumble = 0.01; vy = -700; }
+        if (remote.st === 1 && remote.prevSt !== 1) { tumble = 0; elapsed = 0; }
+        remote.prevSt = remote.st;
+        const nO = a[2], nS = a[3], nR = a[4]; let j = 7;
+        const O = [], S = [], R = [];
+        for (let i = 0; i < nO; i++, j += 3) O.push({ id: a[j], kind: a[j + 1], x: rx0 + a[j + 2], hit: a[j + 1] >= 100 });
+        for (let i = 0; i < nS; i++, j += 3) S.push({ x: rx0 + a[j], h: a[j + 1], id: a[j + 2] });
+        for (let i = 0; i < nR; i++, j += 2) R.push({ id: a[j], x: rx0 + a[j + 1] });
+        for (const o of O) if (o.hit) o.kind -= 100;
+        remote.obst = O; remote.stars = S; remote.ramps = R;
+      } else if (m.i === 4) { // できごと
+        if (m.k === 0) { const l = window.__L(); burst(l.rx + (m.m ? m.m[0] : 0), l.base - 40, 40, 0.02, 1.2); Sfx.tone(300, 0.3, 'sawtooth', 0.12, 0, 120); }
+        else if (m.k === 1) { const l = window.__L(); burst(l.rx + m.m[0], l.base - m.m[1], 24, 0.14, 0.8); Sfx.tone(1320, 0.12, 'sine', 0.12); Sfx.tone(1760, 0.15, 'sine', 0.08, 0.06); }
+        else if (m.k === 2) { window.__bounceFx && window.__bounceFx(); }
+        else if (m.k === 3) { Sfx.tone(440, 0.18, 'square', 0.07, 0, 880); window.__jumpFx && window.__jumpFx(); }
+      }
+    } else if (role === 'ko' && m.i === 5 && game.state === 'play') { // 親が ジャンプだいを おいた
+      if (stock < 1) return;
+      stock--;
+      ramps.push({ id: ++nid, x: innerWidth * 0.22 + Math.max(m.m[0], 170), used: false });
+    }
+  },
+});
+let burst = () => {}; // あとで つかえるように なる
+// 親: みちを タッチ → その さきに ジャンプだい（すこしずつ ふえる）
+addEventListener('pointerdown', (e) => {
+  if (role !== 'oya' || remote.st !== 1 || e.target.closest('button, a')) return;
+  const now = performance.now();
+  if (now - tapT < 500 || remote.stock < 1) return;
+  tapT = now;
+  Multi.send({ a: 'g', i: 5, m: [Math.round(Math.max(e.clientX - innerWidth * 0.22, 170))] }, 0);
+  remote.stock--; Sfx.pop();
+  burst(Math.max(e.clientX, innerWidth * 0.22 + 170), innerHeight * 0.64 + 72, 14, 0.08, 0.6);
+});
+
 btn.addEventListener('pointerdown', () => {
   if (game.press()) return;
-  if (jumps < 2) { // ジャンプ（くうちゅうで もう1かい）
+  if (jumps < 2) {
+    tell({ i: 4, k: 3 }); // ジャンプ（くうちゅうで もう1かい）
     vy = jumps === 0 ? -1050 : -900; jumps++;
     Sfx.tone(jumps === 1 ? 440 : 660, 0.18, 'square', 0.07, 0, jumps === 1 ? 880 : 1320);
     window.__jumpFx && window.__jumpFx();
@@ -57,7 +119,8 @@ btn.addEventListener('pointerdown', () => {
   const sys = await GPUParticles.create(document.getElementById('fx'), { count: 30000 });
   sys.params.drag = 0.8; sys.params.grav = [0, 300];
   const L = () => { const W = innerWidth, H = innerHeight, gy = H * 0.64; return { W, H, gy, base: gy + 72, rx: W * 0.22 }; };
-  const burst = (x, yy, n, hue, spread = 1) => {
+  window.__L = L;
+  burst = (x, yy, n, hue, spread = 1) => {
     const list = [];
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, sp = rand(100, 500) * spread;
@@ -66,50 +129,81 @@ btn.addEventListener('pointerdown', () => {
     }
     sys.emit(list);
   };
+  window.__bounceFx = () => { const l = L(); burst(l.rx, l.base - 20, 50, 0.08, 1.1); Sfx.tone(330, 0.35, 'sine', 0.14, 0, 1400); Sfx.tone(660, 0.3, 'triangle', 0.08, 0.05, 1800); };
   window.__jumpFx = () => { const l = L(); burst(l.rx, l.base - 50 + y, 14, 0.15, 0.5); };
 
   sys.start((dt, t) => {
     const { W, H, gy, base, rx } = L();
-    const playing = game.state === 'play';
-    if (playing) { elapsed += dt; speed = Math.min(1050, 420 + elapsed * 9) * SK(); }
+    const playing = role === 'oya' ? remote.st === 1 : game.state === 'play';
+    if (role === 'oya') { if (playing) { elapsed += dt; speed = remote.sp; } else speed *= Math.pow(0.3, dt); }
+    else if (playing) { elapsed += dt; speed = Math.min(1050, 420 + elapsed * 9) * SK(); }
     else speed *= Math.pow(0.3, dt);
     dist += speed * dt;
     bob += dt * (4 + speed / 120);
     // ジャンプの うごき
-    vy += 2600 * dt; y += vy * dt;
+    vy += 2600 * dt; y += vy * dt; rampSafe = Math.max(0, rampSafe - dt);
     if (y > 0) { y = 0; vy = 0; jumps = 0; }
     if (tumble > 0) tumble = Math.min(1, tumble + dt * 3);
 
-    if (playing) {
+    if (role === 'oya') { // 子の がめんの ようすを そのまま うつす
+      const k = Math.min(0.3, (performance.now() - remote.t) / 1000);
+      obst = remote.obst.map(o => ({ ...OBST[o.kind], x: o.x - speed * k, hit: o.hit }));
+      stars = remote.stars.map(q => ({ x: q.x - speed * k, y: base - q.h }));
+      ramps = remote.ramps.map(r => ({ x: r.x - speed * k }));
+    }
+    if (role !== 'oya' && playing) {
       // じゃまもの と ほし を だす
       const last = obst[obst.length - 1];
       if (!last || last.x < W - speed * rand(1.25, 2.1)) {
         const o = pick(OBST);
-        obst.push({ ...o, x: W + 80, passed: false, hit: false });
-        if (Math.random() < 0.6) stars.push({ x: W + 80, y: base - o.h - rand(110, 190), got: false }); // じゃまものの うえに ほし
+        obst.push({ ...o, id: ++nid, kind: OBST.indexOf(o), x: W + 80, passed: false, hit: false });
+        if (Math.random() < 0.6) stars.push({ id: ++nid, x: W + 80, y: base - o.h - rand(110, 190), got: false }); // じゃまものの うえに ほし
       }
-      if (Math.random() < dt * 0.6) stars.push({ x: W + 40, y: base - rand(40, 230), got: false });
+      if (Math.random() < dt * 0.6) stars.push({ id: ++nid, x: W + 40, y: base - rand(40, 230), got: false });
     }
-    for (const o of obst) o.x -= speed * dt;
-    for (const s of stars) s.x -= speed * dt;
-    obst = obst.filter(o => o.x > -120); stars = stars.filter(s => s.x > -60 && !s.got);
+    if (role !== 'oya') {
+      for (const o of obst) o.x -= speed * dt;
+      for (const s of stars) s.x -= speed * dt;
+      for (const r of ramps) r.x -= speed * dt;
+      obst = obst.filter(o => o.x > -120); stars = stars.filter(s => s.x > -60 && !s.got); ramps = ramps.filter(r => r.x > -140);
+      if (role === 'ko' && playing) { stockT += dt; if (stockT > 2.5) { stockT = 0; if (stock < STOCK_MAX) stock++; } }
+    }
 
     // あたりはんてい
     const ry = base - 50 + y; // はしる こ の まんなか
-    if (playing) {
+    if (role !== 'oya' && playing) {
+      // ジャンプだいに のると ぴょーんと おおきく とぶ
+      for (const r of ramps) {
+        if (!r.used && y > -120 && Math.abs(r.x - rx) < 60) { // ちょっと うきあがって いても のれる
+          r.used = true; jumps = 1; rampSafe = 0.45; vy = -Math.min(1500, Math.sqrt(2 * 2600 * Math.max(120, base - 160)));
+          Sfx.tone(330, 0.35, 'sine', 0.14, 0, 1400); Sfx.tone(660, 0.3, 'triangle', 0.08, 0.05, 1800);
+          burst(rx, base - 20, 50, 0.08, 1.1); tell({ i: 4, k: 2 });
+        }
+      }
       for (const o of obst) {
         if (o.hit) continue;
         const overlapX = Math.abs(o.x - rx) < o.w / 2 + 26;
         const overlapY = ry + 40 > base - o.h + 6;
         if (overlapX && overlapY) {
-          if (!game.safe()) { o.hit = true; burst(o.x, base - o.h / 2, 40, 0.02, 1.2); vy = -500; game.hit(); }
+          if (!game.safe() && rampSafe <= 0) { o.hit = true; burst(o.x, base - o.h / 2, 40, 0.02, 1.2); vy = -500; game.hit(); tell({ i: 4, k: 0, m: [Math.round(o.x - rx)] }); }
         } else if (!o.passed && o.x < rx - 50) { o.passed = true; game.add(1); }
       }
       for (const s of stars) {
-        if (!s.got && Math.hypot(s.x - rx, s.y - ry) < 60) { s.got = true; game.add(1); burst(s.x, s.y, 24, 0.14, 0.8); Sfx.tone(1320, 0.12, 'sine', 0.12); Sfx.tone(1760, 0.15, 'sine', 0.08, 0.06); }
+        if (!s.got && Math.hypot(s.x - rx, s.y - ry) < 60) { s.got = true; game.add(1); burst(s.x, s.y, 24, 0.14, 0.8); tell({ i: 4, k: 1, m: [Math.round(s.x - rx), Math.round(base - s.y)] }); Sfx.tone(1320, 0.12, 'sine', 0.12); Sfx.tone(1760, 0.15, 'sine', 0.08, 0.06); }
       }
     }
 
+    // 子の がめんの ようすを 親へ（1びょうに 15かい）
+    sendT += dt;
+    if (role === 'ko' && sendT > 0.066) {
+      sendT = 0;
+      const O = obst.slice(0, 6), S = stars.filter(q => !q.got).slice(0, 12), R = ramps.slice(0, 4);
+      const m = [+speed.toFixed(1), RUNNERS.indexOf(runner), O.length, S.length, R.length, +vy.toFixed(1), +(-y).toFixed(1)];
+      for (const o of O) m.push(o.id, o.kind + (o.hit ? 100 : 0), +(o.x - rx).toFixed(1));
+      for (const q of S) m.push(+(q.x - rx).toFixed(1), +(base - q.y).toFixed(1), q.id);
+      for (const r of R) m.push(r.id, +(r.x - rx).toFixed(1));
+      Multi.send({ a: 'g', i: 1, k: ['ready', 'play', 'over'].indexOf(game.state) + stock * 4, m }, 0);
+    }
     // つぶ: すなけむり
     if (speed > 80 && y > -5) sys.emit([{ x: rx - 26, y: base - 10, vx: -speed * rand(0.3, 0.6), vy: -rand(40, 140), r: 0.9, g: 0.75, b: 0.5, life: rand(0.3, 0.6), size: rand(5, 9) }]);
     scene.draw(t, dist, Math.min(1, speed / SK() / 1100), 0.12 + dist / 160000, 0);
@@ -117,6 +211,14 @@ btn.addEventListener('pointerdown', () => {
     // 2D: き・じゃまもの・ほし・はしる こ
     fgx.setTransform(dpr, 0, 0, dpr, 0, 0);
     fgx.clearRect(0, 0, W, H);
+    // ジャンプだい（みちの うえの くさび）
+    for (const r of ramps) {
+      if (r.used) fgx.globalAlpha = 0.5;
+      fgx.fillStyle = '#ffb02e'; fgx.strokeStyle = '#a85a00'; fgx.lineWidth = 4; fgx.lineJoin = 'round';
+      fgx.beginPath(); fgx.moveTo(r.x - 56, base); fgx.lineTo(r.x + 56, base); fgx.lineTo(r.x + 56, base - 46); fgx.closePath(); fgx.fill(); fgx.stroke();
+      drawEmoji(fgx, '⬆️', r.x + 8, base - 18, 40);
+      fgx.globalAlpha = 1;
+    }
     // みちの うえには じゃまもの と ほし だけ（き や いえ は おかない。まよわない ように）
     for (const o of obst) {
       fgx.globalAlpha = o.hit ? 0.35 : 1;
@@ -143,7 +245,20 @@ btn.addEventListener('pointerdown', () => {
       fgx.restore();
     }
     // はじまるまえ: ボタンを おしてね の ゆび
-    if (game.state !== 'play') {
+    if (role === 'oya') { // ジャンプだいの ざいこ（くさびの かず）と、おいてね の ゆび
+      for (let i = 0; i < STOCK_MAX; i++) {
+        fgx.globalAlpha = i < remote.stock ? 1 : 0.25;
+        fgx.fillStyle = '#ffb02e'; fgx.strokeStyle = '#a85a00'; fgx.lineWidth = 3; fgx.lineJoin = 'round';
+        const bx = W / 2 + (i - 1) * 70;
+        fgx.beginPath(); fgx.moveTo(bx - 26, 120); fgx.lineTo(bx + 26, 120); fgx.lineTo(bx + 26, 98); fgx.closePath(); fgx.fill(); fgx.stroke();
+      }
+      fgx.globalAlpha = 1;
+      if (remote.st === 1 && remote.stock > 0 && !ramps.length) {
+        fgx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5);
+        drawEmoji(fgx, '👆', W * 0.6, base + 40 + Math.abs(Math.sin(t * 3)) * 20, 70);
+        fgx.globalAlpha = 1;
+      }
+    } else if (game.state !== 'play') {
       const r = btn.getBoundingClientRect();
       fgx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 5);
       drawEmoji(fgx, '👉', r.left - 50 - Math.abs(Math.sin(t * 3)) * 20, r.top + r.height / 2, 60);

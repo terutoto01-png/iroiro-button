@@ -15,14 +15,17 @@
 <body>
 <canvas id="cv" class="full"></canvas>
 <script src="common.js?v=20"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // けんけんぱ: ひかっている まるを タッチ。まるが 1つ（けん）は ゆび 1ぽん、2つ ならんでいたら（ぱ）ゆび 2ほんで いっしょに。
 // うさぎが ぴょんと すすむ。🏁 まで いったら つぎの コース（すこし ながく）。
+// 家族部屋で 2人の とき: 子は いままで どおり うさぎを すすめる。親は コースを つくる（したの ボタンで だんを 1つずつ おく。🏁 で おしまい）。
+//   おいた だんは すぐ 子の がめんに でる。子の すすみぐあいは 親の がめんにも でる。ゴールしたら 2人で おいわい → 親が つぎの コースを つくる。
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 let dpr = fitCanvas(cv, ctx);
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); });
 const HEROES = ['🐰', '🐸', '🐱', '🐶', '🐥'];
-let course = [], cur = 0, scroll = 0, hero = pick(HEROES), hop = null, shake = 0, goalT = 0, len = 8, sparks = [];
+let role = 'solo', done = true, round = 0, course = [], cur = 0, scroll = 0, hero = pick(HEROES), hop = null, shake = 0, goalT = 0, len = 8, sparks = [];
 const PATTERNS = [['k', 'k', 'p'], ['k', 'p'], ['k', 'k', 'p'], ['p', 'k', 'p'], ['k', 'k', 'k', 'p']];
 
 function newCourse() {
@@ -32,6 +35,44 @@ function newCourse() {
   cur = 0; scroll = 0; hero = pick(HEROES); goalT = 0; hop = null;
 }
 newCourse();
+const duo = () => role !== 'solo';
+const MAXLEN = 24;
+const send = (o, ms = 0) => Multi.send(Object.assign({ a: 'g' }, o), ms);
+const sendCourse = () => send({ i: 1, m: course.map(c => c === 'p' ? 1 : 0), k: done ? 1 : 0, s: round });
+const sendCur = () => send({ i: 2, s: cur, k: HEROES.indexOf(hero) });
+function clearDuo() { course = []; done = false; cur = 0; scroll = 0; goalT = 0; hop = null; sparks = []; }
+Multi.duo('kenkenpa', {
+  onRole(r) {
+    if (r === role) return;
+    role = r;
+    if (r === 'solo') { done = true; len = 8; newCourse(); return; }
+    clearDuo(); hero = pick(HEROES);
+    if (r === 'oya') { round = (round + 1) % 1000; sendCourse(); } else { round = -1; send({ i: 0 }); }
+  },
+  onMsg(m) {
+    if (m.a !== 'g') return;
+    if (m.i === 0 && role === 'oya') sendCourse();
+    else if (m.i === 1 && role === 'ko') {
+      if (m.s !== round) { clearDuo(); hero = pick(HEROES); round = m.s; }
+      course = (m.m || []).map(v => v ? 'p' : 'k'); done = !!m.k;
+    } else if (m.i === 2 && role === 'oya') {
+      if (m.k >= 0 && m.k < HEROES.length) hero = HEROES[m.k];
+      if (m.s === cur + 1 && !goalT) hop = { from: cur - 1, to: cur, t: 0 };
+      cur = m.s;
+    } else if (m.i === 3 && role === 'oya') { cur = course.length; if (!goalT) finish(); }
+  },
+});
+// 親の ボタン（したに ならぶ）: 0 けん・1 ぱ・2 🏁
+function bar() { const { W, H } = G(), br = Math.min(46, W * 0.07); return { br, y: H - br - 22, xs: [W * 0.25, W * 0.5, W * 0.75] }; }
+function oyaTap(x, y) {
+  if (done || goalT) return;
+  const { br, y: by, xs } = bar(), n = xs.findIndex(bx => Math.hypot(x - bx, y - by) < br * 1.25);
+  if (n < 0) return;
+  if (n === 2 && !course.length) { Sfx.tone(200, 0.1, 'sine', 0.08); return; }
+  if (n < 2 && course.length < MAXLEN) { course.push(n ? 'p' : 'k'); Sfx.tone(n ? 660 : 520, 0.1, 'square', 0.06); }
+  if (n === 2 || course.length >= MAXLEN) { done = true; Sfx.chime(); }
+  sendCourse();
+}
 
 const G = () => {
   const W = innerWidth, H = innerHeight, r = Math.min(W * 0.17, H * 0.075, 78), gap = Math.max(r * 2.4, H * 0.16);
@@ -46,13 +87,14 @@ function circles(i) {
 // いま さわっている ゆび
 const touching = new Map(); // pointerId -> { x, y, t }
 function check() {
-  if (hop || goalT || cur >= course.length) return;
+  if (role === 'oya' || hop || goalT || cur >= course.length) return;
   const cs = circles(cur), { r } = G(), now = performance.now();
   const inC = (c) => [...touching.values()].some(p => Math.hypot(p.x - c.x, p.y - c.y) < r * 1.15 && now - p.t < 450);
   if (cs.length === 1 ? inC(cs[0]) : (inC(cs[0]) && inC(cs[1]))) {
     const kind = course[cur];
     hop = { from: cur - 1, to: cur, t: 0 };
     cur++;
+    if (duo()) sendCur();
     if (kind === 'p') { Sfx.tone(523, 0.15, 'square', 0.08); Sfx.tone(784, 0.2, 'square', 0.08, 0.05); popText('ぱ！', innerWidth / 2, cs[0].y - r - 20, '#fff', 56); }
     else { Sfx.tone(440, 0.12, 'square', 0.08, 0, 660); popText('けん！', cs[0].x, cs[0].y - r - 20, '#fff', 44); }
     for (const c of cs) for (let k = 0; k < 14; k++) { const a = rand(0, 7), v = rand(80, 260); sparks.push({ x: c.x, y: c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.5, hue: kind === 'p' ? 50 : 190 }); }
@@ -60,6 +102,8 @@ function check() {
   }
 }
 cv.addEventListener('pointerdown', (e) => {
+  if (role === 'oya') { oyaTap(e.clientX, e.clientY); return; }
+  if (cur >= course.length) return;
   touching.set(e.pointerId, { x: e.clientX, y: e.clientY, t: performance.now() });
   const before = cur;
   check();
@@ -78,9 +122,18 @@ let last = performance.now();
   const dt = Math.min(0.033, (now - last) / 1000); last = now;
   const t = now / 1000, { W, H, r, gap, baseY } = G();
   shake = Math.max(0, shake - dt * 4);
-  if (hop) { hop.t += dt / 0.32; if (hop.t >= 1) { hop = null; if (cur >= course.length) finish(); } }
-  scroll += (Math.max(0, cur - 1) - scroll) * Math.min(1, dt * 6);
-  if (goalT) { goalT += dt; if (goalT > 2.5) { len = Math.min(24, len + 4); newCourse(); } }
+  if (hop) { hop.t += dt / 0.32; if (hop.t >= 1) { hop = null; if (role !== 'oya' && cur >= course.length && done) finish(); } }
+  if (role === 'ko' && !hop && !goalT && done && course.length && cur >= course.length) finish();
+  let sc = Math.max(0, cur - 1);
+  if (role === 'oya') sc = Math.max(sc, course.length - 3);
+  scroll += (sc - scroll) * Math.min(1, dt * 6);
+  if (goalT) {
+    goalT += dt;
+    if (goalT > 2.5) {
+      if (role === 'solo') { len = Math.min(24, len + 4); newCourse(); }
+      else if (role === 'oya') { clearDuo(); round = (round + 1) % 1000; sendCourse(); }
+    }
+  }
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   // じめん（アスファルト）
@@ -88,12 +141,12 @@ let last = performance.now();
   ctx.fillStyle = 'rgba(255,255,255,.05)'; for (let i = 0; i < 80; i++) { ctx.beginPath(); ctx.arc((i * 137) % W, (i * 89 + scroll * gap * 0.3) % H, 2, 0, 7); ctx.fill(); }
   // ゴール
   const gy = baseY - (course.length - scroll) * gap + gap * 0.3;
-  if (gy > -60) drawEmoji(ctx, '🏁', W / 2, gy, r * 1.6);
+  if (done && gy > -60) drawEmoji(ctx, '🏁', W / 2, gy, r * 1.6);
   // まる（チョークの え）
   for (let i = course.length - 1; i >= 0; i--) {
     const cs = circles(i);
     if (cs[0].y < -r * 2 || cs[0].y > H + r * 2) continue;
-    const active = i === cur && !goalT, doneRow = i < cur;
+    const active = i === cur && !goalT && role !== 'oya', doneRow = i < cur;
     for (const c of cs) {
       const sx = active ? Math.sin(t * 50) * shake * 8 : 0, pul = active ? 1 + Math.sin(t * 6) * 0.05 : 1;
       if (active) { ctx.fillStyle = 'rgba(255,240,120,.35)'; ctx.beginPath(); ctx.arc(c.x + sx, c.y, r * pul * 1.12, 0, 7); ctx.fill(); }
@@ -102,6 +155,12 @@ let last = performance.now();
       ctx.beginPath(); ctx.arc(c.x + sx, c.y, r * pul, 0, 7); ctx.stroke();
       if (active) { ctx.globalAlpha = 0.55; drawEmoji(ctx, '👆', c.x + sx, c.y, r * 0.9); ctx.globalAlpha = 1; }
     }
+  }
+  // つぎの だん（まだ ないときは うすい まる。子は まっている）
+  if (duo() && !done && !goalT) {
+    const gyy = baseY - (course.length - scroll) * gap;
+    ctx.save(); ctx.setLineDash([12, 14]); ctx.strokeStyle = 'rgba(255,255,255,' + (0.3 + 0.2 * Math.sin(t * 4)) + ')'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.arc(W / 2, gyy, r, 0, 7); ctx.stroke(); ctx.restore();
   }
   // うさぎ
   let hx, hy, lift = 0;
@@ -116,11 +175,25 @@ let last = performance.now();
   ctx.save(); ctx.translate(hx, hy - lift); if (goalT) ctx.rotate(Math.sin(t * 12) * 0.3); ctx.scale(1 / sq, sq); drawEmoji(ctx, hero, 0, 0, r * 1.15); ctx.restore();
   for (const s of sparks) { s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt; ctx.fillStyle = `hsla(${s.hue}, 100%, 70%, ${Math.max(0, s.life * 2)})`; ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, 7); ctx.fill(); }
   sparks = sparks.filter(s => s.life > 0);
+  if (role === 'oya' && !done && !goalT) drawBar(t);
   requestAnimationFrame(loop);
 })(last);
 
+function drawBar(t) {
+  const { W, H } = G(), { br, y, xs } = bar();
+  ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(0, y - br - 14, W, H);
+  xs.forEach((x, n) => {
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, br, 0, 7); ctx.fill();
+    if (n === 2) { drawEmoji(ctx, '🏁', x, y, br * 1.2); return; }
+    ctx.strokeStyle = '#8a9099'; ctx.lineWidth = 5;
+    const rr = br * (n ? 0.3 : 0.45);
+    for (const dx of n ? [-br * 0.36, br * 0.36] : [0]) { ctx.beginPath(); ctx.arc(x + dx, y, rr, 0, 7); ctx.stroke(); }
+  });
+}
+
 function finish() {
   goalT = 0.001;
+  if (role === 'ko') send({ i: 3 });
   Sfx.yay(); setTimeout(() => Sfx.chime(), 300);
   popText('ゴール！', innerWidth / 2, innerHeight * 0.3, '#ffe066', 64);
   for (let i = 0; i < 100; i++) { const a = rand(0, 7), v = rand(100, 500); sparks.push({ x: innerWidth / 2, y: innerHeight * 0.4, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(0.6, 1.2), hue: rand(0, 360) }); }

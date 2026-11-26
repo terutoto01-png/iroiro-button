@@ -15,12 +15,13 @@ const ALLOWED_EMOJIS = new Set([
   '🚗', '🚃', '🚀', '✈️', '🐟', '🐙', '🐳', '⭐', '🌙', '🌈', '❤️', '🌸', '🌻', '🦋', '🦖', '🎈',
 ]);
 const ALLOWED_PAGES = new Set(['hanabi', 'shabondama', 'beru', 'sutanpu', 'korokoro', 'karakuri']);
-const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever', 'world', 'layout', 'klayout', 'ktap', 'look', 'sec', 'in']);
+const ALLOWED_ACTIONS = new Set(['fire', 'finale', 'blow', 'pop', 'bell', 'night', 'stamp', 'drop', 'bar', 'bump', 'wheel', 'fever', 'world', 'layout', 'klayout', 'ktap', 'look', 'sec', 'in', 'g']);
 const STATE_ACTIONS = new Set(['world', 'layout', 'klayout', 'night']);
 const PAGE_RE = /^[a-z]{1,20}$/; // ページ名（ファイル名）。'' はメニュー
 const MAX_PEERS = 20;
 const MAX_MSG_BYTES = 4500;
 const MAX_PER_SEC = 45; // ゆびの うごき（in）を おくるので おおめ
+const ROLE_LOCK_MS = 500; // やくの いれかえ（親・子）を つづけて なんども しない
 const GO_LOCK_MS = 2000; // だれかが移動させたあと、しばらくは別の場所への移動を受け付けない（同時タップ・連打対策）
 const WAIT_LOCK_MS = 4000; // みんなの じゅんびを まっている あいだも 受け付けない（ただし さいだい これだけ）
 const MIN_SHOW_MS = 800;  // いどうの えんしゅつを みせる さいていの じかん（みんな そろっても これより はやくは ひらかない）
@@ -156,7 +157,7 @@ export class Room extends DurableObject {
 
     const hello = { t: 'hello', id, avatar, hue, g: group ? 1 : 0, n: (group ? 0 : this.inPage(pageRoom, server).length) + 1, members: this.memberList(server) };
     if (group) {
-      try { const pl = await this.ctx.storage.get('place'); if (pl) { hello.place = pl.p; hello.ps = pl.s || 0; hello.pav = pl.av; hello.phu = pl.hu; hello.pn = pl.n || 0; hello.pw = pl.w ? 1 : 0; } } catch {}
+      try { const pl = await this.ctx.storage.get('place'); if (pl) { hello.place = pl.p; hello.ps = pl.s || 0; hello.pav = pl.av; hello.phu = pl.hu; hello.pn = pl.n || 0; hello.pw = pl.w ? 1 : 0; hello.pko = pl.ko || pl.id; } } catch {}
     } else if (existing.length > 0) {
       // ふるい クライアント（hello の state を待つ）向けに、同じページの共有状態も添える
       try { const st = await this.ctx.storage.get('state:' + pageRoom); if (st) hello.state = st; } catch {}
@@ -222,17 +223,17 @@ export class Room extends DurableObject {
         try { place = (await this.ctx.storage.get('place')) || null; } catch {}
         if (place && place.p !== p && (now - place.t < GO_LOCK_MS || (place.w && now - place.t < WAIT_LOCK_MS))) {
           // ほかの人が さっき 移動させたばかり → その場所へ もどってもらう
-          try { ws.send(JSON.stringify({ t: 'go', p: place.p, s: place.s || 0, n: place.n || 0, w: place.w ? 1 : 0, av: place.av, hu: place.hu, from: place.id })); } catch {}
+          try { ws.send(JSON.stringify({ t: 'go', p: place.p, s: place.s || 0, n: place.n || 0, w: place.w ? 1 : 0, av: place.av, hu: place.hu, from: place.id, ko: place.ko || place.id })); } catch {}
           return;
         }
         // n = いどうの ばんごう。みんなが その ページの じゅんびが できたら（ready）、start で いっせいに ひらく
         const n = ((place && place.n) || 0) + 1;
         try {
-          await this.ctx.storage.put('place', { p, s, n, w: 1, t: now, id: att.id, av: att.avatar, hu: att.hue });
+          await this.ctx.storage.put('place', { p, s, n, w: 1, t: now, id: att.id, ko: att.id, av: att.avatar, hu: att.hue });
           await this.ctx.storage.put('ready', { n, ids: [] });
         } catch {}
         // じぶんにも かえす（いどうの ばんごうを しらせる）
-        const out = JSON.stringify({ t: 'go', p, s, n, w: 1, av: att.avatar, hu: att.hue, from: att.id });
+        const out = JSON.stringify({ t: 'go', p, s, n, w: 1, av: att.avatar, hu: att.hue, from: att.id, ko: att.id });
         for (const peer of this.live()) { try { peer.send(out); } catch {} }
       } else if (att.g) {
         // グループの場所がまだ決まっていなければ、さいしょに来た人の場所にする
@@ -243,6 +244,23 @@ export class Room extends DurableObject {
       const st = await this.moveTo(ws, att, p);
       try { ws.send(JSON.stringify({ t: 'state', p, s: st })); } catch {}
       this.broadcastPeers(null);
+      return;
+    }
+
+    // やくの いれかえ（ゲームの ページ: 子 = いまの ゲームを あそぶ 人、ほかの 人は 親）。
+    // 子を その ページに いる つぎの 人へ。みんな（じぶんも）へ しらせる。サーバーで 1つに きめるので 2台が ずれない
+    if (msg.t === 'role' && att.g && att.p) {
+      let place = null;
+      try { place = await this.ctx.storage.get('place'); } catch {}
+      if (!place || place.p !== att.p || (place.rt && now - place.rt < ROLE_LOCK_MS)) return;
+      const ids = this.live().map(s => this.att(s)).filter(a => a && a.p === att.p).map(a => a.id).sort();
+      if (ids.length < 2) return;
+      const cur = ids.includes(place.ko) ? place.ko : ids.includes(place.id) ? place.id : ids[0];
+      place.ko = ids[(ids.indexOf(cur) + 1) % ids.length];
+      place.rt = now;
+      try { await this.ctx.storage.put('place', place); } catch {}
+      const out = JSON.stringify({ t: 'role', p: place.p, ko: place.ko });
+      for (const s of this.live()) { try { s.send(out); } catch {} }
       return;
     }
 
@@ -288,6 +306,11 @@ export class Room extends DurableObject {
         if (px !== undefined && py !== undefined) pts.push([px, py]);
       }
       out.m = pts;
+    } else if (msg.a === 'g' && Array.isArray(msg.m)) {
+      // ゲームの うごき: すうじ だけ 96こ まで（つみきの いち など）
+      const nums = [];
+      for (const v of msg.m.slice(0, 96)) { const n = clampNum(v, -100000, 100000); nums.push(n === undefined ? 0 : n); }
+      out.m = nums;
     }
 
     // あとから来た人にも同じ世界・配置を合わせるため、ページごとに共有状態を記憶

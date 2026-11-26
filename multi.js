@@ -10,6 +10,14 @@
 //   Multi.send({ a: 'fire', x: 0.5, y: 0.3 });
 //   Multi.showPeer(msg, x, y); // 相手の動物アイコンと波紋をふわっと表示
 //
+// ゲームの ページ（家族部屋で 親と 子に わかれて あそぶ）:
+//   Multi.duo('daruma', { onRole(role, info) { ... }, onMsg(msg) { ... } });
+//     role: 'solo'（ひとり / 家族部屋 でない）| 'ko'（いままでの ゲームを あそぶ）| 'oya'（あたらしい そうさ）
+//     info: { ko: { av, hu }, me: { av, hu } }
+//     さいしょは その ページを ひらいた 人が 子、あとから ついてきた 人が 親。みぎの いれかえボタンで こうたい。
+//     { swap: false } で いれかえボタンを ださない（2人とも おなじ ことを する ページ）。
+//   Multi.send({ a: 'g', i: 1, x: 0.3, m: [1, 2, 3] }, 0); // ゲームの うごき（i ごとに まびく）
+//
 // 部屋:
 //   ・?room=kazuki のように 合言葉を つけて ひらくと 家族の グループ部屋（この きかいに おぼえる。?room= で けす）。
 //     グループ部屋では メニューも ふくめて ずっと つながり、だれかが ボタンに はいると みんな いっしょに いどうする。
@@ -74,6 +82,23 @@ const Multi = (() => {
         filter: drop-shadow(0 0 4px var(--c, #fff)) drop-shadow(0 3px 0 rgba(0,0,0,.2)); transition: opacity .3s;
       }
       .multi-ghost.bye { opacity: 0; }
+      .multi-swap {
+        position: fixed; top: calc(max(12px, var(--sat, 0px)) + 112px); right: max(12px, var(--sar, 0px)); z-index: 60;
+        width: 78px; height: 78px; border: none; border-radius: 50%; padding: 0; cursor: pointer;
+        background: radial-gradient(circle at 35% 30%, #fff 0 40%, #f3f0ff 41%); box-shadow: 0 5px 0 rgba(0,0,0,.2);
+        touch-action: none; -webkit-tap-highlight-color: transparent; transition: transform .08s, box-shadow .08s, opacity .3s;
+      }
+      .multi-swap[hidden] { display: none; }
+      .multi-swap::after { content: ''; position: absolute; inset: -12px; }
+      .multi-swap:active { transform: translateY(4px); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+      .multi-swap span {
+        position: absolute; font-size: 30px; line-height: 1; transition: left .45s cubic-bezier(.5,-0.4,.5,1.4), top .45s cubic-bezier(.5,-0.4,.5,1.4);
+        transform: translate(-50%, -50%); filter: drop-shadow(0 0 3px var(--c, #fff));
+      }
+      .multi-swap span.a { left: 32%; top: 36%; }
+      .multi-swap span.b { left: 68%; top: 64%; }
+      .multi-swap.flip span.a { left: 68%; top: 64%; }
+      .multi-swap.flip span.b { left: 32%; top: 36%; }
     `;
     document.head.appendChild(st);
   }
@@ -117,14 +142,55 @@ const Multi = (() => {
   if (shell) {
     const ok = throttler();
     let onAction = null, onState = null;
+    let role = 'solo', roleInfo = {}, onRole = null, swapBtn = null;
+    function renderSwap() {
+      if (!swapBtn) return;
+      swapBtn.hidden = role === 'solo';
+      if (role === 'solo') return;
+      // じぶん（a）と なかま（b）。いれかわる たびに くるっと ばしょを かえる
+      const me = roleInfo.me || {}, other = roleInfo.other || {};
+      const [a, b] = swapBtn.children;
+      a.textContent = safeAvatar(me.av); a.style.setProperty('--c', `hsl(${me.hu ?? 200}, 95%, 60%)`);
+      b.textContent = safeAvatar(other.av); b.style.setProperty('--c', `hsl(${other.hu ?? 200}, 95%, 60%)`);
+      swapBtn.classList.toggle('flip', role === 'oya');
+    }
+    function makeSwap() {
+      if (swapBtn || !document.body) return;
+      injectStyle(document);
+      swapBtn = document.createElement('button');
+      swapBtn.className = 'multi-swap'; swapBtn.hidden = true;
+      swapBtn.setAttribute('aria-label', 'いれかえ');
+      swapBtn.innerHTML = '<span class="a"></span><span class="b"></span>';
+      // ゲームの タッチに ならない ように ここで とめる
+      for (const ev of ['pointerdown', 'pointerup', 'pointermove', 'touchstart', 'click']) swapBtn.addEventListener(ev, (e) => e.stopPropagation());
+      swapBtn.addEventListener('pointerdown', () => { try { Sfx.pop(); } catch (e) {} shell.multi.swapRole(window); });
+      document.body.appendChild(swapBtn);
+      renderSwap();
+    }
     // シェルからは JSON の もじれつで うけとり、この ページの なかで よみなおす（ページの オブジェクトとして あつかえるように）
     const port = {
       act(raw) { if (!onAction) return; let m; try { m = JSON.parse(raw); } catch (e) { return; } try { onAction(m); } catch (e) { console.error(e); } },
       state(raw) { if (!onState) return; let s = null; try { s = JSON.parse(raw); } catch (e) {} try { onState(s || {}, {}); } catch (e) { console.error(e); } },
+      role(raw) {
+        let r; try { r = JSON.parse(raw); } catch (e) { return; }
+        const prev = role;
+        role = r.r === 'ko' || r.r === 'oya' ? r.r : 'solo'; roleInfo = r;
+        renderSwap();
+        if (onRole) { try { onRole(role, roleInfo, prev); } catch (e) { console.error(e); } }
+      },
     };
     return {
       join(key, act, st) { onAction = act; onState = st || null; shell.multi.attach(window, key, port); },
-      send(data, minGapMs = 60) { if (data && ok(data.a || '_', minGapMs)) shell.multi.relay(window, data); },
+      // ゲームの ページ: 家族部屋の ときだけ つながり、親・子の やくを もらう（ゆびの うつしは しない）
+      duo(key, opts = {}) {
+        onAction = opts.onMsg || null; onRole = opts.onRole || null;
+        if (opts.swap !== false) { if (document.body) makeSwap(); else addEventListener('DOMContentLoaded', makeSwap); }
+        shell.multi.attach(window, key, port, { duo: true });
+      },
+      get role() { return role; },
+      get roleInfo() { return roleInfo; },        // { ko:{av,hu}, me:{av,hu}, other:{av,hu}, n }
+      swap() { shell.multi.swapRole(window); },   // こうたい（ボウリングの じゅんばん など）
+      send(data, minGapMs = 60) { if (data && ok(data.a === 'g' ? 'g' + (data.i ?? '') : (data.a || '_'), minGapMs)) shell.multi.relay(window, data); },
       showPeer, seed, rng,
       get peers() { return shell.multi.peersHere; },
       get enabled() { return shell.multi.enabled; },
@@ -174,6 +240,8 @@ const Multi = (() => {
   let pendingState = null;  // join より さきに とどいた そのページの 共有状態（JSON もじれつ）
   let dirty = false;        // つながっていない あいだに じぶんで いどうした
   let members = [];         // [{ id, av, hu, p }]
+  let ko = '', koFrom = '', koP = null; // ゲームの ページの 子（その ページを ひらいた 人 → いれかえで かわる）
+  let roleKey = '';
   let peersN = 1;           // ふるい サーバー むけ（同じページの 人数）
   let hooks = {};           // シェル（index.html）の よびだしさき: onGo(p, msg), onMembers(list), onMenuAct(msg)
   const ok = throttler();
@@ -187,12 +255,31 @@ const Multi = (() => {
     return 1 + members.filter(m => m.id !== myId && m.p === here).length;
   };
   // つながる べき か: グループ部屋なら いつでも。合言葉なしなら マルチたいおうの ページが join している あいだだけ
-  const wanted = () => enabled && !destroyed && (group || !!frame);
+  const wanted = () => enabled && !destroyed && (group || (!!frame && !frame.duo));
   const roomName = () => group ? `group--${roomCode}` : `${frame.key}`;
 
-  function renderPill() {
+  // ゲームの ページへ いまの やくを しらせる（かわった ときだけ）
+  function roleNow() {
+    if (!frame || !frame.duo || !group || !enabled || !isOpen() || !myId) return { r: 'solo' };
+    const here_ = [{ id: myId, av: myAvatar, hu: myHue }, ...members.filter(m => m.id !== myId && m.p === here).map(m => ({ id: m.id, av: safeAvatar(m.av), hu: m.hu }))];
+    if (here_.length < 2) return { r: 'solo' };
+    const ids = here_.map(m => m.id);
+    // サーバーと おなじ きめかた: 子が いなく なったら ひらいた 人、それも いなければ id の じゅん
+    const k = koP === here && ids.includes(ko) ? ko : koP === here && ids.includes(koFrom) ? koFrom : ids.slice().sort()[0];
+    const kom = here_.find(m => m.id === k), other = here_.find(m => m.id !== myId);
+    return { r: k === myId ? 'ko' : 'oya', ko: { av: kom.av, hu: kom.hu }, me: { av: myAvatar, hu: myHue }, other: { av: other.av, hu: other.hu }, n: here_.length };
+  }
+  function pushRole() {
+    if (!frame || !frame.duo) return;
+    const key = JSON.stringify(roleNow());
+    if (key === roleKey) return;
+    roleKey = key;
+    try { frame.port.role(key); } catch (e) {}
+  }
+  function renderPill() { renderPill0(); pushRole(); }
+  function renderPill0() {
     if (!pill) return;
-    pill.hidden = !(group || frame);
+    pill.hidden = !(group || (frame && !frame.duo));
     // グループ部屋では ボタンの なかの ピルは みるだけ（あそぶ ところの はしを さわって きれない ように）。きりかえは メニューで
     pill.style.pointerEvents = group && here !== '' ? 'none' : '';
     if (!enabled) { pill.textContent = '💤'; pill.className = 'multi-pill off'; return; }
@@ -263,6 +350,7 @@ const Multi = (() => {
         members = Array.isArray(msg.members) ? msg.members : [];
         if (group) {
           const place = typeof msg.place === 'string' ? msg.place : null;
+          if (place !== null && typeof msg.pko === 'string') { ko = koFrom = msg.pko; koP = place; }
           if (dirty || place === null || place === here) {
             // じぶんが うごいていた / まだ だれも きめていない / おなじ ところ → いまの ばしょを つたえる
             raw(dirty ? { t: 'go', p: here, s: hereSeed } : { t: 'at', p: here });
@@ -292,7 +380,13 @@ const Multi = (() => {
         const s = JSON.stringify(msg.s || {});
         if (frame) frame.port.state(s); else pendingState = s;
       } else if (msg.t === 'go') {
-        if (group && typeof msg.p === 'string' && hooks.onGo) hooks.onGo(msg.p, msg);
+        if (group && typeof msg.p === 'string') {
+          if (typeof msg.from === 'string') { koFrom = msg.from; ko = typeof msg.ko === 'string' ? msg.ko : msg.from; koP = msg.p; }
+          if (hooks.onGo) hooks.onGo(msg.p, msg);
+          renderPill();
+        }
+      } else if (msg.t === 'role') {
+        if (typeof msg.ko === 'string' && typeof msg.p === 'string') { ko = msg.ko; koP = msg.p; renderPill(); }
       } else if (msg.t === 'start') {
         if (group && hooks.onStart) hooks.onStart(msg.n);
       } else if (msg.t === 'act') {
@@ -327,9 +421,10 @@ const Multi = (() => {
   }
 
   // ページの Multi.join から
-  function attach(win, key, port) {
+  function attach(win, key, port, opts) {
     if (!win || win.parent !== window) return;
-    frame = { win, key: String(key).toLowerCase().replace(/[^a-z0-9]/g, ''), port };
+    frame = { win, key: String(key).toLowerCase().replace(/[^a-z0-9]/g, ''), port, duo: !!(opts && opts.duo) };
+    roleKey = '';
     if (pendingState !== null) { const s = pendingState; pendingState = null; port.state(s); }
     sync();
   }
@@ -539,6 +634,7 @@ const Multi = (() => {
     init, setHere, attach,
     mirror(win) { if (win && win.parent === window) Mirror.attach(win); }, // ボタンの ページの common.js から
     relay(win, data) { if (frame && frame.win === win) send(data); }, // ページから（まびきは ページ側で すんでいる）
+    swapRole(win) { if (frame && frame.win === win && frame.duo && group) raw({ t: 'role' }); }, // ゲームの ページの いれかえボタン
     send(data, minGapMs = 60) { if (data && ok(data.a || '_', minGapMs)) send(data); },
     get group() { return group; },
     get connected() { return isOpen(); },
@@ -550,7 +646,7 @@ const Multi = (() => {
     get enabled() { return enabled; },
     get peersHere() { return peersHere(); },
     // ページ むけと おなじ もの
-    join() {}, showPeer, seed, rng,
+    join() {}, duo() {}, role: 'solo', showPeer, seed, rng,
     get peers() { return peersHere(); },
   };
 })();

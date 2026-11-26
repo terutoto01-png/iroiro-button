@@ -17,16 +17,44 @@
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">⚽</span></button></div>
 <script src="common.js?v=20"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // サッカー: ボールを ゆびで ゴールの ほうへ はじいて シュート（ボタンでも けれる）。キーパーが よこに うごいて とめることも。
 // ゴールすると かみふぶき。ポストに あたると カーン。3かい いれると キーパーが こうたい。キーパーを さわると ジャンプ。
+// 家族部屋で 2人の とき: 子は いままで どおり ける。親は キーパー（ゆびを よこに うごかすと キーパーが ついてくる）。
+//   ボールの うごきと ゴール・キャッチの はんていは 子の がめんが きめて 親へ おくる。
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
 let dpr = fitCanvas(cv, ctx), W = innerWidth, H = innerHeight;
 const KEEPERS = ['🐻', '🐼', '🦁', '🐸', '🐧', '🐷', '🐵', '🐨'];
 let G, ball, keeper = { e: KEEPERS[0], x: 0, ph: 0, hold: 0, jump: 0, sad: 0 }, state = 'ready', st = 0, goals = 0, conf = [], net = 0, flick = null, ki = 0;
 const BR = 18, KR = 30;
+let role = 'solo', kTarget = 0.5, ballSent = 0, ballIn = null;
+const duo = () => role !== 'solo';
+const send = (o, ms = 0) => Multi.send(Object.assign({ a: 'g' }, o), ms);
+// ゴールが きじゅん: ボールの よこは ゴールの はば、たては ゴールから スタートまでを 1 として おくる（がめんの おおきさが ちがっても おなじ いちに みえる）。
+// キーパーの いち（0〜1）⇔ がめんの x。ゴールの はばを ちょっと こえる くらいまで
+const kxOf = (u) => G.x + (u - 0.5) * G.w * 0.9;
+Multi.duo('sakkaa', {
+  onRole(r) {
+    if (r === role) return;
+    role = r; kTarget = 0.5; ballIn = null; flick = null;
+    btn.parentNode.style.display = r === 'oya' ? 'none' : '';
+    resetBall(); keeper.x = G.x;
+    if (r === 'ko') send({ i: 2, k: 0 });
+  },
+  onMsg(m) {
+    if (m.a !== 'g') return;
+    if (m.i === 1 && role === 'ko') kTarget = m.x;
+    else if (role !== 'oya') return;
+    else if (m.i === 2) { if (m.k === 0) resetBall(); else { ballIn = { x: G.x + (m.x - 0.5) * 8 * G.w, y: G.y + (m.y - 0.2) / 0.4 * (G.start.y - G.y) }; state = 'fly'; } }
+    else if (m.i === 3) goalFx();
+    else if (m.i === 4) saveFx();
+    else if (m.i === 5) postFx(m.k ? 1 : -1);
+    else if (m.i === 6) Sfx.tone(300, 0.3, 'sine', 0.08, 0, 200);
+  },
+});
 function layout() { const gw = Math.min(W * 0.56, 280); G = { x: W / 2, y: 120, w: gw }; G.start = { x: W / 2, y: H - Math.max(190, H * 0.24) }; if (!ball) resetBall(); }
-function resetBall() { ball = { x: G.start.x, y: G.start.y, vx: 0, vy: 0, spin: 0 }; state = 'ready'; }
+function resetBall() { ball = { x: G.start.x, y: G.start.y, vx: 0, vy: 0, spin: 0 }; state = 'ready'; ballIn = null; if (role === 'ko') send({ i: 2, k: 0 }); }
 layout();
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); W = innerWidth; H = innerHeight; layout(); resetBall(); });
 // マルチ: なかまが さわった キーパーを、この がめんでも おなじ キーパーとして さわる（よこに うごいているので ずれる）
@@ -35,12 +63,16 @@ iroGrab(() => [keeper], (k) => [k.x, G.y + 10], 45);
 
 function kick(vx, vy) { if (state !== 'ready') return; ball.vx = vx; ball.vy = vy; state = 'fly'; st = 0; Sfx.tone(150, 0.12, 'sine', 0.3); Sfx.noise(0.08, 0.2, 900); }
 btn.addEventListener('pointerdown', () => { const tx = G.x + rand(-0.36, 0.36) * G.w, ty = G.y - 10, d = Math.hypot(tx - ball.x, ty - ball.y); kick((tx - ball.x) / d * 700, (ty - ball.y) / d * 700); });
+const moveKeeper = (e, ms = 70) => { kTarget = Math.max(0, Math.min(1, e.clientX / W)); send({ i: 1, x: kTarget }, ms); }; // はなした ときの いちは かならず おくる
 cv.addEventListener('pointerdown', (e) => {
   const x = e.clientX, y = e.clientY;
-  if (Math.hypot(x - keeper.x, y - G.y - 10) < 45) { keeper.jump = 1; Sfx.boing(); return; }
+  if (role === 'oya') { try { cv.setPointerCapture(e.pointerId); } catch (err) {} moveKeeper(e); return; }
+  if (duo()) { if (Math.hypot(x - keeper.x, y - G.y - 10) < 45) return; }
+  else if (Math.hypot(x - keeper.x, y - G.y - 10) < 45) { keeper.jump = 1; Sfx.boing(); return; }
   if (state === 'ready' && Math.hypot(x - ball.x, y - ball.y) < BR + 60) { try { cv.setPointerCapture(e.pointerId); } catch (err) {} flick = { id: e.pointerId, hist: [{ x, y, t: performance.now() }] }; }
 });
 cv.addEventListener('pointermove', (e) => {
+  if (role === 'oya') { if (e.buttons || e.pressure > 0) moveKeeper(e); return; }
   if (!flick || flick.id !== e.pointerId) return;
   flick.hist.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (flick.hist.length > 8) flick.hist.shift();
 });
@@ -51,14 +83,27 @@ const release = (e) => {
   if (vy > -120) { ball.hop = 1; Sfx.tone(300, 0.08, 'sine', 0.1); return; } // ちょんと さわった だけ
   const sp = Math.hypot(vx, vy), k = Math.max(450, Math.min(1000, sp)) / sp; kick(vx * k, vy * k);
 };
-cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+cv.addEventListener('pointerup', (e) => { if (role === 'oya') { moveKeeper(e, 0); return; } release(e); }); cv.addEventListener('pointercancel', release);
 
 function goal() {
-  state = 'goal'; st = 0; goals++; net = 1; keeper.sad = 1.5;
+  state = 'goal'; st = 0; goals++;
+  if (duo()) send({ i: 3 });
+  goalFx();
+  if (!duo() && goals % 3 === 0) setTimeout(() => { keeper.e = KEEPERS[++ki % KEEPERS.length]; popText('こうたい！', W / 2, G.y + 80, '#fff', 34); Sfx.tone(600, 0.2, 'sine', 0.1, 0, 900); }, 1800);
+}
+function saveFx() {
+  keeper.jump = 0.7; Sfx.tone(300, 0.15, 'square', 0.08); Sfx.tone(500, 0.2, 'triangle', 0.08, 0.08);
+  popText('キャッチ！', keeper.x, G.y + 70, '#fff', 34);
+  for (let i = 0; i < 24; i++) conf.push({ x: keeper.x + rand(-40, 40), y: G.y + 20, vx: rand(-90, 90), vy: rand(-60, 120), r: rand(0, 6), c: `hsl(${rand(180, 260)},90%,70%)`, life: 1.2 });
+}
+function postFx(side) {
+  const px = G.x + side * G.w / 2; Sfx.tone(1400, 0.4, 'triangle', 0.12); popText('カーン', px, G.y + 40, '#fff', 30);
+}
+function goalFx() {
+  net = 1; keeper.sad = 1.5;
   Sfx.yay(); setTimeout(() => Sfx.chime(), 250); Sfx.noise(1.5, 0.12, 1200, 0.1, 'bandpass');
   popText('ゴール！', W / 2, H * 0.4, '#ffd23f', 60);
   for (let i = 0; i < 70; i++) conf.push({ x: rand(0, W), y: rand(-200, 0), vx: rand(-40, 40), vy: rand(80, 200), r: rand(0, 6), c: `hsl(${rand(0, 360)},90%,60%)`, life: 3 });
-  if (goals % 3 === 0) setTimeout(() => { keeper.e = KEEPERS[++ki % KEEPERS.length]; popText('こうたい！', W / 2, G.y + 80, '#fff', 34); Sfx.tone(600, 0.2, 'sine', 0.1, 0, 900); }, 1800);
 }
 
 let last = performance.now();
@@ -67,15 +112,23 @@ function loop(now) {
   st += dt;
   keeper.jump = Math.max(0, keeper.jump - dt * 2); keeper.sad = Math.max(0, keeper.sad - dt); net = Math.max(0, net - dt * 1.5);
   ball.hop = Math.max(0, (ball.hop || 0) - dt * 3);
-  if (state !== 'catch') { keeper.ph += dt * 1.3; keeper.x = G.x + Math.sin(keeper.ph) * G.w * 0.32; }
+  if (role !== 'solo') keeper.x += (kxOf(kTarget) - keeper.x) * Math.min(1, dt * 14);
+  else if (state !== 'catch') { keeper.ph += dt * 1.3; keeper.x = G.x + Math.sin(keeper.ph) * G.w * 0.32; }
+  if (role === 'oya') {
+    if (ballIn) { ball.x += (ballIn.x - ball.x) * Math.min(1, dt * 20); ball.y += (ballIn.y - ball.y) * Math.min(1, dt * 20); ball.spin += dt * 10; }
+    for (const c of conf) { c.x += c.vx * dt; c.y += c.vy * dt; c.r += dt * 6; c.life -= dt; }
+    conf = conf.filter(c => c.life > 0 && c.y < H + 20);
+    draw(t); requestAnimationFrame(loop); return;
+  }
+  if (role === 'ko' && state !== 'ready' && now - ballSent > 66) { ballSent = now; send({ i: 2, k: 1, x: 0.5 + (ball.x - G.x) / G.w / 8, y: 0.2 + (ball.y - G.y) / (G.start.y - G.y) * 0.4 }); }
   if (state === 'fly') {
     ball.x += ball.vx * dt; ball.y += ball.vy * dt; ball.spin += dt * 10; ball.vx *= Math.pow(0.7, dt); ball.vy *= Math.pow(0.7, dt);
     // キーパー
-    if (Math.hypot(ball.x - keeper.x, ball.y - (G.y + 14)) < BR + KR * 0.4 && !keeper.jump) { state = 'catch'; st = 0; Sfx.tone(300, 0.15, 'square', 0.08); popText('キャッチ！', keeper.x, G.y + 70, '#fff', 34); }
+    if (Math.hypot(ball.x - keeper.x, ball.y - (G.y + 14)) < BR + KR * 0.4 && !keeper.jump) { state = 'catch'; st = 0; if (duo()) { send({ i: 4 }); saveFx(); } else { Sfx.tone(300, 0.15, 'square', 0.08); popText('キャッチ！', keeper.x, G.y + 70, '#fff', 34); } }
     // ポスト
-    for (const px of [G.x - G.w / 2, G.x + G.w / 2]) if (Math.abs(ball.y - G.y) < BR && Math.abs(ball.x - px) < BR + 4) { ball.vx = -ball.vx * 0.8 + (ball.x < px ? -60 : 60); ball.vy = Math.abs(ball.vy) * 0.6; Sfx.tone(1400, 0.4, 'triangle', 0.12); popText('カーン', px, G.y + 40, '#fff', 30); }
+    for (const px of [G.x - G.w / 2, G.x + G.w / 2]) if (Math.abs(ball.y - G.y) < BR && Math.abs(ball.x - px) < BR + 4) { ball.vx = -ball.vx * 0.8 + (ball.x < px ? -60 : 60); ball.vy = Math.abs(ball.vy) * 0.6; Sfx.tone(1400, 0.4, 'triangle', 0.12); popText('カーン', px, G.y + 40, '#fff', 30); if (duo()) send({ i: 5, k: px > G.x ? 1 : 0 }); }
     if (ball.y < G.y - 6 && Math.abs(ball.x - G.x) < G.w / 2 - 4 && state === 'fly') goal();
-    if (state === 'fly' && (ball.y < 40 || ball.x < -40 || ball.x > W + 40 || ball.y > H + 40 || Math.hypot(ball.vx, ball.vy) < 40)) { state = 'miss'; st = 0; Sfx.tone(300, 0.3, 'sine', 0.08, 0, 200); }
+    if (state === 'fly' && (ball.y < 40 || ball.x < -40 || ball.x > W + 40 || ball.y > H + 40 || Math.hypot(ball.vx, ball.vy) < 40)) { state = 'miss'; st = 0; Sfx.tone(300, 0.3, 'sine', 0.08, 0, 200); if (duo()) send({ i: 6 }); }
   }
   if (state === 'goal') { if (ball.y > G.y - 40) { ball.y -= 120 * dt; } if (st > 2.2) resetBall(); }
   if (state === 'catch') { ball.x = keeper.x; ball.y = G.y + 26; if (st > 1.2) { state = 'throw'; st = 0; } }
@@ -111,7 +164,7 @@ function draw(t) {
   const by = ball.y - Math.sin(ball.hop * Math.PI) * 20;
   ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(ball.x + 4, ball.y + BR * 0.8, BR, BR * 0.4, 0, 0, 7); ctx.fill();
   ctx.save(); ctx.translate(ball.x, by); ctx.rotate(ball.spin); drawEmoji(ctx, '⚽', 0, 0, BR * 2.2); ctx.restore();
-  if (state === 'ready' && !flick) { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 4); drawEmoji(ctx, '👆', ball.x + 40, ball.y + 20, 34); ctx.globalAlpha = 1; }
+  if (state === 'ready' && !flick && role !== 'oya') { ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 4); drawEmoji(ctx, '👆', ball.x + 40, ball.y + 20, 34); ctx.globalAlpha = 1; }
   for (const c of conf) { ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.r); ctx.fillStyle = c.c; ctx.fillRect(-5, -3, 10, 6); ctx.restore(); }
 }
 requestAnimationFrame(loop);

@@ -18,9 +18,13 @@
 <canvas id="cv" class="full"></canvas>
 <div class="corner"><button id="btn" class="big-btn"><span class="emoji">🔄</span></button></div>
 <script src="common.js?v=20"></script>
+<script src="multi.js?v=11"></script>
 <script>
 // かたちパズル: したの ブロックを ドラッグして うえの わくに ぴったり はめる（まわさない。どれを どこに おくか かんがえる）。
 // わくは L・コ・かいだん・いえ などの かたち。ぜんぶ はまったら つぎの もんだい（だんだん ブロックが ふえる）。🔄 で ちがう もんだい。
+// 家族部屋で 2人の とき: おなじ もんだいを 2人で いっしょに とく。もんだいは 子の がめんが きめて 親へ おくる（🔄 は おした ひとが きめる）。
+//   だれかが つかんで うごかすと あいての がめんでも おなじ ブロックが うごく（あいての いろで ふちどり）。おなじ ブロックを おなじ ときに つかんだら 子が さきに なる。
+//   はめた ブロックは はめた ひとの いろで うすく ふちどる。ぜんぶ はまったか は 子の がめんが きめる。
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), btn = document.getElementById('btn');
 let dpr = fitCanvas(cv, ctx);
 addEventListener('resize', () => { dpr = fitCanvas(cv, ctx); layoutTray(); });
@@ -47,7 +51,11 @@ const LEVELS = [ // わくの かたち（# が うめる ところ）と つか
   { m: ['#...#', '##.##', '#####', '#####'], k: ALL },
 ];
 const COLORS = [350, 200, 50, 130, 280, 20, 170, 310, 90, 230]; // ブロックが おおくても いろが かぶらない
-let level = 0, BW, BH, pieces = [], board, drag = null, done = 0, sparks = [];
+let role = 'solo', peerPuz = false, curSpec = null;
+const duo = () => role !== 'solo';
+const myHu = () => Multi.roleInfo.me?.hu ?? 200, otherHu = () => Multi.roleInfo.other?.hu ?? 200;
+const send = (o, ms = 0) => { if (duo()) Multi.send({ a: 'g', ...o }, ms); };
+let level = 0, BW = 0, BH = 0, pieces = [], board = null, drag = null, done = 0, sparks = [];
 
 const rot = (cells) => { const r = cells.map(([x, y]) => [-y, x]); const mx = Math.min(...r.map(c => c[0])), my = Math.min(...r.map(c => c[1])); return r.map(([x, y]) => [x - mx, y - my]); };
 const norm = (cells) => { const mx = Math.min(...cells.map(c => c[0])), my = Math.min(...cells.map(c => c[1])); return cells.map(([x, y]) => [x - mx, y - my]); };
@@ -82,15 +90,42 @@ function tile(mask, kinds) {
 
 function newPuzzle() {
   // さいごまで いったら むずかしめの もんだいから えらぶ
-  const L = level < LEVELS.length ? LEVELS[level] : LEVELS[LEVELS.length - 1 - Math.floor(rand(0, 5))];
+  const idx = level < LEVELS.length ? level : LEVELS.length - 1 - Math.floor(rand(0, 5)), L = LEVELS[idx];
+  const mir = Math.random() < 0.5 ? 1 : 0; // ときどき さゆう はんてん
   let mask = L.m.slice();
-  if (Math.random() < 0.5) mask = mask.map(r => [...r].reverse().join('')); // ときどき さゆう はんてん
+  if (mir) mask = mask.map(r => [...r].reverse().join(''));
   const sol = tile(mask, L.k) || tile(mask, ALL);
+  // まわさない ので、こたえの むきの まま わたす（ならびは ばらばら）
+  const list = sol.sort(() => Math.random() - 0.5).map(p => norm(p.cells));
+  buildPuzzle(idx, mir, list);
+  // ブロックの かたちを ならべて おくる: [マスの かず, x, y, x, y, …] を ブロックの かずだけ
+  curSpec = { idx, mir, list };
+  sendPuzzle();
+}
+function sendPuzzle() { if (curSpec) send({ i: 1, k: level, s: curSpec.idx * 2 + curSpec.mir, m: curSpec.list.flatMap(c => [c.length, ...c.flat()]) }); }
+function buildPuzzle(idx, mir, list) {
+  let mask = LEVELS[idx].m.slice();
+  if (mir) mask = mask.map(r => [...r].reverse().join(''));
   BH = mask.length; BW = mask[0].length;
   board = mask.map(r => [...r].map(c => (c === '#' ? -1 : -2)));
-  // まわさない ので、こたえの むきの まま わたす（ならびは ばらばら）
-  pieces = sol.sort(() => Math.random() - 0.5).map((p, i) => ({ id: i, cells: norm(p.cells), hue: COLORS[i % COLORS.length], placed: null, x: 0, y: 0, tx: 0, ty: 0, wob: 0 }));
+  drag = null;
+  pieces = list.map((cells, i) => ({ id: i, cells, hue: COLORS[i % COLORS.length], placed: null, x: 0, y: 0, tx: 0, ty: 0, wob: 0, remote: false, ring: null }));
   done = 0; layoutTray(true);
+}
+const pieceById = (id) => pieces.find(p => p.id === id);
+// ブロックを わくに おく / わくから はずす（あいてが うごかした ときも おなじ）
+function putOn(p, gx, gy, ring) {
+  const g = geo();
+  p.placed = { x: gx, y: gy }; p.ring = ring; p.tx = g.bx + gx * g.cs; p.ty = g.by + gy * g.cs;
+  p.cells.forEach(([cx, cy]) => board[gy + cy][gx + cx] = 1);
+}
+function takeOff(p) { if (p.placed) { p.cells.forEach(([cx, cy]) => board[p.placed.y + cy][p.placed.x + cx] = -1); p.placed = null; } p.ring = null; }
+const fitsAt = (p, gx, gy) => p.cells.every(([cx, cy]) => { const x = gx + cx, y = gy + cy; return x >= 0 && y >= 0 && x < BW && y < BH && board[y][x] === -1; });
+const onTop = (p) => { pieces.splice(pieces.indexOf(p), 1); pieces.push(p); };
+// q が (gx, gy) に おく p と かさならない か
+function apart(q, p, gx, gy) {
+  const mine = new Set(p.cells.map(([cx, cy]) => (gx + cx) + ',' + (gy + cy)));
+  return !q.cells.some(([cx, cy]) => mine.has((q.placed.x + cx) + ',' + (q.placed.y + cy)));
 }
 function geo() {
   const W = innerWidth, H = innerHeight, bTop = btn.getBoundingClientRect().top;
@@ -115,7 +150,7 @@ function layoutTray(snap) {
     if (snap) { p.x = p.tx; p.y = p.ty; }
   });
 }
-const goHome = (p) => { p.tx = p.hx; p.ty = p.hy; };
+const goHome = (p) => { p.tx = p.hx; p.ty = p.hy; p.remote = false; };
 function pack(list, s, areaW) {
   const gap = s * 0.55, out = [], rowW = [];
   let x = 0, y = 0, rowH = 0, row = 0;
@@ -127,9 +162,9 @@ function pack(list, s, areaW) {
   rowW[row] = x - gap;
   return { list: out, h: y + rowH, rowW };
 }
-const scaleOf = (p) => (p.placed || p === drag?.p ? 1 : trayK);
+const scaleOf = (p) => (p.placed || p.remote || p === drag?.p ? 1 : trayK);
 
-btn.addEventListener('pointerdown', () => { newPuzzle(); Sfx.tone(700, 0.15, 'sine', 0.1, 0, 1000); });
+btn.addEventListener('pointerdown', () => { if (!board && role === 'oya') return; newPuzzle(); Sfx.tone(700, 0.15, 'sine', 0.1, 0, 1000); });
 // ゆびの した の ブロック。ぴったり あたらなくても、すこし はずれた ところ（すきま・かど）なら いちばん ちかい ブロックを つかむ
 function pieceAt(x, y) {
   const g = geo();
@@ -148,42 +183,44 @@ function pieceAt(x, y) {
   return best;
 }
 cv.addEventListener('pointerdown', (e) => {
-  if (done) return;
-  const p = pieceAt(e.clientX, e.clientY); if (!p) return;
-  if (drag && drag.p !== p) goHome(drag.p); // べつの ゆびで ほかを つかんだら、まえの ブロックは おきばへ
+  if (done || !board) return;
+  const p = pieceAt(e.clientX, e.clientY); if (!p || p.remote) return;
+  if (drag && drag.p !== p) { goHome(drag.p); send({ i: 4, k: drag.p.id, s: 0, m: [0, 0] }); } // べつの ゆびで ほかを つかんだら、まえの ブロックは おきばへ
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
   const g = geo(), s = g.cs * scaleOf(p); // つかむ まえの おおきさで ゆびの いちを はかる
-  if (p.placed) { // わくから はずす
-    p.cells.forEach(([cx, cy]) => board[p.placed.y + cy][p.placed.x + cx] = -1); p.placed = null;
-  }
-  pieces.splice(pieces.indexOf(p), 1); pieces.push(p); // いちばん うえに
+  takeOff(p); // わくから はずす
+  onTop(p); // いちばん うえに
+  send({ i: 2, k: p.id });
   drag = { p, sx: e.clientX, sy: e.clientY, ox: (e.clientX - p.x) / s * g.cs, oy: (e.clientY - p.y) / s * g.cs, moved: false, id: e.pointerId };
   Sfx.tone(600, 0.05, 'sine', 0.07);
 });
 cv.addEventListener('pointermove', (e) => {
   if (!drag || e.pointerId !== drag.id) return;
   if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 10) drag.moved = true;
-  if (drag.moved) { drag.p.x = e.clientX - drag.ox; drag.p.y = e.clientY - drag.oy - 30; }
+  if (drag.moved) {
+    drag.p.x = e.clientX - drag.ox; drag.p.y = e.clientY - drag.oy - 30;
+    const g = geo(); send({ i: 3, k: drag.p.id, m: [(drag.p.x - g.bx) / g.cs, (drag.p.y - g.by) / g.cs] }, 70);
+  }
 });
 const drop = (e) => {
   if (!drag || e.pointerId !== drag.id) return;
   const p = drag.p, g = geo();
   if (!drag.moved) { // タッチ だけ → ぷるん（まわさない）
     p.wob = 1; Sfx.tone(800, 0.06, 'triangle', 0.06);
-    drag = null; goHome(p); return;
+    drag = null; goHome(p); send({ i: 4, k: p.id, s: 0, m: [0, 0] }); return;
   }
   drag = null;
   // いちばん ちかい マスに すいつく
   const gx = Math.round((p.x - g.bx) / g.cs), gy = Math.round((p.y - g.by) / g.cs);
-  const fits = p.cells.every(([cx, cy]) => { const x = gx + cx, y = gy + cy; return x >= 0 && y >= 0 && x < BW && y < BH && board[y][x] === -1; });
-  if (fits) {
-    p.placed = { x: gx, y: gy }; p.tx = g.bx + gx * g.cs; p.ty = g.by + gy * g.cs;
-    p.cells.forEach(([cx, cy]) => board[gy + cy][gx + cx] = 1);
+  if (fitsAt(p, gx, gy)) {
+    putOn(p, gx, gy, duo() ? myHu() : null);
     Sfx.tone(520, 0.1, 'square', 0.08); Sfx.tone(780, 0.15, 'sine', 0.08, 0.06);
-    if (pieces.every(q => q.placed)) win();
+    send({ i: 4, k: p.id, s: 1, m: [gx, gy] });
+    if (role !== 'oya' && pieces.every(q => q.placed)) { win(); send({ i: 7, k: 0 }); } // ぜんぶ はまったか は 子の がめんが きめる
   } else {
     Sfx.tone(240, 0.12, 'sine', 0.08, 0, 180); // もどる
     goHome(p);
+    send({ i: 4, k: p.id, s: 0, m: [0, 0] });
   }
 };
 cv.addEventListener('pointerup', drop); cv.addEventListener('pointercancel', drop); cv.addEventListener('lostpointercapture', drop);
@@ -195,13 +232,60 @@ function win() {
   Sfx.yay(); setTimeout(() => Sfx.chime(), 300);
   popText(pick(['ぴったり！', 'できた！', 'すごい！']), innerWidth / 2, g.by - 30, '#ff7b00', 56);
 }
-newPuzzle();
+// やくが きまる のは ここまで ぜんぶ つくって から（さきに きまっていても だいじょうぶ なように）
+Multi.duo('katahame', {
+  swap: false,
+  onRole(r) {
+    if (r === role) return;
+    role = r; if (r !== 'oya') peerPuz = false;
+    if (r === 'oya') { if (!peerPuz) { pieces = []; board = null; BW = BH = 0; drag = null; done = 0; } send({ i: 9 }); } // 子の もんだいが とどくまで まつ（とどいて いなければ ねだる）
+    else if (r === 'ko') newPuzzle();
+  },
+  onMsg(m) {
+    if (m.a !== 'g') return;
+    if (m.i === 1) { // あたらしい もんだい
+      const list = [], a = m.m || [];
+      for (let q = 0; q < a.length; q += 1 + a[q] * 2) { const c = []; for (let t = 0; t < a[q]; t++) c.push([a[q + 1 + t * 2], a[q + 2 + t * 2]]); list.push(c); }
+      level = m.k; peerPuz = true; buildPuzzle(m.s >> 1, m.s & 1, list);
+      return;
+    }
+    if (m.i === 9) { if (role === 'ko' && !done) sendPuzzle(); return; }
+    if (!board) return;
+    if (m.i === 7) { if (role === 'oya' && !done) win(); return; }
+    if (done) return;
+    const p = pieceById(m.k); if (!p) return;
+    if (m.i === 2) { // あいてが つかんだ
+      if (drag && drag.p === p) { if (role === 'ko') return; drag = null; } // おなじ ブロックを おなじ ときに つかんだら 子が さき
+      takeOff(p); p.remote = true; onTop(p);
+    } else if (m.i === 3) { // あいてが うごかしている
+      if (!p.remote) return;
+      const g = geo(); p.tx = g.bx + (m.m?.[0] ?? 0) * g.cs; p.ty = g.by + (m.m?.[1] ?? 0) * g.cs;
+    } else if (m.i === 4) { // あいてが はなした（s=1 なら わくに はめた）
+      if (drag && drag.p === p) return;
+      p.remote = false;
+      if (!m.s) { goHome(p); return; }
+      const gx = Math.round(m.m?.[0] ?? 0), gy = Math.round(m.m?.[1] ?? 0);
+      takeOff(p);
+      if (!fitsAt(p, gx, gy)) { // どうじに はめて ぶつかった: 子が さき。親の ブロックが おきばへ
+        if (role === 'ko') { send({ i: 5, k: p.id }); goHome(p); return; }
+        for (const q of pieces.slice()) if (q.placed && q !== p && !apart(q, p, gx, gy)) { takeOff(q); goHome(q); }
+      }
+      putOn(p, gx, gy, otherHu());
+      Sfx.tone(520, 0.1, 'square', 0.08); Sfx.tone(780, 0.15, 'sine', 0.08, 0.06);
+      if (role !== 'oya' && pieces.every(q => q.placed)) { win(); send({ i: 7, k: 0 }); }
+    } else if (m.i === 5) { // 子が「ぶつかった」: おきばへ
+      takeOff(p); goHome(p);
+    }
+  },
+});
+if (!board && role !== 'oya') newPuzzle();
+setInterval(() => { if (role === 'oya' && !board) send({ i: 9 }); }, 700); // 子の ぶんが とどくまで ねだりつづける（つながる まえに おくった ぶんは なくなる）
 
 let last = performance.now();
 (function loop(now) {
   const dt = Math.min(0.033, (now - last) / 1000); last = now;
   const t = now / 1000, g = geo(), W = innerWidth, H = innerHeight;
-  if (done) { done += dt; if (done > 2) { level++; newPuzzle(); } }
+  if (done) { done += dt; if (done > 2 && role !== 'oya') { level++; newPuzzle(); } } // 親は 子の つぎの もんだいを まつ
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   // わく（かたちの とおりに）
@@ -234,6 +318,12 @@ let last = performance.now();
       ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.roundRect(x + 6, y + 5, s - 12, s * 0.25, 6); ctx.fill();
     }
     ctx.restore();
+    // ふちどり: はめた ひとの いろ（うすく）/ あいてが つかんでいる あいだは こく
+    if (p.ring != null || p.remote) {
+      ctx.save(); ctx.strokeStyle = `hsla(${p.remote ? otherHu() : p.ring}, 95%, 55%, ${p.remote ? 0.95 : 0.55})`; ctx.lineWidth = p.remote ? 5 : 3;
+      for (const [cx, cy] of p.cells) { ctx.beginPath(); ctx.roundRect(p.x + cx * s + 1, p.y + cy * s + 1, s - 2, s - 2, 10); ctx.stroke(); }
+      ctx.restore();
+    }
   }
   for (const sp of sparks) { sp.x += sp.vx * dt; sp.y += sp.vy * dt; sp.vy += 300 * dt; sp.life -= dt; ctx.fillStyle = `hsla(${sp.hue}, 100%, 60%, ${Math.max(0, sp.life)})`; ctx.beginPath(); ctx.arc(sp.x, sp.y, 5, 0, 7); ctx.fill(); }
   sparks = sparks.filter(sp => sp.life > 0);
