@@ -1,0 +1,387 @@
+/* ================= ゆうえんち モード（あそびば） ================= */
+#view, #sky, #park-exit, #park-warps { display: none; }
+html.park #view, html.park #sky, html.park #park-exit { display: block; }
+html.park #park-warps { display: flex; }
+html.park #grid, html.park #fade, html.park #more { display: none !important; }
+html.park, html.park body { overflow: hidden !important; height: 100%; touch-action: none; }
+html.park body::before { background: #9fd486; }
+#view { position: fixed; inset: 0; overflow: hidden; touch-action: none; }
+#world { position: absolute; left: 0; top: 0; will-change: transform; border-radius: calc(var(--u) * .8);
+         background: #bfe6a0 radial-gradient(circle, #b6e098 0 10%, transparent 11%) 0 0 / calc(var(--u) * 1.3) calc(var(--u) * 1.3);
+         box-shadow: 0 0 0 calc(var(--u) * .25) #b2df93, 0 0 0 calc(var(--u) * .5) #a6d889; }
+
+/* エリア: しろい さくで かこむ */
+.island { position: absolute; z-index: 2; border-radius: calc(var(--u) * .7); background: var(--bg);
+          box-shadow: 0 0 0 calc(var(--u) * .1) #fff, 0 0 0 calc(var(--u) * .16) var(--bd), 0 calc(var(--u) * .18) 0 calc(var(--u) * .16) rgba(0,0,0,.08);
+          background-image: radial-gradient(circle, rgba(255,255,255,.45) 0 12%, transparent 13%); background-size: calc(var(--u) * .9) calc(var(--u) * .9); }
+/* みち と ひろば（レンガ） */
+.road, .plaza { position: absolute; z-index: 1; background-color: #f6e2bd;
+                background-image: linear-gradient(90deg, rgba(214,170,110,.25) 2px, transparent 2px), linear-gradient(rgba(214,170,110,.25) 2px, transparent 2px);
+                background-size: calc(var(--u) * .5) calc(var(--u) * .25); box-shadow: inset 0 0 0 calc(var(--u) * .07) #e8c98f; border-radius: calc(var(--u) * .3); }
+.plaza { border-radius: 50%; background-color: #fbe9c6; box-shadow: inset 0 0 0 calc(var(--u) * .1) #e8c98f, inset 0 0 0 calc(var(--u) * .5) #f6dcae; }
+
+/* やたい: しましまの やね・はしら・ゆか */
+.booth { position: absolute; width: calc(var(--u) * 1.4); height: calc(var(--u) * 1.75); margin: calc(var(--u) * -1.12) 0 0 calc(var(--u) * -.7); pointer-events: none; }
+.booth .roof { position: absolute; left: 0; right: 0; top: 0; height: calc(var(--u) * .46); border-radius: calc(var(--u) * .5) calc(var(--u) * .5) calc(var(--u) * .06) calc(var(--u) * .06);
+               background: repeating-linear-gradient(90deg, var(--c1) 0 calc(var(--u) * .175), #fff 0 calc(var(--u) * .35));
+               box-shadow: inset 0 calc(var(--u) * -.05) 0 rgba(0,0,0,.1), 0 calc(var(--u) * .04) 0 var(--c2); }
+.booth .roof::after { content: ''; position: absolute; left: 0; right: 0; bottom: calc(var(--u) * -.11); height: calc(var(--u) * .12);
+                      background: radial-gradient(circle at 50% 0, var(--c1) 64%, transparent 66%) 0 0 / calc(var(--u) * .35) 100% repeat-x; }
+.booth .poles { position: absolute; left: calc(var(--u) * .1); right: calc(var(--u) * .1); top: calc(var(--u) * .4); height: calc(var(--u) * .9);
+                border-left: calc(var(--u) * .07) solid #fff; border-right: calc(var(--u) * .07) solid #fff; }
+.booth .floor { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--u) * .5); border-radius: 50%;
+                background: rgba(255,255,255,.7); box-shadow: 0 calc(var(--u) * .05) 0 rgba(0,0,0,.1); }
+
+/* アーチ（エリアの いりぐち・ゆうえんちの ゲート） */
+.arch { position: absolute; width: calc(var(--u) * 2.1); height: calc(var(--u) * 1.75); translate: -50% -100%; pointer-events: none; }
+.arch .post { position: absolute; bottom: 0; width: calc(var(--u) * .2); height: calc(var(--u) * 1.3); border-radius: calc(var(--u) * .08);
+              background: var(--bd); box-shadow: inset calc(var(--u) * -.05) 0 0 rgba(0,0,0,.12); }
+.arch .post.l { left: calc(var(--u) * .12); } .arch .post.r { right: calc(var(--u) * .12); }
+.arch b { position: absolute; left: 0; right: 0; top: 0; height: calc(var(--u) * .95); display: grid; place-items: center;
+          border-radius: calc(var(--u) * 1) calc(var(--u) * 1) calc(var(--u) * .2) calc(var(--u) * .2);
+          background: repeating-linear-gradient(-45deg, var(--bg) 0 calc(var(--u) * .18), #fff 0 calc(var(--u) * .36));
+          box-shadow: inset 0 0 0 calc(var(--u) * .08) var(--bd), 0 calc(var(--u) * .07) 0 rgba(0,0,0,.12); }
+.arch b::before { content: ''; position: absolute; left: 8%; right: 8%; top: calc(var(--u) * .1); height: calc(var(--u) * .14);
+                  background: radial-gradient(circle, #fff6a8 0 35%, transparent 40%) 0 0 / calc(var(--u) * .25) 100% repeat-x; animation: bulbs 1s steps(2) infinite; }
+@keyframes bulbs { 50% { filter: brightness(.6); } }
+.arch b span { font-size: calc(var(--u) * .55); line-height: 1; margin-top: calc(var(--u) * .15); }
+.arch.main { width: calc(var(--u) * 3.4); height: calc(var(--u) * 2.6); }
+.arch.main .post { height: calc(var(--u) * 1.9); width: calc(var(--u) * .3); background: repeating-linear-gradient(#ff5a8a 0 calc(var(--u) * .25), #fff 0 calc(var(--u) * .5)); }
+.arch.main b { height: calc(var(--u) * 1.3); background: linear-gradient(90deg, #ff5a5a, #ffd23f, #8fce73, #4fc3f7, #b388ff); box-shadow: inset 0 0 0 calc(var(--u) * .1) #fff, 0 calc(var(--u) * .08) 0 rgba(0,0,0,.15); }
+.arch.main b span { font-size: calc(var(--u) * .85); }
+
+/* がいとう・はた */
+.lamp { position: absolute; width: calc(var(--u) * .1); height: calc(var(--u) * 1.3); translate: -50% -100%; background: #5a6b7d; border-radius: 4px; pointer-events: none; }
+.lamp::before { content: ''; position: absolute; left: 50%; top: calc(var(--u) * -.2); width: calc(var(--u) * .34); height: calc(var(--u) * .34); translate: -50% 0;
+                border-radius: 50%; background: radial-gradient(circle at 40% 35%, #fff, #ffe680 60%, #ffc93c); box-shadow: 0 0 calc(var(--u) * .3) #fff3a0; }
+.lamp::after { content: ''; position: absolute; left: 50%; bottom: 0; width: calc(var(--u) * .3); height: calc(var(--u) * .1); translate: -50% 40%; border-radius: 50%; background: rgba(0,0,0,.2); }
+.bunting { position: absolute; height: calc(var(--u) * .3); display: flex; justify-content: space-around; pointer-events: none;
+           border-top: 2px solid #8a6a4a; border-radius: 0 0 50% 50% / 0 0 30% 30%; }
+.bunting i { width: calc(var(--u) * .24); height: calc(var(--u) * .3); clip-path: polygon(0 0, 100% 0, 50% 100%); }
+
+/* ボタン・かざり・どうぶつ */
+.attr { text-decoration: none; position: absolute; width: var(--u); height: var(--u); margin: calc(var(--u) * -.5) 0 0 calc(var(--u) * -.5);
+        font-size: calc(var(--u) * .3); box-shadow: 0 calc(var(--u) * .09) 0 var(--c2), 0 calc(var(--u) * .14) calc(var(--u) * .2) rgba(0,0,0,.25); }
+.attr.new::after { content: '✨'; position: absolute; right: -10%; top: -10%; font-size: .9em; pointer-events: none;
+                   animation: twinkle 1.4s ease-in-out infinite; filter: drop-shadow(0 0 6px #fff6a8); }
+.deco { position: absolute; translate: -50% -85%; font-size: calc(var(--u) * var(--s, .55)); font-style: normal; line-height: 1; pointer-events: none; }
+.deco.sway { animation: sway 3s ease-in-out infinite; }
+@keyframes sway { 50% { translate: -50% -100%; rotate: 6deg; } }
+.chr { position: absolute; width: 0; height: 0; pointer-events: none; }
+.chr .shadow { position: absolute; left: 0; top: 0; width: calc(var(--u) * .6); height: calc(var(--u) * .18); translate: -50% -50%;
+               border-radius: 50%; background: rgba(0,0,0,.2); }
+.chr b { position: absolute; left: 0; bottom: calc(var(--u) * .02); translate: -50% 0; font-size: calc(var(--u) * .6); line-height: 1;
+         padding: .1em; border-radius: 50%; background: #fff; transform-origin: 50% 100%;
+         box-shadow: 0 0 0 calc(var(--u) * .055) var(--c), 0 calc(var(--u) * .05) 0 calc(var(--u) * .055) rgba(0,0,0,.15); }
+.chr b span { display: block; }
+.chr.me b { box-shadow: 0 0 0 calc(var(--u) * .07) var(--c), 0 0 calc(var(--u) * .3) var(--c), 0 calc(var(--u) * .05) 0 calc(var(--u) * .07) rgba(0,0,0,.15); }
+.chr.walk b { animation: waddle .34s ease-in-out infinite; }
+.chr.hop b { animation: hopin .32s ease-in both; }
+@keyframes waddle { 0%, 100% { translate: -50% 0; rotate: -7deg; } 50% { translate: -50% calc(var(--u) * -.16); rotate: 7deg; } }
+@keyframes hopin { 40% { translate: -50% calc(var(--u) * -.5); scale: 1.1; } 100% { translate: -50% calc(var(--u) * -.1); scale: .3; opacity: 0; } }
+.ripple { position: absolute; z-index: 50; width: calc(var(--u) * .8); height: calc(var(--u) * .36); translate: -50% -50%; border-radius: 50%;
+          border: 4px solid #fff; pointer-events: none; animation: rip .6s ease-out forwards; }
+@keyframes rip { from { scale: .3; opacity: 1; } to { scale: 1.3; opacity: 0; } }
+.poof { position: absolute; z-index: 9999; translate: -50% -90%; font-size: calc(var(--u) * .7); font-style: normal; pointer-events: none; animation: poofa .7s ease-out forwards; }
+@keyframes poofa { from { scale: .4; opacity: 1; } to { scale: 1.6; opacity: 0; } }
+.chr.jump b { animation: cjump .55s cubic-bezier(.3,.7,.4,1); }
+@keyframes cjump { 0% { scale: 1.15 .8; } 35% { translate: -50% calc(var(--u) * -.9); scale: .9 1.15; rotate: 12deg; } 70% { translate: -50% 0; scale: 1.15 .85; rotate: 0deg; } 100% { scale: 1; } }
+.chr.hi b { animation: chi .65s ease-out; }
+@keyframes chi { 25% { translate: -50% calc(var(--u) * -.35); rotate: -10deg; } 50% { translate: -50% 0; rotate: 10deg; } 75% { translate: -50% calc(var(--u) * -.2); rotate: 0deg; } }
+.heart { position: absolute; z-index: 9998; translate: -50% -50%; font-size: calc(var(--u) * .6); font-style: normal; pointer-events: none; animation: heart 1.1s ease-out forwards; }
+@keyframes heart { 0% { scale: .2; opacity: 0; } 25% { scale: 1.2; opacity: 1; } 100% { scale: 1; opacity: 0; translate: -50% -150%; } }
+
+/* トランポリン・くるくる・ふうせん・ふんすい・はなび・かんらんしゃ */
+.tramp, .kuru { position: absolute; width: calc(var(--u) * 1.5); height: calc(var(--u) * .8); translate: -50% -50%; pointer-events: none; }
+.tramp { border-radius: 50%; background: radial-gradient(ellipse, #3a4a6a 0 52%, #4fc3f7 54% 70%, #fff 72% 78%, #ff5a8a 80%);
+         box-shadow: 0 calc(var(--u) * .12) 0 #c23c6a, 0 calc(var(--u) * .2) calc(var(--u) * .15) rgba(0,0,0,.2); }
+.kuru { border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 calc(var(--u) * .08) #fff, 0 calc(var(--u) * .12) 0 calc(var(--u) * .08) #b388ff; }
+.kuru i { position: absolute; left: 0; top: 50%; width: 100%; aspect-ratio: 1; translate: 0 -50%; scale: 1 .53; display: block; }
+.kuru i::before { content: ''; position: absolute; inset: 0; border-radius: 50%; animation: kuru 3s linear infinite;
+                  background: conic-gradient(#ff8fb8 0 45deg, #ffd23f 0 90deg, #4fc3f7 0 135deg, #8fce73 0 180deg, #ff8fb8 0 225deg, #ffd23f 0 270deg, #4fc3f7 0 315deg, #8fce73 0); }
+@keyframes kuru { to { rotate: 360deg; } }
+.chr.boing b { animation: boing .62s cubic-bezier(.3,.6,.5,1) infinite; }
+@keyframes boing { 0%, 100% { translate: -50% 0; scale: 1.15 .85; } 45% { translate: -50% calc(var(--u) * -1.3); scale: .95 1.08; } }
+.chr.spin b { animation: cspin .9s linear infinite; }
+@keyframes cspin { to { rotate: 360deg; } }
+.chr.ride b { animation: cride .9s ease-in-out infinite; }
+@keyframes cride { 0%, 100% { translate: -50% calc(var(--u) * -.06); } 50% { translate: -50% calc(var(--u) * -.34); } }
+/* もちもの（ふうせん・ポップコーン・アイス・ステッキ・おうかん） */
+.chr .held { position: absolute; font-size: .72em; font-style: normal; line-height: 1; pointer-events: none; }
+.chr .bal { left: 70%; bottom: 95%; font-size: .75em; animation: sway 2.4s ease-in-out infinite; }
+.chr .bal::after { content: ''; position: absolute; left: 45%; top: 92%; width: 1px; height: .6em; background: #8a6a4a; }
+.chr .item-popcorn, .chr .item-ice, .chr .item-wand { left: 74%; bottom: 56%; animation: heldBob 1.8s ease-in-out infinite; filter: drop-shadow(0 2px 2px rgba(0,0,0,.2)); }
+.chr .item-crown { left: 50%; bottom: 92%; translate: -50% 0; font-size: .68em; animation: crownBob 2s ease-in-out infinite; filter: drop-shadow(0 2px 2px rgba(0,0,0,.22)); }
+html.park[data-sky="night"] .chr .item-wand { filter: drop-shadow(0 0 8px #fff3a0) drop-shadow(0 0 16px #ff8fb8); }
+@keyframes heldBob { 50% { translate: 0 -10%; rotate: 8deg; } }
+@keyframes crownBob { 50% { translate: -50% -10%; } }
+.drop { position: absolute; z-index: 9990; font-size: calc(var(--u) * .3); font-style: normal; translate: -50% -50%; pointer-events: none; animation: drop 1.1s ease-in both; }
+@keyframes drop { 0% { opacity: 0; transform: translate(0, 0); } 10% { opacity: 1; }
+                  45% { transform: translate(calc(var(--dx) * var(--u) * .5), calc(var(--dy) * var(--u))); }
+                  100% { opacity: 0; transform: translate(calc(var(--dx) * var(--u)), calc(var(--u) * .4)); } }
+.fw { position: absolute; z-index: 9990; width: 0; height: 0; pointer-events: none; }
+.fw i { position: absolute; left: calc(var(--u) * -.09); top: calc(var(--u) * -.09); width: calc(var(--u) * .18); height: calc(var(--u) * .18); border-radius: 50%;
+        background: var(--fc); box-shadow: 0 0 calc(var(--u) * .2) var(--fc), 0 0 calc(var(--u) * .08) #fff inset; animation: fwp 1.1s ease-out both; }
+@keyframes fwp { 0% { transform: rotate(var(--a)) translateY(0) scale(.4); opacity: 1; }
+                 60% { opacity: 1; } 100% { transform: rotate(var(--a)) translateY(calc(var(--u) * -1.3)) scale(.8); opacity: 0; } }
+.fw.big i { left: calc(var(--u) * -.12); top: calc(var(--u) * -.12); width: calc(var(--u) * .24); height: calc(var(--u) * .24); animation: fwpb 1.4s ease-out both; }
+@keyframes fwpb { 0% { transform: rotate(var(--a)) translateY(0) scale(.5); opacity: 1; }
+                  65% { opacity: 1; } 100% { transform: rotate(var(--a)) translateY(calc(var(--u) * -2.1)) scale(.95); opacity: 0; } }
+.rainbow { position: absolute; z-index: 55; width: calc(var(--u) * 6.4); height: calc(var(--u) * 3.2); translate: -50% -100%;
+           border-radius: 999px 999px 0 0; overflow: hidden; pointer-events: none; animation: rbow 3.8s ease-out forwards; }
+.rainbow::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 200%; border-radius: 50%;
+                   background: radial-gradient(circle, transparent 0 46%, #b388ff 46% 52%, #4fc3f7 52% 58%, #8fce73 58% 64%, #ffd23f 64% 70%, #ff9f1c 70% 76%, #ff5a8a 76% 82%, transparent 82%); }
+@keyframes rbow { 0% { opacity: 0; scale: .6; } 18% { opacity: .88; scale: 1; } 78% { opacity: .82; scale: 1.04; } 100% { opacity: 0; scale: 1.08; } }
+.deco.turn { animation: wheel 3s cubic-bezier(.3,0,.4,1); transform-origin: 50% 50%; }
+@keyframes wheel { to { rotate: 360deg; } }
+
+/* ひだりうえ HUD（もどる・そら）と ライトアップ */
+html.park body::before, #world, .road, .plaza, .island, .lamp::before { transition: background-color .65s, box-shadow .65s, filter .65s; }
+#view::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 25; opacity: 0; transition: opacity .65s, background .65s; }
+#park-exit, #sky {
+  position: fixed; top: max(12px, var(--sat)); z-index: 45;
+  width: 54px; height: 54px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
+  font-size: 28px; line-height: 1; font-family: inherit;
+  background: #fff; box-shadow: 0 4px 0 rgba(0,0,0,.18); transition: transform .12s, background .4s, box-shadow .4s;
+}
+#park-exit { left: max(12px, var(--sal)); }
+#sky { left: calc(max(12px, var(--sal)) + 64px); }
+#park-exit::after, #sky::after { content: ''; position: absolute; inset: -10px; }
+#park-exit:active, #sky:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.18); }
+
+html.park[data-sky="eve"] #sky { background: #ffe5b4; box-shadow: 0 4px 0 rgba(140,70,20,.3), 0 0 14px rgba(255,170,70,.5); }
+html.park[data-sky="night"] #sky { background: #263554; box-shadow: 0 4px 0 rgba(0,0,0,.45), 0 0 16px rgba(255,235,140,.55); }
+html.park[data-sky="eve"] body::before { background: #7da166; }
+html.park[data-sky="eve"] #world { background-color: #9dc27d; background-image: radial-gradient(circle, #8bb06c 0 10%, transparent 11%);
+                                   box-shadow: 0 0 0 calc(var(--u) * .25) #88ad68, 0 0 0 calc(var(--u) * .5) #7b9f5d; }
+html.park[data-sky="eve"] .road { background-color: #ebc996; box-shadow: inset 0 0 0 calc(var(--u) * .07) #d4a66a; }
+html.park[data-sky="eve"] .plaza { background-color: #f0d09f; box-shadow: inset 0 0 0 calc(var(--u) * .1) #d4a66a, inset 0 0 0 calc(var(--u) * .5) #e8c084; }
+html.park[data-sky="eve"] .lamp::before { background: radial-gradient(circle at 40% 35%, #fff, #ffe066 55%, #ffaa2b);
+                                          box-shadow: 0 0 calc(var(--u) * .65) calc(var(--u) * .14) rgba(255,224,102,.65); }
+html.park[data-sky="eve"] .arch b::before { filter: drop-shadow(0 0 4px #ffe680); }
+html.park[data-sky="eve"] #view::after { opacity: 1; background: linear-gradient(180deg, rgba(255,130,67,.22), rgba(255,180,90,.06) 45%, transparent); }
+
+html.park[data-sky="night"] body::before { background: #142233; }
+html.park[data-sky="night"] #world { background-color: #1c3540; background-image: radial-gradient(circle, #254552 0 10%, transparent 11%);
+                                     box-shadow: 0 0 0 calc(var(--u) * .25) #162b36, 0 0 0 calc(var(--u) * .5) #11222c; }
+html.park[data-sky="night"] .road { background-color: #3d3b54;
+                                    background-image: linear-gradient(90deg, rgba(160,150,210,.16) 2px, transparent 2px), linear-gradient(rgba(160,150,210,.16) 2px, transparent 2px);
+                                    box-shadow: inset 0 0 0 calc(var(--u) * .07) #2f2d45; }
+html.park[data-sky="night"] .plaza { background-color: #484463; box-shadow: inset 0 0 0 calc(var(--u) * .1) #34314c, inset 0 0 0 calc(var(--u) * .5) #403c59; }
+html.park[data-sky="night"] .island { filter: brightness(.84) saturate(1.12);
+                                      box-shadow: 0 0 0 calc(var(--u) * .1) rgba(255,255,255,.82), 0 0 0 calc(var(--u) * .16) var(--bd), 0 0 calc(var(--u) * .45) rgba(255,240,170,.2); }
+html.park[data-sky="night"] .lamp::before { background: radial-gradient(circle at 40% 35%, #fff, #fff3a0 50%, #ffbe3b);
+                                            box-shadow: 0 0 calc(var(--u) * .9) calc(var(--u) * .28) rgba(255,232,120,.85), 0 0 calc(var(--u) * 2) calc(var(--u) * .48) rgba(255,200,70,.3); }
+html.park[data-sky="night"] .lamp::after { width: calc(var(--u) * 1.45); height: calc(var(--u) * .68);
+                                           background: radial-gradient(ellipse, rgba(255,235,130,.38), transparent 70%); }
+html.park[data-sky="night"] .arch b { box-shadow: inset 0 0 0 calc(var(--u) * .08) var(--bd), 0 0 calc(var(--u) * .55) rgba(255,235,140,.42); }
+html.park[data-sky="night"] .arch b::before { filter: drop-shadow(0 0 6px #fff3a0) brightness(1.25); }
+html.park[data-sky="night"] .bunting i { filter: drop-shadow(0 0 4px rgba(255,245,180,.5)); }
+html.park[data-sky="night"] .attr { box-shadow: 0 calc(var(--u) * .09) 0 var(--c2), 0 0 calc(var(--u) * .35) rgba(255,255,255,.25); }
+html.park[data-sky="night"] .fw i { box-shadow: 0 0 calc(var(--u) * .35) calc(var(--u) * .06) var(--fc), 0 0 calc(var(--u) * .12) #fff inset; }
+html.park[data-sky="night"] #view::after { opacity: 1; background: radial-gradient(circle at 50% 45%, transparent 55%, rgba(8,14,30,.34)); }
+
+/* けんばん ロード */
+.pkey { position: absolute; z-index: 3; translate: -50% -50%; border-radius: calc(var(--u) * .14); pointer-events: none;
+        background: linear-gradient(180deg, rgba(255,255,255,.42) 0 18%, transparent 19%), var(--kc);
+        box-shadow: inset 0 0 0 calc(var(--u) * .04) rgba(255,255,255,.65), 0 calc(var(--u) * .08) 0 var(--kd), 0 calc(var(--u) * .12) calc(var(--u) * .1) rgba(0,0,0,.15);
+        transition: transform .08s, filter .12s, box-shadow .12s; }
+.pkey::after { content: ''; position: absolute; left: 26%; right: 26%; bottom: 14%; height: 14%; border-radius: 999px; background: rgba(255,255,255,.45); }
+.pkey.on { transform: translateY(calc(var(--u) * .06)); filter: brightness(1.32);
+           box-shadow: inset 0 0 0 calc(var(--u) * .05) #fff, 0 calc(var(--u) * .02) 0 var(--kd), 0 0 calc(var(--u) * .45) var(--kc); }
+html.park[data-sky="night"] .pkey { box-shadow: inset 0 0 0 calc(var(--u) * .04) rgba(255,255,255,.7), 0 calc(var(--u) * .08) 0 var(--kd), 0 0 calc(var(--u) * .25) var(--kc); }
+html.park[data-sky="night"] .pkey.on { box-shadow: inset 0 0 0 calc(var(--u) * .06) #fff, 0 calc(var(--u) * .02) 0 var(--kd), 0 0 calc(var(--u) * .85) var(--kc); }
+.pnote { position: absolute; z-index: 9992; translate: -50% -50%; font-size: calc(var(--u) * .5); font-style: normal; pointer-events: none;
+         animation: pnote .95s ease-out forwards; filter: drop-shadow(0 2px 2px rgba(0,0,0,.2)); }
+html.park[data-sky="night"] .pnote { filter: drop-shadow(0 0 6px #fff3a0) drop-shadow(0 0 12px rgba(255,220,120,.75)) brightness(1.55); }
+@keyframes pnote { 0% { opacity: 0; transform: translateY(0) scale(.4); } 25% { opacity: 1; transform: translateY(calc(var(--u) * -.45)) scale(1.15); }
+                   100% { opacity: 0; transform: translateY(calc(var(--u) * -1.35)) scale(.95); } }
+
+/* えんない ミニトレイン */
+.pcar { position: absolute; width: 0; height: 0; pointer-events: none; }
+.pcar .pshad { position: absolute; left: 0; top: 0; width: calc(var(--u) * .82); height: calc(var(--u) * .24); translate: -50% -40%;
+               border-radius: 50%; background: rgba(0,0,0,.2); }
+.pcar b { position: absolute; left: 0; bottom: calc(var(--u) * .02); translate: -50% 0; font-size: calc(var(--u) * .72); line-height: 1;
+          display: block; transform-origin: 50% 85%; animation: pchug .45s ease-in-out infinite;
+          filter: drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+.pcar b span { display: block; transform: scaleX(var(--dir, 1)); }
+.pcar.c1 b { font-size: calc(var(--u) * .64); animation-delay: -.15s; filter: hue-rotate(-30deg) saturate(1.25) drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+.pcar.c2 b { font-size: calc(var(--u) * .64); animation-delay: -.3s; filter: hue-rotate(80deg) saturate(1.25) drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+/* 6へんせいの いろわけ（あか・あお・きいろ・ピンク・みどり・むらさき） */
+.pcar.tr-1 b { filter: hue-rotate(195deg) saturate(1.3) drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+.pcar.tr-2 b { filter: hue-rotate(42deg)  saturate(1.35) drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+.pcar.tr-3 b { filter: hue-rotate(310deg) saturate(1.35) drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+.pcar.tr-4 b { filter: hue-rotate(120deg) saturate(1.25) drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+.pcar.tr-5 b { filter: hue-rotate(255deg) saturate(1.35) drop-shadow(0 calc(var(--u) * .05) 0 rgba(0,0,0,.18)); }
+.pcar.toot b { animation: ptoot .55s ease-out; }
+@keyframes pchug { 50% { translate: -50% calc(var(--u) * -.06); } }
+@keyframes ptoot { 35% { translate: -50% calc(var(--u) * -.34); scale: 1.15; } 100% { translate: -50% 0; scale: 1; } }
+.pcar.loco .pbeam { position: absolute; left: 0; top: calc(var(--u) * -.3); width: calc(var(--u) * 1.45); height: calc(var(--u) * .75);
+                    translate: -100% -50%; transform-origin: 100% 50%; transform: scaleX(var(--dir, 1));
+                    background: radial-gradient(ellipse at 100% 50%, rgba(255,244,160,.75), rgba(255,232,120,.2) 55%, transparent 75%);
+                    border-radius: 50%; opacity: 0; transition: opacity .65s; pointer-events: none; }
+html.park[data-sky="eve"] .pcar.loco .pbeam { opacity: .45; }
+html.park[data-sky="night"] .pcar.loco .pbeam { opacity: .95; }
+.puff { position: absolute; z-index: 9991; translate: -50% -50%; font-size: calc(var(--u) * .45); font-style: normal; pointer-events: none;
+        animation: puff .95s ease-out forwards; }
+@keyframes puff { 0% { opacity: .95; transform: translate(0, 0) scale(.45); } 100% { opacity: 0; transform: translate(calc(var(--px) * var(--u)), calc(var(--u) * -1.15)) scale(1.25); } }
+
+html.playing #view, html.playing #sky, html.playing #park-exit, html.playing #park-warps { visibility: hidden; }
+
+/* ひだりした: さゆう ゆうえんち・おしろ ワープ */
+#park-warps { position: fixed; left: max(12px, var(--sal)); bottom: max(14px, var(--sab)); z-index: 45; gap: 10px; }
+#park-warps button { width: 56px; height: 56px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
+                     font-size: 28px; line-height: 1; font-family: inherit; background: var(--bg);
+                     box-shadow: 0 4px 0 var(--bd), 0 6px 14px rgba(0,0,0,.18); transition: transform .12s; }
+#park-warps button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--bd); }
+
+/* さゆうの おおきな ゆうえんち ゾーン */
+.pzone { position: absolute; z-index: 2; border-radius: calc(var(--u) * .9);
+         transition: background-color .65s, box-shadow .65s, filter .65s; }
+.pzone.ride-zone { background: #e6f6ff radial-gradient(circle, rgba(255,255,255,.65) 0 14%, transparent 15%) 0 0 / calc(var(--u) * 1.1) calc(var(--u) * 1.1);
+                   box-shadow: 0 0 0 calc(var(--u) * .12) #fff, 0 0 0 calc(var(--u) * .2) #65b8f5, 0 calc(var(--u) * .18) 0 calc(var(--u) * .2) rgba(0,0,0,.08); }
+.pzone.fest-zone { background: #fff3e0 radial-gradient(circle, rgba(255,255,255,.6) 0 14%, transparent 15%) 0 0 / calc(var(--u) * 1.1) calc(var(--u) * 1.1);
+                   box-shadow: 0 0 0 calc(var(--u) * .12) #fff, 0 0 0 calc(var(--u) * .2) #ff9f43, 0 calc(var(--u) * .18) 0 calc(var(--u) * .2) rgba(0,0,0,.08); }
+html.park[data-sky="night"] .pzone { filter: brightness(.82) saturate(1.12); }
+
+/* 1. でっかい メリーゴーラウンド */
+.carousel { position: absolute; width: 0; height: 0; pointer-events: none; }
+.carousel .cfloor { position: absolute; left: 0; top: 0; width: calc(var(--u) * 7.8); height: calc(var(--u) * 5.4); translate: -50% -50%;
+                    border-radius: 50%; background: radial-gradient(ellipse, #fff7d6 0 46%, #ff8fb8 48% 66%, #ffd23f 68% 76%, #4fc3f7 78%);
+                    box-shadow: 0 calc(var(--u) * .2) 0 #c95a85, 0 calc(var(--u) * .32) calc(var(--u) * .3) rgba(0,0,0,.22); }
+.carousel .chorses { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.carousel .ch { position: absolute; font-style: normal; translate: -50% -75%; }
+.carousel .ch b { display: block; font-size: calc(var(--u) * .92); line-height: 1; transform: scaleX(var(--dir, 1));
+                  animation: hbob .9s ease-in-out infinite; filter: drop-shadow(0 calc(var(--u) * .06) 0 rgba(0,0,0,.18)); }
+@keyframes hbob { 50% { translate: 0 calc(var(--u) * -.24); } }
+.carousel .ccanopy { position: absolute; left: 0; top: calc(var(--u) * -3.0); width: calc(var(--u) * 6.8); height: calc(var(--u) * 1.75);
+                     translate: -50% -50%; border-radius: calc(var(--u) * 3.4) calc(var(--u) * 3.4) calc(var(--u) * .28) calc(var(--u) * .28);
+                     background: repeating-linear-gradient(90deg, #ff5a8a 0 calc(var(--u) * .68), #fff 0 calc(var(--u) * 1.36));
+                     box-shadow: inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.1), 0 calc(var(--u) * .12) 0 #ffd23f; overflow: hidden; }
+.carousel .ccanopy::after { content: ''; position: absolute; left: 5%; right: 5%; bottom: calc(var(--u) * .14); height: calc(var(--u) * .18);
+                            background: radial-gradient(circle, #fff7a8 0 38%, transparent 44%) 0 0 / calc(var(--u) * .42) 100% repeat-x; animation: bulbs .9s steps(2) infinite; }
+html.park[data-sky="night"] .carousel .ccanopy { box-shadow: inset 0 calc(var(--u) * -.14) 0 rgba(0,0,0,.1), 0 calc(var(--u) * .12) 0 #ffd23f, 0 0 calc(var(--u) * .85) rgba(255,230,130,.6); }
+
+/* 2. でっかい 2にん シーソー */
+.seesaw { position: absolute; width: 0; height: 0; pointer-events: none; }
+.seesaw .sbase { position: absolute; left: 0; top: calc(var(--u) * .42); width: calc(var(--u) * 1.6); height: calc(var(--u) * 1.15);
+                 translate: -50% -50%; background: linear-gradient(180deg, #ff9f1c, #e06d00);
+                 clip-path: polygon(50% 0, 100% 100%, 0 100%); filter: drop-shadow(0 calc(var(--u) * .08) 0 rgba(0,0,0,.2)); }
+.seesaw .sbeam { position: absolute; left: 0; top: calc(var(--u) * -.1); width: calc(var(--u) * 7.6); height: calc(var(--u) * .42);
+                 margin-left: calc(var(--u) * -3.8); margin-top: calc(var(--u) * -.21); border-radius: 999px; transform-origin: 50% 50%;
+                 background: repeating-linear-gradient(90deg, #ff5a8a 0 calc(var(--u) * .75), #ffd23f 0 calc(var(--u) * 1.5), #4fc3f7 0 calc(var(--u) * 2.25));
+                 box-shadow: 0 calc(var(--u) * .1) 0 rgba(0,0,0,.18); }
+.seesaw .sseat { position: absolute; top: calc(var(--u) * -.44); width: calc(var(--u) * 1.15); height: calc(var(--u) * .54);
+                 border-radius: calc(var(--u) * .3) calc(var(--u) * .3) 6px 6px; background: #fff;
+                 box-shadow: inset 0 0 0 calc(var(--u) * .08) #ff5a8a, 0 calc(var(--u) * .06) 0 rgba(0,0,0,.15); }
+.seesaw .sseat.l { left: calc(var(--u) * .16); } .seesaw .sseat.r { right: calc(var(--u) * .16); box-shadow: inset 0 0 0 calc(var(--u) * .08) #4fc3f7, 0 calc(var(--u) * .06) 0 rgba(0,0,0,.15); }
+.seesaw.duo .sbeam { box-shadow: 0 calc(var(--u) * .1) 0 rgba(0,0,0,.18), 0 0 calc(var(--u) * .65) #fff3a0; }
+
+/* 3. でっかい スカイ ジェットコースター */
+.coaster { position: absolute; translate: -50% -50%; pointer-events: none; }
+.coaster svg { width: 100%; height: 100%; overflow: visible; }
+.coaster .c-shadow { fill: none; stroke: rgba(0,0,0,.14); stroke-width: 52; transform: translateY(18px); }
+.coaster .c-rail   { fill: none; stroke: #ff6b9a; stroke-width: 40; stroke-linecap: round; }
+.coaster .c-dash   { fill: none; stroke: #fff; stroke-width: 16; stroke-dasharray: 22 24; }
+html.park[data-sky="night"] .coaster .c-rail { stroke: #ff77aa; filter: drop-shadow(0 0 10px rgba(255,140,200,.75)); }
+.coaster .cplat { position: absolute; left: 50%; bottom: 1%; translate: -50% 0; width: calc(var(--u) * 2.4); height: calc(var(--u) * 1.05);
+                  border-radius: calc(var(--u) * .52); background: #fff7cc; box-shadow: 0 0 0 calc(var(--u) * .08) #ffb300, 0 calc(var(--u) * .09) 0 calc(var(--u) * .08) rgba(0,0,0,.15);
+                  display: grid; place-items: center; font-size: calc(var(--u) * .65); animation: platPulse 1.8s ease-in-out infinite; }
+@keyframes platPulse { 50% { box-shadow: 0 0 0 calc(var(--u) * .1) #ffb300, 0 0 calc(var(--u) * .5) #ffe066; } }
+.ccar { position: absolute; width: calc(var(--u) * .96); height: calc(var(--u) * .58); border-radius: calc(var(--u) * .28);
+        background: var(--cc); box-shadow: inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.45), 0 0 0 calc(var(--u) * .06) #fff, 0 calc(var(--u) * .1) calc(var(--u) * .14) rgba(0,0,0,.22);
+        pointer-events: none; }
+.ccar.head { width: calc(var(--u) * 1.12); border-radius: calc(var(--u) * .22) calc(var(--u) * .5) calc(var(--u) * .5) calc(var(--u) * .22); }
+html.park[data-sky="night"] .ccar.head { box-shadow: inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.55), 0 0 0 calc(var(--u) * .06) #fff, 0 0 calc(var(--u) * .7) #fff3a0; }
+
+/* 4. でっかい かんらんしゃ（ゴンドラ 8き・のって そらへ！） */
+.gwheel { position: absolute; width: 0; height: 0; pointer-events: none; }
+.gwheel .gw-leg { position: absolute; top: 0; width: calc(var(--u) * .34); height: calc(var(--u) * 4.55); border-radius: 99px;
+                  background: #ff7ab8; transform-origin: 50% 0; box-shadow: inset calc(var(--u) * -.06) 0 0 rgba(0,0,0,.12); }
+.gwheel .gw-leg.l { left: calc(var(--u) * -.17); rotate: 24deg; }
+.gwheel .gw-leg.r { left: calc(var(--u) * -.17); rotate: -24deg; }
+.gwheel .gw-rim { position: absolute; left: 0; top: 0; width: calc(var(--u) * 7.3); height: calc(var(--u) * 7.3);
+                  border-radius: 50%; border: calc(var(--u) * .2) solid #ffd23f; box-shadow: 0 0 0 calc(var(--u) * .08) #fff, 0 0 calc(var(--u) * .32) rgba(0,0,0,.18); }
+html.park[data-sky="night"] .gwheel .gw-rim { box-shadow: 0 0 0 calc(var(--u) * .08) #fff, 0 0 calc(var(--u) * .9) rgba(255,224,102,.8); }
+.gwheel .gw-spoke { position: absolute; left: 50%; top: 50%; width: calc(var(--u) * .09); height: 50%; background: rgba(255,255,255,.88);
+                    transform-origin: 50% 0; transform: translate(-50%, 0) rotate(var(--a)); }
+.gwheel .gw-hub { position: absolute; left: 0; top: 0; width: calc(var(--u) * .95); height: calc(var(--u) * .95); translate: -50% -50%;
+                  border-radius: 50%; background: #ff5a8a; box-shadow: 0 0 0 calc(var(--u) * .1) #fff; }
+.gwheel .gw-gate { position: absolute; left: 0; top: calc(var(--u) * 3.85); translate: -50% -50%;
+                   width: calc(var(--u) * 2.4); height: calc(var(--u) * 1.05); border-radius: calc(var(--u) * .52);
+                   background: #fff7cc; box-shadow: 0 0 0 calc(var(--u) * .08) #ffb300, 0 calc(var(--u) * .09) 0 calc(var(--u) * .08) rgba(0,0,0,.15);
+                   display: grid; place-items: center; font-size: calc(var(--u) * .65); animation: platPulse 1.8s ease-in-out infinite; }
+.gw-cab { position: absolute; width: 0; height: 0; pointer-events: none; }
+.gw-cab .gw-bar { position: absolute; left: 0; top: 0; width: calc(var(--u) * .07); height: calc(var(--u) * .32); translate: -50% 0; background: #fff; }
+.gw-cab .gw-box { position: absolute; left: 0; top: calc(var(--u) * .24); width: calc(var(--u) * 1.18); height: calc(var(--u) * .98); translate: -50% 0;
+                  border-radius: calc(var(--u) * .26) calc(var(--u) * .26) calc(var(--u) * .45) calc(var(--u) * .45);
+                  background: linear-gradient(180deg, rgba(255,255,255,.72) 0 42%, var(--pc) 43%);
+                  box-shadow: 0 0 0 calc(var(--u) * .07) #fff, 0 calc(var(--u) * .08) calc(var(--u) * .16) rgba(0,0,0,.22); }
+html.park[data-sky="night"] .gw-cab .gw-box { box-shadow: 0 0 0 calc(var(--u) * .07) #fff, 0 0 calc(var(--u) * .55) var(--pc); }
+.chr.riding .shadow { opacity: 0; }
+
+/* みぎ 1. もちもの やたい */
+.fstall { position: absolute; width: calc(var(--u) * 2.2); height: calc(var(--u) * 2.1); translate: -50% -70%; pointer-events: none; }
+.fstall .fs-floor { position: absolute; left: 4%; right: 4%; bottom: 0; height: calc(var(--u) * .65); border-radius: 50%; background: rgba(255,255,255,.75); }
+.fstall .fs-poles { position: absolute; left: 10%; right: 10%; top: calc(var(--u) * .55); height: calc(var(--u) * 1.1);
+                    border-left: calc(var(--u) * .1) solid #fff; border-right: calc(var(--u) * .1) solid #fff; }
+.fstall .fs-roof { position: absolute; left: 0; right: 0; top: 0; height: calc(var(--u) * .65); border-radius: calc(var(--u) * .55) calc(var(--u) * .55) calc(var(--u) * .1) calc(var(--u) * .1);
+                   background: repeating-linear-gradient(90deg, var(--c1) 0 calc(var(--u) * .275), #fff 0 calc(var(--u) * .55));
+                   box-shadow: 0 calc(var(--u) * .07) 0 var(--c2); }
+.fstall .fs-counter { position: absolute; left: 8%; right: 8%; bottom: calc(var(--u) * .22); height: calc(var(--u) * .58); border-radius: calc(var(--u) * .16);
+                      background: var(--c1); box-shadow: inset 0 calc(var(--u) * .1) 0 rgba(255,255,255,.4), 0 calc(var(--u) * .06) 0 var(--c2); }
+.fstall b { position: absolute; left: 50%; top: calc(var(--u) * .72); translate: -50% 0; font-size: calc(var(--u) * .85); line-height: 1;
+            filter: drop-shadow(0 3px 0 rgba(0,0,0,.15)); }
+.fstall.pop b { animation: stallPop .45s cubic-bezier(.3,1.6,.5,1); }
+@keyframes stallPop { 45% { scale: 1.38; translate: -50% -26%; } }
+
+/* みぎ 2. シャボンだま マシン */
+.bmachine { position: absolute; width: 0; height: 0; pointer-events: none; }
+.bmachine .bm-pad { position: absolute; left: 0; top: 0; width: calc(var(--u) * 3.8); height: calc(var(--u) * 2.5); translate: -50% -50%;
+                    border-radius: 50%; background: radial-gradient(ellipse, #d9f5ff, #b3e8ff 70%, transparent 72%); }
+.bmachine .bm-body { position: absolute; left: 0; top: 0; translate: -50% -65%; width: calc(var(--u) * 1.4); height: calc(var(--u) * 1.4);
+                     border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, #4fc3f7 55%, #1e88c7);
+                     box-shadow: 0 calc(var(--u) * .1) 0 #146394, 0 0 0 calc(var(--u) * .07) #fff;
+                     display: grid; place-items: center; font-size: calc(var(--u) * .8); font-style: normal; }
+.bmachine.blow .bm-body { animation: bmBlow .42s ease-out; }
+@keyframes bmBlow { 40% { scale: 1.22 .82; } 75% { scale: .92 1.12; } }
+.sbub { position: absolute; z-index: 9985; width: calc(var(--u) * var(--bs, .6)); height: calc(var(--u) * var(--bs, .6));
+        translate: -50% -50%; border-radius: 50%; pointer-events: none;
+        background: radial-gradient(circle at 30% 28%, rgba(255,255,255,.9) 0 18%, rgba(160,235,255,.35) 35%, rgba(255,170,235,.4) 78%, rgba(255,255,255,.75));
+        box-shadow: inset 0 0 calc(var(--u) * .08) rgba(255,255,255,.85), 0 0 calc(var(--u) * .12) rgba(140,220,255,.45); }
+
+/* みぎ 3. フォトスポット */
+.photospot { position: absolute; width: 0; height: 0; pointer-events: none; }
+.photospot .ph-stage { position: absolute; left: 0; top: 0; width: calc(var(--u) * 4.4); height: calc(var(--u) * 2.6); translate: -50% -50%;
+                       border-radius: calc(var(--u) * .6); background: linear-gradient(180deg, #fff5fa, #ffd6ea);
+                       box-shadow: 0 0 0 calc(var(--u) * .08) #fff, 0 0 0 calc(var(--u) * .15) #ff7ab8, 0 calc(var(--u) * .12) 0 calc(var(--u) * .15) rgba(0,0,0,.1); }
+.photospot.duo .ph-stage { box-shadow: 0 0 0 calc(var(--u) * .1) #fff, 0 0 0 calc(var(--u) * .18) #ffd23f, 0 0 calc(var(--u) * .8) #ff7ab8; }
+.photospot .ph-arch { position: absolute; left: 0; top: calc(var(--u) * -1.78); width: calc(var(--u) * 3.8); height: calc(var(--u) * .95);
+                      translate: -50% -50%; border-radius: calc(var(--u) * 1.2) calc(var(--u) * 1.2) calc(var(--u) * .2) calc(var(--u) * .2);
+                      background: linear-gradient(90deg, #ff8fb8, #ffd23f, #8fce73, #4fc3f7); box-shadow: inset 0 0 0 calc(var(--u) * .07) #fff;
+                      display: grid; place-items: center; font-style: normal; }
+.photospot .ph-arch b { font-size: calc(var(--u) * .52); letter-spacing: .12em; }
+.photospot .ph-cam { position: absolute; left: 0; top: calc(var(--u) * 1.48); width: calc(var(--u) * .95); height: calc(var(--u) * .66);
+                     translate: -50% -50%; border-radius: calc(var(--u) * .14); background: #3b465c;
+                     box-shadow: 0 calc(var(--u) * .07) 0 #232a38, 0 0 0 calc(var(--u) * .05) #fff; }
+.photospot .ph-cam b { position: absolute; left: 50%; top: 52%; width: calc(var(--u) * .38); height: calc(var(--u) * .38);
+                       translate: -50% -50%; border-radius: 50%; background: #4fc3f7; box-shadow: 0 0 0 calc(var(--u) * .06) #e6edf7; }
+.photospot .ph-cam u { position: absolute; right: 12%; top: calc(var(--u) * -.12); width: calc(var(--u) * .22); height: calc(var(--u) * .14);
+                       border-radius: 4px; background: #ffd23f; }
+.pflash { position: absolute; z-index: 9996; width: calc(var(--u) * 4.8); height: calc(var(--u) * 4.8); translate: -50% -50%;
+          border-radius: 50%; pointer-events: none; background: radial-gradient(circle, rgba(255,255,255,.95) 0 35%, rgba(255,245,180,.55) 62%, transparent 72%);
+          animation: pflash .72s ease-out forwards; }
+.pflash.duo { width: calc(var(--u) * 6.2); height: calc(var(--u) * 6.2);
+              background: radial-gradient(circle, #fff 0 35%, rgba(255,160,220,.6) 58%, rgba(120,220,255,.4) 72%, transparent 78%); }
+@keyframes pflash { 0% { opacity: 0; scale: .3; } 20% { opacity: 1; scale: 1.05; } 100% { opacity: 0; scale: 1.3; } }
+
+/* みぎ 4. スターライト ダンス ステージ */
+.dpad { position: absolute; width: calc(var(--u) * 1.18); height: calc(var(--u) * 1.18); translate: -50% -50%;
+        border-radius: calc(var(--u) * .24); pointer-events: none; display: grid; place-items: center;
+        font-size: calc(var(--u) * .5); font-style: normal; background: var(--dc); opacity: .78;
+        box-shadow: inset 0 0 0 calc(var(--u) * .05) rgba(255,255,255,.7), 0 calc(var(--u) * .08) 0 rgba(0,0,0,.18);
+        transition: transform .1s, opacity .12s, box-shadow .15s, filter .12s; }
+.dpad.on { opacity: 1; transform: scale(1.08); filter: brightness(1.3);
+           box-shadow: inset 0 0 0 calc(var(--u) * .07) #fff, 0 0 calc(var(--u) * .65) var(--dc); }
+html.park[data-sky="night"] .dpad { opacity: .88; box-shadow: inset 0 0 0 calc(var(--u) * .05) rgba(255,255,255,.75), 0 0 calc(var(--u) * .35) var(--dc); }
+html.park[data-sky="night"] .dpad.on { box-shadow: inset 0 0 0 calc(var(--u) * .07) #fff, 0 0 calc(var(--u) * 1.1) var(--dc); }

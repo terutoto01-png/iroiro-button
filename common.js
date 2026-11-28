@@ -6,7 +6,7 @@
 // ・ページを ちょくせつ ひらいた ときは、シェルの なかで ひらきなおす（index.html#/hanabi）
 const SHELL = (() => { try { return (window.parent !== window && window.parent.IroShell) || null; } catch (e) { return null; } })();
 const PAGE_NAME = (location.pathname.split('/').pop() || '').replace(/\.html$/, '');
-if (!SHELL && window.top === window && /^https?:$/.test(location.protocol) && PAGE_NAME && PAGE_NAME !== 'index') {
+if (!SHELL && window.top === window && /^https?:$/.test(location.protocol) && PAGE_NAME && PAGE_NAME !== 'index' && !window.IroShell) { // IroShell が ある = じぶんが シェル（ためしの ホームなど）
   document.documentElement.style.visibility = 'hidden';
   location.replace('index.html' + location.search + '#/' + PAGE_NAME);
 }

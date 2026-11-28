@@ -3,7 +3,7 @@
 // ・HTML は network-first、バージョン付きアセットは cache-first
 
 const CACHE_PREFIX = 'iroiro';
-const CORE_CACHE = `${CACHE_PREFIX}-core-v39`;
+const CORE_CACHE = `${CACHE_PREFIX}-core-v43`;
 const RUNTIME_CACHE = `${CACHE_PREFIX}-runtime`;
 
 // 初回インストール時に確実に持っておくアプリシェル
@@ -13,7 +13,10 @@ const CORE_ASSETS = [
   './index.html',
   './manifest.json',
   './common.css?v=23',
-  './common.js?v=20',
+  './common.js?v=21',
+  './park.css?v=4',
+  './park-toys.js?v=2',
+  './park.js?v=4',
   './multi.js?v=11',
   './game.js?v=2',
   './gpu-particles.js?v=3',

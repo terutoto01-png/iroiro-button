@@ -7,6 +7,7 @@
 <meta name="theme-color" content="#ff6b9a">
 <title>いろいろボタン</title>
 <link rel="stylesheet" href="common.css?v=23">
+<link rel="stylesheet" href="park.css?v=4">
 <style>
   /* がめん ぜんたいで スクロールする（body の なかだけで スクロールさせない） */
   html { overflow: auto; height: auto; }
@@ -47,11 +48,16 @@
   /* まだ ひらいていない ボタン: かどで ✨ が きらきら */
   .grid a.new::after { content: '✨'; position: absolute; right: -10%; top: -10%; font-size: .9em; pointer-events: none;
                        animation: twinkle 1.4s ease-in-out infinite; filter: drop-shadow(0 0 6px #fff6a8); }
-  /* たんじょうびの ひだけ いちばん うえに でる 🎂 */
-  .grid a.bday { grid-column: 1 / -1; aspect-ratio: auto; height: min(36vw, 180px); border-radius: 999px; font-size: min(12vw, 60px);
-                 --c1: #ff6fae; --c2: #c23c7a; background: radial-gradient(circle at 35% 30%, #fff8 0 8%, transparent 9%), linear-gradient(90deg, #ff6fae, #ffd23f, #4fc3f7, #9b5cff, #ff6fae);
-                 background-size: 100% 100%, 300% 100%; animation: bdayGlow 3s linear infinite, bob 2.4s ease-in-out infinite !important; }
-  @keyframes bdayGlow { to { background-position: 0 0, 300% 0; } }
+  /* いちばん うえの ゆうえんち モード ボタン 🎡 */
+  .grid button.park-go { grid-column: 1 / -1; width: 100%; aspect-ratio: auto; height: min(30vw, 150px); border-radius: 999px;
+                         margin-bottom: 12px; font-size: min(10vw, 50px); --c1: #48d684; --c2: #228e54;
+                         background: radial-gradient(circle at 28% 24%, rgba(255,255,255,.55) 0 10%, transparent 11%),
+                                     linear-gradient(100deg, #56de82, #3ec9f2 52%, #ff84be);
+                         background-size: 100% 100%, 240% 100%; animation: parkGlow 5s ease-in-out infinite alternate, bob 2.4s ease-in-out infinite !important; }
+  .grid button.park-go .park-icons { display: inline-flex; align-items: center; justify-content: center; gap: .36em; pointer-events: none; }
+  .grid button.park-go .park-icons i { font-style: normal; font-size: 1.15em; filter: drop-shadow(0 3px 0 rgba(0,0,0,.16)); }
+  .grid button.park-go .park-icons .emoji { font-size: 1.65em; }
+  @keyframes parkGlow { 0% { background-position: 0 0, 0% 50%; } 100% { background-position: 0 0, 100% 50%; } }
   @keyframes twinkle { 0%, 100% { scale: .8; rotate: -10deg; opacity: .75; } 50% { scale: 1.15; rotate: 12deg; opacity: 1; } }
 
   /* ---- いれもの（シェル）: ボタンの ページは この うえの iframe で ひらく ---- */
@@ -97,6 +103,7 @@
 </style>
 </head>
 <body data-no-back data-scroll>
+<div id="view"><div id="world"></div></div>
 <nav class="grid" id="grid"></nav>
 <div id="jump"></div>
 <div id="fade" class="hide"></div>
@@ -117,8 +124,10 @@ window.IroShell = {
   },
 };
 </script>
-<script src="common.js?v=20"></script>
+<script src="common.js?v=21"></script>
 <script src="multi.js?v=11"></script>
+<script src="park-toys.js?v=2"></script>
+<script src="park.js?v=4"></script>
 <script>
 IroShell.multi = Multi;
 // 4つめ: そのページに必要な機能（'gpu' = WebGPU, 'mic' = マイク録音）
@@ -224,34 +233,21 @@ if (!Array.isArray(seen)) { seen = PAGES.map(p => p[0]).filter(f => !NEWEST.incl
 seen = new Set(seen);
 function saveSeen() { try { localStorage.setItem('iroiro-seen', JSON.stringify([...seen])); } catch (e) {} }
 
-// ---- おたんじょうび ----
-// おとなが いちど だけ index.html#tanjoubi=4（4 は きょうで なるとし）を ひらくと、この きかいに「きょうが たんじょうび」と おぼえる。
-// ひづけは この きかいの なかだけ（# の うしろは サーバーに おくられない）。#tanjoubi-off で けす。
-// たんじょうびの ひは、その としに はじめて ひらいた とき だけ じどうで おいわいの ページへ。その ひの あいだは いちばん うえに 🎂。
-const today = new Date(), md = `${today.getMonth() + 1}-${today.getDate()}`;
-let bday = null;
-try {
-  const m = location.hash.match(/^#tanjoubi(?:=(\d+))?$/);
-  if (location.hash === '#tanjoubi-off') { localStorage.removeItem('iroiro-bday'); localStorage.removeItem('iroiro-bday-shown'); }
-  else if (m) { localStorage.setItem('iroiro-bday', JSON.stringify({ md, by: m[1] ? today.getFullYear() - +m[1] : 0 })); localStorage.removeItem('iroiro-bday-shown'); }
-  if (location.hash.startsWith('#tanjoubi')) history.replaceState(null, '', location.pathname + location.search);
-  bday = JSON.parse(localStorage.getItem('iroiro-bday') || 'null');
-} catch (e) {}
-const isBday = !!(bday && bday.md === md);
-let autoBday = false;
-// 🎂 の ページは メニューに なくても ひらける（tanjoubi.html?age=4 を ちょくせつ ひらいた とき など）
-Shell.pages.set('tanjoubi', { emoji: '🎂', c1: '#ff6fae', c2: '#c23c7a', el: null });
-if (isBday) {
-  let shown = null; try { shown = localStorage.getItem('iroiro-bday-shown'); } catch (e) {}
-  if (shown !== String(today.getFullYear())) autoBday = true; // メニューを つくってから ひらく
-  const a = document.createElement('a');
-  a.href = 'tanjoubi.html'; a.className = 'big-btn bday';
-  a.innerHTML = '<span class="emoji">🎂</span>';
-  a.addEventListener('pointerdown', () => { Sfx.pop(); Shell.look('tanjoubi'); });
-  onTap(a, () => { saveScroll(); Shell.open('tanjoubi', { announce: true }); });
-  grid.appendChild(a);
-  Shell.pages.get('tanjoubi').el = a;
-}
+// 🎂 の ページは メニューに なくても ひらける
+Shell.pages.set('tanjoubi', { emoji: '🎂', c1: '#ff6fae', c2: '#c23c7a', el: null, pel: null });
+
+// いちばん うえ: ゆうえんち モードへ うつる ボタン
+const parkBtn = document.createElement('button');
+parkBtn.type = 'button';
+parkBtn.className = 'big-btn park-go';
+parkBtn.setAttribute('aria-label', 'ゆうえんち');
+parkBtn.innerHTML = '<span class="park-icons"><i>🚂</i><span class="emoji">🎡</span><i>🏰</i></span>';
+parkBtn.addEventListener('pointerdown', () => Sfx.pop());
+onTap(parkBtn, () => {
+  try { Sfx.tone(523, 0.14, 'triangle', 0.2, 0, 784); Sfx.tone(784, 0.2, 'sine', 0.16, 0.12, 1047); } catch (e) {}
+  setMode('park');
+});
+grid.appendChild(parkBtn);
 
 // うごかないと わかっているボタンは ださない。なかま ごとに みだしを つけて ならべる
 const byFile = Object.fromEntries(PAGES.map(p => [p[0], p]));
@@ -265,10 +261,13 @@ GROUPS.forEach((g, gi) => {
   h.className = 'sec-h'; h.style.setProperty('--bg', g.bg); h.style.setProperty('--bd', g.bd);
   h.innerHTML = `<b>${g.e}</b><i></i>`;
   grid.appendChild(h); heads.push(h);
-  if (gi === 0) adminHold(h);
   const j = document.createElement('button');
-  j.textContent = g.e; j.style.setProperty('--bg', g.bg); j.style.setProperty('--bd', g.bd);
-  onTap(j, () => { Sfx.pop(); glideTo(h.getBoundingClientRect().top + scrollY - 16); });
+  j.textContent = g.e; j.dataset.gi = gi; j.style.setProperty('--bg', g.bg); j.style.setProperty('--bd', g.bd);
+  onTap(j, () => {
+    Sfx.pop();
+    if (isPark()) Park.warp(gi);
+    else glideTo(h.getBoundingClientRect().top + scrollY - 16);
+  });
   jump.appendChild(j);
   for (const [file, emoji, c1, c2] of list) {
     const a = document.createElement('a');
@@ -280,11 +279,12 @@ GROUPS.forEach((g, gi) => {
     onTap(a, () => { saveScroll(); Shell.open(file, { announce: true }); });
     if (!seen.has(file)) a.classList.add('new');
     grid.appendChild(a);
-    Shell.pages.set(file, { emoji, c1, c2, el: a });
+    Shell.pages.set(file, { emoji, c1, c2, el: a, pel: null });
   }
 });
 // いま みている なかまの ジャンプ ボタンを すこし おおきく
 function markJump() {
+  if (isPark()) return;
   let cur = 0;
   heads.forEach((h, i) => { if (h.getBoundingClientRect().top < innerHeight * 0.4) cur = i; });
   [...jump.children].forEach((b, i) => b.classList.toggle('on', i === cur));
@@ -298,37 +298,55 @@ try {
   if (y > 0) scrollTo(0, y);
 } catch (e) {}
 updateMore();
-Shell.markSeen = (file) => { if (!seen.has(file)) { seen.add(file); saveSeen(); } const p = Shell.pages.get(file); if (p && p.el) p.el.classList.remove('new'); };
+Shell.markSeen = (file) => {
+  if (!seen.has(file)) { seen.add(file); saveSeen(); }
+  const p = Shell.pages.get(file);
+  if (p) { if (p.el) p.el.classList.remove('new'); if (p.pel) p.pel.classList.remove('new'); }
+};
+// ゆうえんち モード の じゅんび
+Park.init({ can, seen, groups: GROUPS, byFile, Shell, Multi, Sfx, onTap, onExit: () => setMode('grid') });
+const qsMode = new URLSearchParams(location.search).get('mode');
+let initMode = 'grid';
+try { initMode = qsMode === 'park' || qsMode === 'grid' ? qsMode : (localStorage.getItem('iroiro-mode') === 'park' ? 'park' : 'grid'); } catch (e) {}
+if (initMode === 'park') setMode('park', { save: !!qsMode });
 // ページを ちょくせつ ひらいて きた とき（hanabi.html → index.html#/hanabi）は そのページを ひらく
 const start = (location.hash.match(/^#\/([a-z]+)$/) || [])[1];
 history.replaceState({ p: '' }, '', location.pathname + location.search);
-Shell.ready(autoBday ? 'tanjoubi' : (start && Shell.pages.has(start) ? start : ''));
+Shell.ready(start && Shell.pages.has(start) ? start : '');
 })();
+
+// ---- ホームの モード きりかえ（ふつう / ゆうえんち） ----
+const isPark = () => document.documentElement.classList.contains('park');
+function setMode(mode, { save = true } = {}) {
+  const toPark = mode === 'park';
+  if (toPark === isPark()) return;
+  if (toPark) {
+    saveScroll();
+    document.documentElement.classList.add('park');
+    Park.activate();
+  } else {
+    Park.deactivate();
+    document.documentElement.classList.remove('park');
+    try { const y = parseFloat(sessionStorage.getItem('menu-scroll')); scrollTo(0, y > 0 ? y : 0); } catch (e) {}
+    updateMore();
+    markJumpNow();
+  }
+  Shell.refreshPresence();
+  if (save) try { localStorage.setItem('iroiro-mode', toPark ? 'park' : 'grid'); } catch (e) {}
+}
+window.setHomeMode = setMode;
+function markJumpNow() {
+  const hs = [...document.querySelectorAll('#grid .sec-h')];
+  let cur = 0;
+  hs.forEach((h, i) => { if (h.getBoundingClientRect().top < innerHeight * 0.4) cur = i; });
+  [...jump.children].forEach((b, i) => b.classList.toggle('on', i === cur));
+  Shell.sec(cur);
+}
 
 // ---- スクロールした いちを おぼえておく（このタブの あいだだけ） ----
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-// おとな むけ: さいしょの みだしを 4びょう おしつづけると、きょうを たんじょうびに する（ホームがめんの アプリでは # の リンクが つかえないため）
-function adminHold(el) {
-  let tm = null;
-  const stop = () => { clearTimeout(tm); tm = null; };
-  el.addEventListener('pointerdown', () => {
-    stop();
-    tm = setTimeout(() => {
-      tm = null;
-      const v = prompt('きょう なる とし（すうじ）。0 で けす', '4');
-      if (v === null) return;
-      try {
-        const n = parseInt(v, 10), d = new Date();
-        if (!n) { localStorage.removeItem('iroiro-bday'); localStorage.removeItem('iroiro-bday-shown'); }
-        else { localStorage.setItem('iroiro-bday', JSON.stringify({ md: `${d.getMonth() + 1}-${d.getDate()}`, by: d.getFullYear() - n })); localStorage.removeItem('iroiro-bday-shown'); }
-      } catch (e) {}
-      location.reload();
-    }, 4000);
-  });
-  for (const t of ['pointerup', 'pointercancel', 'pointerleave']) el.addEventListener(t, stop);
-  addEventListener('scroll', stop, { passive: true });
-}
 function saveScroll() {
+  if (isPark()) return;
   try { sessionStorage.setItem('menu-scroll', String(Math.round(scrollY))); } catch (e) {}
 }
 let saveTimer = 0;
@@ -338,6 +356,7 @@ addEventListener('pagehide', saveScroll);
 // ---- したに まだ ボタンが あるときは ⬇️、いちばん したでは ⬆️ ----
 const more = document.getElementById('more'), fade = document.getElementById('fade');
 function updateMore() {
+  if (isPark()) return;
   const se = document.scrollingElement;
   const canScroll = se.scrollHeight > innerHeight + 10;
   const atBottom = scrollY + innerHeight >= se.scrollHeight - 20;
@@ -477,6 +496,7 @@ const Shell = (() => {
     Multi.setHere(p, announce, seed);
     if (p) {
       if (Shell.markSeen) Shell.markSeen(p);
+      if (window.Park) Park.onEntered(p);
       // まえの ページは おわらせて、メニューの うえで あたらしい ページを よみこむ
       closeFrame();
       document.documentElement.classList.remove('playing');
@@ -550,14 +570,16 @@ const Shell = (() => {
   function renderPresence() {
     document.querySelectorAll('.peer-badge, .peer-sec').forEach(e => e.remove());
     const jumpBtns = [...document.getElementById('jump').children];
+    const park = isPark();
     for (const m of others) {
       if (m.p) {
         // ボタンの なかに いる なかま → その ボタンに どうぶつ
         const pg = pages.get(m.p);
-        if (!pg || !pg.el) continue;
+        const target = pg && (park ? pg.pel : pg.el);
+        if (!target) continue;
         const s = document.createElement('span');
         s.className = 'peer-badge'; s.textContent = safeAv(m.av); s.style.setProperty('--c', `hsl(${m.hu ?? 200}, 95%, 65%)`);
-        pg.el.appendChild(s);
+        target.appendChild(s);
       } else if (m.p === '' && secOf.has(m.id) && jumpBtns[secOf.get(m.id)]) {
         // メニューに いる なかま → いま みている みだしの ジャンプボタンの よこに
         const s = document.createElement('span');
@@ -569,16 +591,20 @@ const Shell = (() => {
   function onMembers(list) {
     const before = new Set(others.map(m => m.id));
     others = list;
+    if (window.Park) Park.onMembers(list);
     for (const id of [...secOf.keys()]) if (!list.some(m => m.id === id && m.p === '')) secOf.delete(id);
     renderPresence();
     // あたらしく きた なかまにも、じぶんが どこを みているか おしえる
     if (here === '' && mySec >= 0 && list.some(m => !before.has(m.id))) Multi.send({ a: 'sec', i: mySec }, 0);
   }
   function onMenuAct(msg) {
+    if (msg.a === 'g') { if (window.Park) Park.onAct(msg); return; }
     if (msg.a === 'sec' && typeof msg.i === 'number') { secOf.set(msg.from, msg.i); renderPresence(); }
-    else if (msg.a === 'look' && msg.p && pages.has(msg.p) && pages.get(msg.p).el && here === '') {
+    else if (msg.a === 'look' && msg.p && pages.has(msg.p) && here === '') {
       // なかまが ボタンに ゆびを おいた → その ボタンに どうぶつが ぴょこっと
-      const r = pages.get(msg.p).el.getBoundingClientRect();
+      const pg = pages.get(msg.p), el = isPark() ? pg.pel : pg.el;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
       if (r.bottom < 0 || r.top > innerHeight) return;
       const e = document.createElement('div');
       e.className = 'peer-look'; e.textContent = safeAv(msg.av);
@@ -611,6 +637,8 @@ const Shell = (() => {
       if (startPage) show(startPage, { query: location.search });
       if (queued) { const [p, m] = queued; queued = null; onGo(p, m); }
     },
+    members: () => others,
+    refreshPresence: renderPresence,
     markSeen: null,
   };
 })();
